@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v3.46.1 (2026-02-23)
+
+### Bug Fixes
+
+- **player**: Validate discriminator when matching player from search results
+  ([`1939c9a`](https://github.com/danielsogl/overfast-api/commit/1939c9ac902e34044f87e2743a58417397a32f08))
+
+### Chores
+
+- Update overfast-api version to 3.45.0 in uv.lock
+  ([`ff9d477`](https://github.com/danielsogl/overfast-api/commit/ff9d477d1a7e7da23321d5b486b45883cdd94a3d))
+
+
 ## v3.46.0 (2026-02-23)
 
 ### Features
