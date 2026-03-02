@@ -2,15 +2,22 @@
 
 <!-- version list -->
 
-## v3.46.0 (2026-02-23)
+## v3.46.0 (2026-02-25)
 
 ### Features
 
-- **deploy**: Zero-downtime deployment with rolling restart
-  ([`ac40ca8`](https://github.com/danielsogl/overfast-api/commit/ac40ca805c9139e81fd15250c740345d40f9d464))
+- **storage**: Replace SQLite with PostgreSQL
+  ([#386](https://github.com/TeKrop/overfast-api/pull/386),
+  [`3668f63`](https://github.com/TeKrop/overfast-api/commit/3668f633ed012a1a346c96b3bdd21717beb79e2c))
 
-- **sync**: Notify overwatch_app to sync API models after successful deployment
-  ([`3a6809f`](https://github.com/danielsogl/overfast-api/commit/3a6809f13bc6a219153cb5481dc6a31f966db169))
+
+## v3.45.1 (2026-02-23)
+
+### Bug Fixes
+
+- **player**: Validate discriminator when matching player from search results
+  ([#385](https://github.com/TeKrop/overfast-api/pull/385),
+  [`1315ec5`](https://github.com/TeKrop/overfast-api/commit/1315ec5c53669f822bcdbb46516248455be621ee))
 
 
 ## v3.45.0 (2026-02-23)
