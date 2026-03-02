@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v3.47.0 (2026-03-02)
+
+### Bug Fixes
+
+- **deploy**: Add postgres startup step and pin to postgres:17-alpine
+  ([`d305d7f`](https://github.com/danielsogl/overfast-api/commit/d305d7f6ba5b8e46d19cbbff82ea89ddf1ad1937))
+
+### Features
+
+- **storage**: Replace SQLite with PostgreSQL
+  ([#386](https://github.com/danielsogl/overfast-api/pull/386),
+  [`3668f63`](https://github.com/danielsogl/overfast-api/commit/3668f633ed012a1a346c96b3bdd21717beb79e2c))
+
+
 ## v3.46.0 (2026-02-25)
 
 ### Features
