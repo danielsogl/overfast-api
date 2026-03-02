@@ -1,8 +1,8 @@
 #!/bin/bash
 # Zero-downtime deploy script for OverFast API
 # Called by /opt/deploy-overfast.sh after git reset and .env sync.
-# Strategy: keep nginx up throughout; rolling-restart app+worker only.
-# Nginx is only recreated when its image actually changed.
+# Strategy: keep nginx up throughout; rolling-restart postgres+app+worker.
+# Postgres is started first (idempotent); nginx only recreated if image changed.
 set -euo pipefail
 
 LOG_FILE="/var/log/overfast-deploy.log"
@@ -51,14 +51,21 @@ log "Building Docker images..."
 docker compose build 2>&1 | tee -a "$LOG_FILE"
 log "Build complete."
 
-# ── Step 3: Rolling restart — app + worker only, nginx untouched ──────────────
+# ── Step 3: Ensure postgres is running and healthy ───────────────────────────
+# Postgres must be up before app/worker can start (depends_on: service_healthy).
+# docker compose up --no-deps is idempotent: already-running containers stay up.
+log "Ensuring postgres is running..."
+docker compose up -d --no-deps postgres 2>&1 | tee -a "$LOG_FILE"
+wait_healthy postgres 120
+
+# ── Step 4: Rolling restart — app + worker only, nginx untouched ──────────────
 log "Rolling restart: app + worker (nginx stays up)..."
 docker compose up -d --no-deps app worker 2>&1 | tee -a "$LOG_FILE"
 
-# ── Step 4: Wait for app to be healthy ────────────────────────────────────────
+# ── Step 5: Wait for app to be healthy ────────────────────────────────────────
 wait_healthy app 90
 
-# ── Step 5: Decide how to handle nginx ───────────────────────────────────────
+# ── Step 6: Decide how to handle nginx ───────────────────────────────────────
 # Compare the image the running nginx container was launched from against
 # the image that docker compose build just produced.
 NGINX_IMAGE_AFTER=$(docker compose images nginx --format json 2>/dev/null \
@@ -83,7 +90,7 @@ else
     docker compose exec -T nginx nginx -s reload 2>&1 | tee -a "$LOG_FILE"
 fi
 
-# ── Step 6: Final health assertion ────────────────────────────────────────────
+# ── Step 7: Final health assertion ────────────────────────────────────────────
 log "Verifying all containers are healthy..."
 sleep 5
 if docker compose ps | grep -E "unhealthy|Exit [^0]"; then
