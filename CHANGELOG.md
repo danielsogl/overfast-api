@@ -2,18 +2,47 @@
 
 <!-- version list -->
 
-## v3.47.0 (2026-03-02)
-
-### Bug Fixes
-
-- **deploy**: Add postgres startup step and pin to postgres:17-alpine
-  ([`d305d7f`](https://github.com/danielsogl/overfast-api/commit/d305d7f6ba5b8e46d19cbbff82ea89ddf1ad1937))
+## v4.0.0 (2026-03-10)
 
 ### Features
 
-- **storage**: Replace SQLite with PostgreSQL
-  ([#386](https://github.com/danielsogl/overfast-api/pull/386),
-  [`3668f63`](https://github.com/danielsogl/overfast-api/commit/3668f633ed012a1a346c96b3bdd21717beb79e2c))
+- Polishing project for v4.0.0 ([#391](https://github.com/TeKrop/overfast-api/pull/391),
+  [`d237f2e`](https://github.com/TeKrop/overfast-api/commit/d237f2edf51d896808b9be18f44b7422e162c65c))
+
+
+## v3.48.2 (2026-03-10)
+
+### Bug Fixes
+
+- Fixed issue inducing tests being slow ([#390](https://github.com/TeKrop/overfast-api/pull/390),
+  [`19e5eea`](https://github.com/TeKrop/overfast-api/commit/19e5eea0e9a0fa35a03737af74d85d34d8ab20dd))
+
+
+## v3.48.1 (2026-03-10)
+
+### Bug Fixes
+
+- **players**: Fixed edge case in refresh process
+  ([#389](https://github.com/TeKrop/overfast-api/pull/389),
+  [`3084134`](https://github.com/TeKrop/overfast-api/commit/308413421749405845efaed5d111e9ede2cb314e))
+
+
+## v3.48.0 (2026-03-09)
+
+### Features
+
+- **grafana**: Improved dashboards accuracy
+  ([#388](https://github.com/TeKrop/overfast-api/pull/388),
+  [`1ed0915`](https://github.com/TeKrop/overfast-api/commit/1ed0915f9355236c3e74379722a5bf82b0bee9b6))
+
+
+## v3.47.0 (2026-03-09)
+
+### Features
+
+- Phase 5 - Introduced Blizzard API calls throttling system
+  ([#387](https://github.com/TeKrop/overfast-api/pull/387),
+  [`22a31f7`](https://github.com/TeKrop/overfast-api/commit/22a31f72cf022b5ff883bcd09a23a88002e3d27d))
 
 
 ## v3.46.0 (2026-02-25)
