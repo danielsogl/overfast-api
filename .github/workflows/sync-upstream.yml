@@ -353,10 +353,18 @@ jobs:
       - name: Notify overwatch_app to sync API models
         if: success()
         run: |
-          curl -sf -X POST \
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.APP_REPO_PAT }}" \
             https://api.github.com/repos/smart-app-solutions/overwatch_app/dispatches \
-            -d '{"event_type":"api-updated"}'
+            -d '{"event_type":"api-updated"}')
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -1)
+          echo "HTTP status: $HTTP_CODE"
+          echo "Response: $BODY"
+          if [ "$HTTP_CODE" != "204" ]; then
+            echo "Error: Expected 204, got $HTTP_CODE"
+            exit 1
+          fi
           echo "Dispatched api-updated event to overwatch_app"
 
