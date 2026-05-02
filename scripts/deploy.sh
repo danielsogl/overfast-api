@@ -1,8 +1,11 @@
 #!/bin/bash
-# Zero-downtime deploy script for OverFast API
+# Zero-downtime deploy script for OverFast API.
 # Called by /opt/deploy-overfast.sh after git reset and .env sync.
-# Strategy: keep nginx up throughout; rolling-restart postgres+app+worker.
-# Postgres is started first (idempotent); nginx only recreated if image changed.
+#
+# Order:
+#   build (--pull) → postgres up → valkey up → app+worker+scheduler up
+#   → nginx (reload-or-recreate). Nginx never goes through a hard
+#   restart unless its image changed.
 set -euo pipefail
 
 LOG_FILE="/var/log/overfast-deploy.log"
@@ -35,39 +38,65 @@ wait_healthy() {
     return 1
 }
 
-# ── Step 1: Capture the currently running nginx image ID (before build) ──────
-log "Capturing current nginx image ID..."
-NGINX_CONTAINER_ID=$(docker compose ps -q nginx 2>/dev/null | head -1 || true)
-if [ -n "$NGINX_CONTAINER_ID" ]; then
-    NGINX_IMAGE_BEFORE=$(docker inspect "$NGINX_CONTAINER_ID" --format '{{.Image}}' 2>/dev/null || echo "")
-    log "  Current nginx image: ${NGINX_IMAGE_BEFORE:-<none>}"
-else
-    NGINX_IMAGE_BEFORE=""
-    log "  nginx container not running yet."
-fi
+# Capture the image ID a service's running container was launched from.
+# Used to detect whether `docker compose build` produced a new image
+# that the running container is not yet using. Empty string if the
+# service is not running.
+running_image_id() {
+    local service=$1 cid
+    cid=$(docker compose ps -q "$service" 2>/dev/null | head -1 || true)
+    [ -z "$cid" ] && return 0
+    docker inspect "$cid" --format '{{.Image}}' 2>/dev/null || true
+}
 
-# ── Step 2: Build all images (stack stays live during build) ──────────────────
-log "Building Docker images..."
-docker compose build 2>&1 | tee -a "$LOG_FILE"
+# ── Step 1: Snapshot running image IDs before we rebuild ─────────────────────
+log "Capturing current image IDs..."
+NGINX_IMAGE_BEFORE=$(running_image_id nginx)
+VALKEY_IMAGE_BEFORE=$(running_image_id valkey)
+log "  nginx  : ${NGINX_IMAGE_BEFORE:-<none>}"
+log "  valkey : ${VALKEY_IMAGE_BEFORE:-<none>}"
+
+# ── Step 2: Build all images, pulling fresh base layers ──────────────────────
+# --pull: re-fetch FROM bases (postgres:17-alpine, valkey/valkey:9-alpine,
+# python, openresty, ...). Without it we silently skip security/feature
+# updates whenever the registry tag is unchanged but its content moved.
+log "Building Docker images (--pull)..."
+docker compose build --pull 2>&1 | tee -a "$LOG_FILE"
 log "Build complete."
 
 # ── Step 3: Ensure postgres is running and healthy ───────────────────────────
-# Postgres must be up before app/worker can start (depends_on: service_healthy).
-# docker compose up --no-deps is idempotent: already-running containers stay up.
+# `docker compose up -d --no-deps` is idempotent: only recreates the
+# container when image or config changed.
 log "Ensuring postgres is running..."
 docker compose up -d --no-deps postgres 2>&1 | tee -a "$LOG_FILE"
 wait_healthy postgres 120
 
-# ── Step 4: Rolling restart — app + worker only, nginx untouched ──────────────
-log "Rolling restart: app + worker (nginx stays up)..."
-docker compose up -d --no-deps app worker 2>&1 | tee -a "$LOG_FILE"
+# ── Step 4: Recreate valkey if its image changed ─────────────────────────────
+# valkey is a dependency of app/worker/scheduler — must be on the new
+# image before they restart, otherwise app keeps talking to the old
+# valkey while a new one is built but never started.
+log "Reconciling valkey container with built image..."
+docker compose up -d --no-deps valkey 2>&1 | tee -a "$LOG_FILE"
+VALKEY_IMAGE_AFTER=$(running_image_id valkey)
+if [ "$VALKEY_IMAGE_BEFORE" != "$VALKEY_IMAGE_AFTER" ]; then
+    log "  valkey image changed: ${VALKEY_IMAGE_BEFORE:-<none>} -> $VALKEY_IMAGE_AFTER"
+fi
+wait_healthy valkey 60
 
-# ── Step 5: Wait for app to be healthy ────────────────────────────────────────
+# ── Step 5: Rolling restart — app + worker + scheduler ───────────────────────
+# scheduler runs taskiq cron tasks (e.g. check_new_hero). Must be in the
+# rolling restart or it stays missing entirely after a fresh deploy.
+log "Rolling restart: app + worker + scheduler (nginx stays up)..."
+docker compose up -d --no-deps app worker scheduler 2>&1 | tee -a "$LOG_FILE"
+
+# ── Step 6: Wait for app + scheduler to be healthy ───────────────────────────
 wait_healthy app 90
+wait_healthy scheduler 60
 
-# ── Step 6: Decide how to handle nginx ───────────────────────────────────────
-# Compare the image the running nginx container was launched from against
-# the image that docker compose build just produced.
+# ── Step 7: Decide how to handle nginx ───────────────────────────────────────
+# Image-change detection: when the build produced a new nginx image we
+# recreate the container (sub-second gap). When unchanged we send the
+# nginx process a SIGHUP for a true zero-downtime config reload.
 NGINX_IMAGE_AFTER=$(docker compose images nginx --format json 2>/dev/null \
     | python3 -c "import sys,json; imgs=json.load(sys.stdin); print(imgs[0]['ID'] if imgs else '')" 2>/dev/null \
     || docker images "${COMPOSE_PROJECT}-nginx" --format '{{.ID}}' | head -1 \
@@ -76,21 +105,18 @@ NGINX_IMAGE_AFTER=$(docker compose images nginx --format json 2>/dev/null \
 log "  Nginx image before: ${NGINX_IMAGE_BEFORE:-<none>}"
 log "  Nginx image after : ${NGINX_IMAGE_AFTER:-<none>}"
 
-if [ -z "$NGINX_CONTAINER_ID" ]; then
-    # nginx was not running at all — bring it up fresh
+if [ -z "$NGINX_IMAGE_BEFORE" ]; then
     log "nginx was not running. Starting nginx..."
     docker compose up -d --no-deps nginx 2>&1 | tee -a "$LOG_FILE"
 elif [ -n "$NGINX_IMAGE_AFTER" ] && [ "$NGINX_IMAGE_BEFORE" != "$NGINX_IMAGE_AFTER" ]; then
-    # Image changed — recreate container (sub-second gap)
     log "nginx image changed. Recreating nginx container..."
     docker compose up -d --no-deps nginx 2>&1 | tee -a "$LOG_FILE"
 else
-    # Image unchanged — graceful in-place config reload (zero-downtime)
     log "nginx image unchanged. Reloading nginx config in-place..."
     docker compose exec -T nginx nginx -s reload 2>&1 | tee -a "$LOG_FILE"
 fi
 
-# ── Step 7: Final health assertion ────────────────────────────────────────────
+# ── Step 8: Final health assertion ───────────────────────────────────────────
 log "Verifying all containers are healthy..."
 sleep 5
 if docker compose ps | grep -E "unhealthy|Exit [^0]"; then
