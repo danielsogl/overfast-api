@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v4.5.5 (2026-05-02)
+
+### Bug Fixes
+
+- **deploy**: Nginx image-change detection used the wrong source
+  ([`3fbf17e`](https://github.com/danielsogl/overfast-api/commit/3fbf17ef3d6b5b310b4fb83c94500a306191d7ea))
+
+
 ## v4.5.4 (2026-05-02)
 
 ### Bug Fixes
