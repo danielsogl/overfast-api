@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v4.5.2 (2026-05-02)
+
+### Bug Fixes
+
+- **security**: Bind nginx and worker ports to loopback only
+  ([`de9b8f6`](https://github.com/danielsogl/overfast-api/commit/de9b8f6e8cecbd0e2c32ec16e5e133deb16a7076))
+
+
 ## v4.5.1 (2026-05-02)
 
 ### Bug Fixes
