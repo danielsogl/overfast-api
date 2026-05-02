@@ -25,7 +25,8 @@ services:
     command: /code/.venv/bin/taskiq worker app.adapters.tasks.worker:broker --workers 1
     env_file: ${APP_VOLUME_PATH:-.}/.env
     ports:
-      - "${PROMETHEUS_WORKER_PORT:-9091}:9091"
+      # Bind to loopback only — Caddy on the host fronts the public side.
+      - "127.0.0.1:${PROMETHEUS_WORKER_PORT:-9091}:9091"
     volumes:
       - ${APP_VOLUME_PATH:-/tmp}/worker-logs:/code/logs
     depends_on:
@@ -97,8 +98,9 @@ services:
     build:
       context: ./build/nginx
     ports:
-      - "${APP_PORT}:80"
-      - "${PROMETHEUS_NGINX_PORT:-9145}:9145"
+      # Bind to loopback only — Caddy on the host fronts the public side.
+      - "127.0.0.1:${APP_PORT}:80"
+      - "127.0.0.1:${PROMETHEUS_NGINX_PORT:-9145}:9145"
     entrypoint: ["/entrypoint.sh"]
     env_file: ${APP_VOLUME_PATH:-.}/.env
     volumes:
