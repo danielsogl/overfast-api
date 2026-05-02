@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v4.5.1 (2026-05-02)
+
+### Bug Fixes
+
+- **security,deploy**: Bind ports to loopback, clean orphan containers
+  ([`e8961df`](https://github.com/danielsogl/overfast-api/commit/e8961dfe6194253d3fd999236ede80a6ecb18cb7))
+
+
 ## v4.5.0 (2026-05-02)
 
 ### Bug Fixes
