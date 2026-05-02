@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v4.5.4 (2026-05-02)
+
+### Bug Fixes
+
+- **deploy**: Zero-downtime app rolling restart
+  ([`89a8255`](https://github.com/danielsogl/overfast-api/commit/89a82556f2b1c03a8f7f0bf72ee6908ac97e29d0))
+
+
 ## v4.5.3 (2026-05-02)
 
 ### Bug Fixes
