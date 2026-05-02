@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v4.5.0 (2026-05-02)
+
+### Bug Fixes
+
+- **deploy**: Start scheduler, recreate valkey, pull fresh base images
+  ([`f76cb19`](https://github.com/danielsogl/overfast-api/commit/f76cb192750fc86d7c2843969c946ef4ed783980))
+
+
 ## v4.4.0 (2026-05-01)
 
 ### Features
