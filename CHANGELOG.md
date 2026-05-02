@@ -2,17 +2,34 @@
 
 <!-- version list -->
 
-## v4.3.0 (2026-05-02)
+## v4.4.0 (2026-05-01)
+
+### Features
+
+- Updated Valkey from v8 to v9 ([#411](https://github.com/TeKrop/overfast-api/pull/411),
+  [`6089dd0`](https://github.com/TeKrop/overfast-api/commit/6089dd0c39a0e9815e34de853c288c8bc85ef4c6))
+
+
+## v4.3.0 (2026-05-01)
+
+### Build System
+
+- Added just/make startup checks in CI ([#409](https://github.com/TeKrop/overfast-api/pull/409),
+  [`748152a`](https://github.com/TeKrop/overfast-api/commit/748152a625fcb989aa46fc5754b682184bbacb0d))
+
+### Features
+
+- Updated images and app dependencies, fixed background refresh issue
+  ([#410](https://github.com/TeKrop/overfast-api/pull/410),
+  [`20db6b2`](https://github.com/TeKrop/overfast-api/commit/20db6b20171c3054fe3625b5840b9d64b11531e1))
+
+
+## v4.2.1 (2026-04-30)
 
 ### Bug Fixes
 
-- **ci**: Drop --tags from upstream fetch
-  ([`e787094`](https://github.com/danielsogl/overfast-api/commit/e78709460d6d977484b5809f2a5e274fa67c9877))
-
-### Chores
-
-- **ci**: Harden upstream sync and deploy pipeline
-  ([`411ad55`](https://github.com/danielsogl/overfast-api/commit/411ad55d126cbe41647d4011b2f5d764036ccbac))
+- Update Postgres mount ([#408](https://github.com/TeKrop/overfast-api/pull/408),
+  [`cd57389`](https://github.com/TeKrop/overfast-api/commit/cd57389b13e4100097c78c18ee48d117f07eee0e))
 
 
 ## v4.2.0 (2026-04-26)
