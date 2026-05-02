@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v4.3.0 (2026-05-02)
+
+### Bug Fixes
+
+- **ci**: Drop --tags from upstream fetch
+  ([`e787094`](https://github.com/danielsogl/overfast-api/commit/e78709460d6d977484b5809f2a5e274fa67c9877))
+
+### Chores
+
+- **ci**: Harden upstream sync and deploy pipeline
+  ([`411ad55`](https://github.com/danielsogl/overfast-api/commit/411ad55d126cbe41647d4011b2f5d764036ccbac))
+
+
 ## v4.2.0 (2026-04-26)
 
 ### Build System
