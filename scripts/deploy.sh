@@ -162,13 +162,13 @@ wait_healthy app 90
 wait_healthy scheduler 60
 
 # ── Step 7: Decide how to handle nginx ───────────────────────────────────────
-# Image-change detection: when the build produced a new nginx image we
-# recreate the container (sub-second gap). When unchanged we send the
-# nginx process a SIGHUP for a true zero-downtime config reload.
-NGINX_IMAGE_AFTER=$(docker compose images nginx --format json 2>/dev/null \
-    | python3 -c "import sys,json; imgs=json.load(sys.stdin); print(imgs[0]['ID'] if imgs else '')" 2>/dev/null \
-    || docker images "${COMPOSE_PROJECT}-nginx" --format '{{.ID}}' | head -1 \
-    || true)
+# Image-change detection: compare the image that the running nginx
+# container was launched from (NGINX_IMAGE_BEFORE) against the latest
+# tagged 'overfast-api-nginx:latest' (which is what compose build just
+# produced). 'docker compose images nginx' returns the running
+# container's image, so we use 'docker image inspect' on the tag for
+# the freshly built one.
+NGINX_IMAGE_AFTER=$(docker image inspect overfast-api-nginx --format '{{.Id}}' 2>/dev/null || true)
 
 log "  Nginx image before: ${NGINX_IMAGE_BEFORE:-<none>}"
 log "  Nginx image after : ${NGINX_IMAGE_AFTER:-<none>}"
