@@ -1,21 +1,26 @@
 name: "Release & Deploy"
 
+# Triggered by human pushes to main (e.g. PR merges) — runs semantic-release,
+# smoke tests, and then deploys to the VPS. Bot-pushed merge commits from
+# sync-upstream are skipped here; sync-upstream owns its own deploy step.
+
 on:
   push:
     branches:
       - main
+
+concurrency:
+  group: release-deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
 
 jobs:
   release:
     name: Release with Python Semantic Release
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    concurrency:
-      group: ${{ github.workflow }}-release-${{ github.ref_name }}
-      cancel-in-progress: false
-
-    permissions:
-      contents: write
 
     steps:
       - name: Setup | Checkout Repository
@@ -25,16 +30,76 @@ jobs:
 
       - name: Action | Semantic Version Release
         id: release
-        # Adjust tag with desired version if applicable.
         uses: python-semantic-release/python-semantic-release@v10.5.3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           git_committer_name: "github-actions"
           git_committer_email: "actions@users.noreply.github.com"
+
+  smoke-test:
+    name: Smoke test (Docker)
+    needs: release
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Create .env from defaults
+        run: |
+          cp .env.dist .env
+          sed -i 's/^APP_PORT=.*/APP_PORT=8080/' .env
+
+      - name: Build and start services
+        run: |
+          docker compose build
+          docker compose up -d
+
+      - name: Wait for services to be healthy
+        run: |
+          set -euo pipefail
+          SERVICES="app nginx valkey"
+          TIMEOUT=150
+          INTERVAL=5
+          for i in $(seq 1 $((TIMEOUT / INTERVAL))); do
+            HEALTHY=0
+            for SERVICE in $SERVICES; do
+              STATUS=$(docker compose ps --format json | jq -rs \
+                "[.[] | select(.Service == \"$SERVICE\")] | .[0].Health // \"starting\"")
+              [ "$STATUS" = "healthy" ] && HEALTHY=$((HEALTHY + 1))
+            done
+            ELAPSED=$((i * INTERVAL))
+            echo "[$ELAPSED/${TIMEOUT}s] $HEALTHY/3 services healthy"
+            [ "$HEALTHY" -eq 3 ] && exit 0
+            sleep $INTERVAL
+          done
+          echo "::error::Services did not become healthy in time"
+          docker compose ps
+          docker compose logs --tail=200
+          exit 1
+
+      - name: Validate critical endpoints
+        run: |
+          set -euo pipefail
+          BASE_URL="http://localhost:8080"
+          curl -sf --compressed "$BASE_URL/openapi.json" | jq -e '.openapi' > /dev/null
+          curl -sf --compressed "$BASE_URL/roles" | jq -e 'length == 3' > /dev/null
+          curl -sf --compressed "$BASE_URL/heroes" | jq -e 'length >= 40' > /dev/null
+          echo "Critical endpoints OK"
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs --tail=200
+
   deploy:
     name: Deploy on VPS
-    needs: release
+    needs: [release, smoke-test]
+    if: |
+      github.actor != 'github-actions[bot]'
+      && needs.release.result == 'success'
+      && needs.smoke-test.result == 'success'
     runs-on: ubuntu-latest
+    environment: production
 
     steps:
       - name: Deploy via SSH
@@ -44,5 +109,25 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: "10m"
           script: |
             /opt/deploy-overfast.sh
+
+      - name: Post-deploy health check
+        run: |
+          set -euo pipefail
+          BASE_URL="https://api.mercy-stats.app"
+          MAX_ATTEMPTS=20
+          INTERVAL=6
+          for i in $(seq 1 "$MAX_ATTEMPTS"); do
+            CODE=$(curl -sk -o /tmp/health.json -w "%{http_code}" \
+              --max-time 10 --compressed "$BASE_URL/roles" || echo "000")
+            if [ "$CODE" = "200" ] && jq -e '.[0].key' /tmp/health.json >/dev/null 2>&1; then
+              echo "Health check OK after attempt $i."
+              exit 0
+            fi
+            echo "Attempt $i/$MAX_ATTEMPTS: HTTP $CODE — retrying in ${INTERVAL}s..."
+            sleep "$INTERVAL"
+          done
+          echo "::error::Post-deploy health check failed after $MAX_ATTEMPTS attempts."
+          exit 1
