@@ -5,6 +5,11 @@ services:
       target: ${BUILD_TARGET:-main}
     command: /code/.venv/bin/fastapi run app/main.py --port 8080 --proxy-headers
     env_file: ${APP_VOLUME_PATH:-.}/.env
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1g
     volumes:
       - static_volume:/code/static
       - ${APP_VOLUME_PATH:-/tmp}/app-logs:/code/logs
@@ -24,6 +29,11 @@ services:
       target: ${BUILD_TARGET:-main}
     command: /code/.venv/bin/taskiq worker app.adapters.tasks.worker:broker --workers 1
     env_file: ${APP_VOLUME_PATH:-.}/.env
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1g
     ports:
       # Bind to loopback only — Caddy on the host fronts the public side.
       - "127.0.0.1:${PROMETHEUS_WORKER_PORT:-9091}:9091"
@@ -45,6 +55,11 @@ services:
       target: ${BUILD_TARGET:-main}
     command: /code/.venv/bin/taskiq scheduler app.adapters.tasks.worker:scheduler
     env_file: ${APP_VOLUME_PATH:-.}/.env
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256m
     volumes:
       - ${APP_VOLUME_PATH:-/tmp}/worker-logs:/code/logs
     depends_on:
@@ -63,6 +78,11 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-overfast}
       - POSTGRES_USER=${POSTGRES_USER:-overfast}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-overfast}
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1g
     volumes:
       - pg-data:/var/lib/postgresql
     healthcheck:
@@ -82,7 +102,7 @@ services:
     env_file: ${APP_VOLUME_PATH:-.}/.env
     # Run as privileged to allow the container to change the vm.overcommit_memory setting
     privileged: true
-    restart: always
+    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -97,6 +117,11 @@ services:
   nginx:
     build:
       context: ./build/nginx
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     ports:
       # Bind to loopback only — Caddy on the host fronts the public side.
       - "127.0.0.1:${APP_PORT}:80"

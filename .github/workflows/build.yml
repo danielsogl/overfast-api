@@ -16,12 +16,14 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           version: "0.9.28"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
 
       - name: Set up Python
         run: uv python install 3.14
 
       - name: Install the project
-        run: uv sync --frozen --no-cache
+        run: uv sync --frozen
 
       - name: Run ruff code analysis
         run: uv run ruff check .
