@@ -86,8 +86,10 @@ wait_healthy valkey 60
 # ── Step 5: Rolling restart — app + worker + scheduler ───────────────────────
 # scheduler runs taskiq cron tasks (e.g. check_new_hero). Must be in the
 # rolling restart or it stays missing entirely after a fresh deploy.
+# --remove-orphans: clean up containers from services that were removed
+# from the compose file or moved behind a profile (e.g. reverse-proxy).
 log "Rolling restart: app + worker + scheduler (nginx stays up)..."
-docker compose up -d --no-deps app worker scheduler 2>&1 | tee -a "$LOG_FILE"
+docker compose up -d --no-deps --remove-orphans app worker scheduler 2>&1 | tee -a "$LOG_FILE"
 
 # ── Step 6: Wait for app + scheduler to be healthy ───────────────────────────
 wait_healthy app 90

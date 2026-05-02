@@ -1,0 +1,18 @@
+# Fork-specific overrides applied on top of docker-compose.yml.
+# docker compose loads this file automatically by default.
+#
+# Reason: this fork's VPS deploy puts Caddy in front of the API as the
+# public TLS reverse proxy. The upstream compose binds nginx/worker
+# ports to 0.0.0.0, exposing them directly to the internet alongside
+# Caddy. Binding here to 127.0.0.1 keeps them reachable for Caddy
+# (same host) while removing the public network surface.
+
+services:
+  nginx:
+    ports:
+      - "127.0.0.1:${APP_PORT}:80"
+      - "127.0.0.1:${PROMETHEUS_NGINX_PORT:-9145}:9145"
+
+  worker:
+    ports:
+      - "127.0.0.1:${PROMETHEUS_WORKER_PORT:-9091}:9091"

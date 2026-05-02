@@ -17,3 +17,4 @@ AGENTS.md merge=keep-fork
 .mcp.json merge=keep-fork
 .github/dependabot.yml merge=keep-fork
 .github/workflows/build.yml merge=keep-fork
+docker-compose.override.yml merge=keep-fork
