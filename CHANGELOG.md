@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v4.5.3 (2026-05-02)
+
+### Bug Fixes
+
+- Add restart policies, memory limits, and uv cache in CI
+  ([`a2d3443`](https://github.com/danielsogl/overfast-api/commit/a2d34431d1757222424b6e77c20f8acd9141c8f6))
+
+
 ## v4.5.2 (2026-05-02)
 
 ### Bug Fixes
