@@ -6,13 +6,12 @@ limit_conn_status 429;
 limit_req_zone $http_x_forwarded_for zone=ofreq:10m rate=${RATE_LIMIT_PER_SECOND_PER_IP}r/s;
 limit_req_status 429;
 
-upstream appbackend {
-  server app:8080;
-  keepalive 16;
-}
-
-# Use Docker's internal DNS resolver for Lua script
-resolver 127.0.0.11 valid=30s;
+# Docker DNS for both Lua and proxy_pass dynamic resolution.
+# valid=1s gives near-instant pickup of new container IPs during rolling
+# deploys without needing a config reload. The DNS query overhead is
+# negligible against the local docker resolver.
+resolver 127.0.0.11 valid=1s ipv6=off;
+resolver_timeout 2s;
 
 # Prometheus metrics initialization (conditional on PROMETHEUS_ENABLED)
 ${PROMETHEUS_LUA_SHARED_DICT}
@@ -91,12 +90,20 @@ server {
     # As we're in fallback, we need to specify the header again
     add_header Access-Control-Allow-Origin "*" always;
 
-    # Main proxy method
-    proxy_pass http://appbackend;
+    # Dynamic upstream — `set` + variable-based proxy_pass forces nginx
+    # to consult the resolver on every request rather than caching the
+    # IP from config load. With Docker's DNS round-robining the 'app'
+    # service across all running containers, this gives us automatic
+    # rolling-deploy support: spin up a second container, drop the
+    # first, and within ~5s nginx resolves the new IP without reload.
+    set $app_upstream "app:8080";
+    proxy_pass http://$app_upstream;
 
-    # Enable keepalive reuse with upstream
+    # No keepalive pool here — variable-based proxy_pass cannot use a
+    # named upstream block. Each request opens a fresh connection;
+    # acceptable for our QPS and avoids stale connections to dead
+    # containers during rolling deploys.
     proxy_http_version 1.1;
-    proxy_set_header Connection "";
 
     # Ensure headers are forwarded
     proxy_set_header Host $host;
@@ -108,13 +115,9 @@ server {
     # Ensure HEAD requests are passed as GET
     proxy_method GET;
 
-    # Retry on connection errors during app rolling restart
-    proxy_next_upstream error timeout http_502 http_503;
-    proxy_next_upstream_tries 2;
-    proxy_next_upstream_timeout 10s;
-
-    # Reasonable timeouts
-    proxy_connect_timeout 5s;
+    # Tight connect timeout so a dead-instance attempt fails quickly
+    # and clients that hit a stale DNS answer get retried by Caddy.
+    proxy_connect_timeout 2s;
     proxy_read_timeout 30s;
     proxy_send_timeout 10s;
   }

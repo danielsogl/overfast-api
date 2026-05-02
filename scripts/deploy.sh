@@ -83,13 +83,79 @@ if [ "$VALKEY_IMAGE_BEFORE" != "$VALKEY_IMAGE_AFTER" ]; then
 fi
 wait_healthy valkey 60
 
-# ── Step 5: Rolling restart — app + worker + scheduler ───────────────────────
-# scheduler runs taskiq cron tasks (e.g. check_new_hero). Must be in the
-# rolling restart or it stays missing entirely after a fresh deploy.
-# --remove-orphans: clean up containers from services that were removed
-# from the compose file or moved behind a profile (e.g. reverse-proxy).
-log "Rolling restart: app + worker + scheduler (nginx stays up)..."
-docker compose up -d --no-deps --remove-orphans app worker scheduler 2>&1 | tee -a "$LOG_FILE"
+# ── Step 5: Zero-downtime app swap (rolling) ─────────────────────────────────
+# Strategy: scale 'app' to 2 first so a new container starts alongside the
+# old one and nginx's upstream pool sees both. Once the new container is
+# healthy, stop the old one. nginx re-resolves the 'app' DNS via its
+# `resolver` directive (valid=5s) so requests fail over to the new IP
+# without a config reload.
+#
+# worker + scheduler don't carry user requests, so we restart them in place.
+log "Zero-downtime app swap..."
+
+OLD_APP=$(docker compose ps -q app 2>/dev/null | head -1 || true)
+OLD_RUNNING=false
+if [ -n "$OLD_APP" ] && docker inspect "$OLD_APP" --format '{{.State.Running}}' 2>/dev/null | grep -q true; then
+    OLD_RUNNING=true
+fi
+
+if [ "$OLD_RUNNING" = "true" ]; then
+    log "  scaling app to 2 (old=$OLD_APP)..."
+    docker compose up -d --no-deps --no-recreate --scale app=2 app 2>&1 | tee -a "$LOG_FILE"
+
+    # New container = the one that is not OLD_APP.
+    NEW_APP=""
+    for cid in $(docker compose ps -q app); do
+        if [ "$cid" != "$OLD_APP" ]; then
+            NEW_APP=$cid
+            break
+        fi
+    done
+    log "  new app container: ${NEW_APP:-<none>}"
+
+    if [ -n "$NEW_APP" ]; then
+        log "  waiting for new app instance to be healthy..."
+        waited=0
+        new_healthy=false
+        while [ "$waited" -lt 90 ]; do
+            health=$(docker inspect "$NEW_APP" --format '{{.State.Health.Status}}' 2>/dev/null || echo "unknown")
+            if [ "$health" = "healthy" ]; then
+                log "    new app healthy after ${waited}s."
+                new_healthy=true
+                break
+            fi
+            sleep 3
+            waited=$((waited + 3))
+        done
+        if [ "$new_healthy" != "true" ]; then
+            log "ERROR: new app instance never became healthy. Stopping it; old container keeps serving."
+            docker stop "$NEW_APP" >/dev/null
+            docker rm "$NEW_APP" >/dev/null
+            docker compose up -d --no-deps --no-recreate --scale app=1 app >/dev/null
+            exit 1
+        fi
+
+        # Give nginx a moment to refresh DNS (resolver valid=5s) so live
+        # traffic actually starts hitting the new IP before we drop the old.
+        sleep 6
+
+        log "  stopping old app container ($OLD_APP)..."
+        docker stop "$OLD_APP" >/dev/null
+        docker rm "$OLD_APP" >/dev/null
+    fi
+
+    log "  scaling app back to 1..."
+    docker compose up -d --no-deps --no-recreate --scale app=1 app 2>&1 | tee -a "$LOG_FILE"
+else
+    log "  no running app container, starting fresh..."
+    docker compose up -d --no-deps app 2>&1 | tee -a "$LOG_FILE"
+fi
+
+# Worker + scheduler in-place restart (acceptable: tasks queue in broker).
+# --remove-orphans: clean up containers from services no longer in the
+# active compose set (e.g. reverse-proxy behind a profile we don't activate).
+log "Restarting worker + scheduler..."
+docker compose up -d --no-deps --remove-orphans worker scheduler 2>&1 | tee -a "$LOG_FILE"
 
 # ── Step 6: Wait for app + scheduler to be healthy ───────────────────────────
 wait_healthy app 90
