@@ -2,52 +2,26 @@
 
 <!-- version list -->
 
-## v4.5.5 (2026-05-02)
+## v4.4.1 (2026-05-25)
 
 ### Bug Fixes
 
-- **deploy**: Nginx image-change detection used the wrong source
-  ([`3fbf17e`](https://github.com/danielsogl/overfast-api/commit/3fbf17ef3d6b5b310b4fb83c94500a306191d7ea))
+- Adapt parser to new Blizzard hero stats response shape
+  ([#415](https://github.com/TeKrop/overfast-api/pull/415),
+  [`a8148d4`](https://github.com/TeKrop/overfast-api/commit/a8148d4775ae49de4e80ca319f3363d4e07119e2))
 
+### Build System
 
-## v4.5.4 (2026-05-02)
+- **deps**: Bump idna from 3.13 to 3.15 ([#414](https://github.com/TeKrop/overfast-api/pull/414),
+  [`d666943`](https://github.com/TeKrop/overfast-api/commit/d66694380ee51b0de8444d68363d5885fcbd2df8))
 
-### Bug Fixes
+- **deps**: Bump urllib3 from 2.6.3 to 2.7.0
+  ([#413](https://github.com/TeKrop/overfast-api/pull/413),
+  [`c87492b`](https://github.com/TeKrop/overfast-api/commit/c87492bf86791d78c0ebe6412bfb441c12573caf))
 
-- **deploy**: Zero-downtime app rolling restart
-  ([`89a8255`](https://github.com/danielsogl/overfast-api/commit/89a82556f2b1c03a8f7f0bf72ee6908ac97e29d0))
-
-
-## v4.5.3 (2026-05-02)
-
-### Bug Fixes
-
-- Add restart policies, memory limits, and uv cache in CI
-  ([`a2d3443`](https://github.com/danielsogl/overfast-api/commit/a2d34431d1757222424b6e77c20f8acd9141c8f6))
-
-
-## v4.5.2 (2026-05-02)
-
-### Bug Fixes
-
-- **security**: Bind nginx and worker ports to loopback only
-  ([`de9b8f6`](https://github.com/danielsogl/overfast-api/commit/de9b8f6e8cecbd0e2c32ec16e5e133deb16a7076))
-
-
-## v4.5.1 (2026-05-02)
-
-### Bug Fixes
-
-- **security,deploy**: Bind ports to loopback, clean orphan containers
-  ([`e8961df`](https://github.com/danielsogl/overfast-api/commit/e8961dfe6194253d3fd999236ede80a6ecb18cb7))
-
-
-## v4.5.0 (2026-05-02)
-
-### Bug Fixes
-
-- **deploy**: Start scheduler, recreate valkey, pull fresh base images
-  ([`f76cb19`](https://github.com/danielsogl/overfast-api/commit/f76cb192750fc86d7c2843969c946ef4ed783980))
+- **deps-dev**: Bump ty from 0.0.33 to 0.0.34 in the uv-deps group
+  ([#412](https://github.com/TeKrop/overfast-api/pull/412),
+  [`326719d`](https://github.com/TeKrop/overfast-api/commit/326719de3844a34c5be342070551860b134eeb39))
 
 
 ## v4.4.0 (2026-05-01)
