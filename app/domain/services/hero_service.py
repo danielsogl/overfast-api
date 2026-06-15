@@ -6,8 +6,9 @@ from typing import TYPE_CHECKING, Any
 from fastapi import HTTPException
 
 from app.config import settings
-from app.domain.enums import Locale, SubRole
+from app.domain.enums import Locale, PlayerGamemode, SubRole
 from app.domain.exceptions import (
+    InvalidGamemodeFilterError,
     ParserBlizzardError,
     ParserInternalError,
     ParserParsingError,
@@ -27,7 +28,6 @@ if TYPE_CHECKING:
         CompetitiveDivisionFilter,
         HeroGamemode,
         MapKey,
-        PlayerGamemode,
         PlayerPlatform,
         PlayerRegion,
         Role,
@@ -207,11 +207,90 @@ class HeroService(StaticDataService):
         store in persistent storage. The Valkey API cache (populated here, served by nginx)
         is sufficient.
         """
+
+        for gamemode_filter in await self._get_hero_stats_gamemode_filters(gamemode):
+            try:
+                data = await self._get_hero_stats(
+                    platform,
+                    gamemode,
+                    gamemode_filter,
+                    region,
+                    role,
+                    map_filter,
+                    competitive_division,
+                    order_by,
+                )
+                working_filter = gamemode_filter
+                break  # filter worked — stop retrying (data may legitimately be empty)
+            except InvalidGamemodeFilterError as exc:
+                # Blizzard may have changed the filter value; try the next candidate.
+                gamemode_filter_exception = exc
+        else:
+            # All filter candidates exhausted without a successful call.
+            blizzard_url = f"{settings.blizzard_host}{settings.hero_stats_path}"
+            raise ParserInternalError(
+                blizzard_url, gamemode_filter_exception
+            ) from gamemode_filter_exception
+
+        await self.cache.set_gamemode_filter(gamemode, working_filter)
+        await self._update_api_cache(
+            cache_key,
+            data,
+            settings.hero_stats_cache_timeout,
+        )
+        return data, False, 0
+
+    async def _get_hero_stats_gamemode_filters(
+        self, gamemode: PlayerGamemode
+    ) -> list[str]:
+        """Return the ordered candidate filter values to try for a given gamemode.
+
+        The cached working filter (if any) is moved to the front so the correct
+        value is tried first, avoiding a redundant Blizzard call on every request.
+
+        Args:
+            gamemode: Gamemode for validation
+
+        Returns:
+            Filter values ordered with the cached working filter first
+
+        Raises:
+            ParserParsingError: If gamemode is not supported
+        """
+        gamemode_mapping: dict[PlayerGamemode, list[str]] = {
+            PlayerGamemode.QUICKPLAY: ["0"],
+            PlayerGamemode.COMPETITIVE: ["1", "2"],
+        }
+
+        if gamemode not in gamemode_mapping:
+            msg = f"{gamemode} is not a supported gamemode filter"
+            raise ParserParsingError(msg)
+
+        candidates = gamemode_mapping[gamemode]
+
+        cached_filter = await self.cache.get_gamemode_filter(gamemode)
+        if cached_filter and cached_filter in candidates:
+            return [cached_filter] + [f for f in candidates if f != cached_filter]
+
+        return candidates
+
+    async def _get_hero_stats(
+        self,
+        platform: PlayerPlatform,
+        gamemode: PlayerGamemode,
+        gamemode_filter: str,
+        region: PlayerRegion,
+        role: Role | None,
+        map_filter: MapKey | None,
+        competitive_division: CompetitiveDivisionFilter | None,
+        order_by: str,
+    ) -> list[dict]:
         try:
             data = await parse_hero_stats_summary(
                 self.blizzard_client,
                 platform=platform,
                 gamemode=gamemode,
+                gamemode_filter=gamemode_filter,
                 region=region,
                 role=role,
                 map_filter=map_filter,
@@ -226,12 +305,7 @@ class HeroService(StaticDataService):
             blizzard_url = f"{settings.blizzard_host}{settings.hero_stats_path}"
             raise ParserInternalError(blizzard_url, exc) from exc
 
-        await self._update_api_cache(
-            cache_key,
-            data,
-            settings.hero_stats_cache_timeout,
-        )
-        return data, False, 0
+        return data
 
 
 # ---------------------------------------------------------------------------
