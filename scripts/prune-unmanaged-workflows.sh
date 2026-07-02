@@ -34,7 +34,9 @@ while IFS= read -r f; do
         git rm -f "$f" >/dev/null
         removed=$((removed + 1))
     fi
-done < <(git ls-files .github/workflows)
+# sort -u: an unmerged (conflicted) path is listed once per stage; dedupe so
+# we only git rm it once — a second rm would fail with "pathspec did not match".
+done < <(git ls-files .github/workflows | sort -u)
 
 if [ "$removed" -gt 0 ]; then
     echo "Pruned $removed unmanaged workflow file(s)."
