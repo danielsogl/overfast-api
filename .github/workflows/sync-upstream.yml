@@ -84,17 +84,18 @@ jobs:
           UPSTREAM_SHA: ${{ steps.check.outputs.upstream_sha }}
         run: |
           set -euo pipefail
-          git merge --no-ff "$UPSTREAM_SHA" -m "chore: merge upstream changes"
-
-      - name: Prune unmanaged workflow files
-        if: steps.check.outputs.has_updates == 'true'
-        run: |
-          set -euo pipefail
+          # --no-commit so the workflow prune folds into the merge commit and
+          # resolves modify/delete conflicts on workflows we drop anyway
+          # (upstream modifies a workflow file this fork has deleted).
+          git merge --no-ff --no-commit "$UPSTREAM_SHA" || true
           ./scripts/prune-unmanaged-workflows.sh
-          # If the prune staged any deletions, fold them into the merge commit.
-          if ! git diff --staged --quiet; then
-            git commit --amend --no-edit
+          # Any conflict surviving the prune is a real one — fail loudly.
+          if git ls-files -u | grep -q .; then
+            echo "Unresolved merge conflicts remain:"
+            git ls-files -u
+            exit 1
           fi
+          git commit --no-edit -m "chore: merge upstream changes"
 
       - name: Archive merged repository
         if: steps.check.outputs.has_updates == 'true'
@@ -359,11 +360,16 @@ jobs:
             exit 0
           fi
 
-          git merge --no-ff "$UPSTREAM_SHA" -m "chore: merge upstream changes"
+          # --no-commit so the workflow prune folds into the merge commit and
+          # resolves modify/delete conflicts on workflows we drop anyway.
+          git merge --no-ff --no-commit "$UPSTREAM_SHA" || true
           ./scripts/prune-unmanaged-workflows.sh
-          if ! git diff --staged --quiet; then
-            git commit --amend --no-edit
+          if git ls-files -u | grep -q .; then
+            echo "Unresolved merge conflicts remain:"
+            git ls-files -u
+            exit 1
           fi
+          git commit --no-edit -m "chore: merge upstream changes"
           git push origin "${UPSTREAM_BRANCH}"
           echo "Merge commit pushed to main."
 
