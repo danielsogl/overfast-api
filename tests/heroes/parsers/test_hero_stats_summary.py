@@ -43,7 +43,7 @@ async def test_parse_hero_stats_summary(
         "order_by": "hero:asc",
     }
 
-    with patch("httpx.AsyncClient.get", return_value=hero_stats_response_mock):
+    with patch("httpx2.AsyncClient.get", return_value=hero_stats_response_mock):
         client = BlizzardClient()
         if raises_error:
             with pytest.raises(ParserBlizzardError):
@@ -69,7 +69,7 @@ async def test_parse_hero_stats_summary_query_params(hero_stats_response_mock: M
     map_key = "all-maps"
 
     with patch(
-        "httpx.AsyncClient.get", return_value=hero_stats_response_mock
+        "httpx2.AsyncClient.get", return_value=hero_stats_response_mock
     ) as mock_get:
         client = BlizzardClient()
         await parse_hero_stats_summary(
@@ -99,7 +99,7 @@ async def test_parse_hero_stats_summary_invalid_map_error_message(
     hero_stats_response_mock: Mock,
 ):
     """ParserBlizzardError message should name the incompatible map."""
-    with patch("httpx.AsyncClient.get", return_value=hero_stats_response_mock):
+    with patch("httpx2.AsyncClient.get", return_value=hero_stats_response_mock):
         client = BlizzardClient()
         with pytest.raises(ParserBlizzardError) as exc_info:
             await parse_hero_stats_summary(
@@ -111,8 +111,10 @@ async def test_parse_hero_stats_summary_invalid_map_error_message(
                 map_filter="hanaoka",
             )
 
-    assert "hanaoka" in exc_info.value.message
-    assert "compatible" in exc_info.value.message.lower()
+    message = str(exc_info.value.message)
+
+    assert "hanaoka" in message
+    assert "compatible" in message.lower()
 
 
 def test_parse_hero_stats_json_raises_invalid_gamemode_filter_error():

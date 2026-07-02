@@ -1,6 +1,6 @@
 [project]
 name = "overfast-api"
-version = "4.7.1"
+version = "4.8.1"
 description = "Overwatch API giving data about heroes, maps, and players statistics."
 license = {file = "LICENSE"}
 authors = [
@@ -10,14 +10,13 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "asyncpg==0.31.*",
-    "fastapi[standard-no-fastapi-cloud-cli]==0.136.*",
-    "httpx[http2]==0.28.*",
+    "fastapi[standard-no-fastapi-cloud-cli]==0.139.*",
+    "httpx2[http2]==2.5.*",
     "loguru==0.7.*",
     "prometheus-client==0.25.*",
     "pydantic==2.13.*",
     "pydantic-settings==2.14.*",
     "selectolax==0.4.*",
-    "sentry-sdk[fastapi]==2.58.*",
     "taskiq==0.12.*",
     "taskiq-fastapi==0.5.*",
     "valkey[libvalkey]==6.1.*",
@@ -39,10 +38,10 @@ Issues = "https://github.com/TeKrop/overfast-api/issues"
 
 [dependency-groups]
 dev = [
-    "fakeredis[valkey]==2.35.*",
+    "fakeredis[valkey]==2.36.*",
     "ipdb==0.13.*",
-    "pytest==9.0.*",
-    "pytest-asyncio==1.3.*",
+    "pytest==9.1.*",
+    "pytest-asyncio==1.4.*",
     "pytest-cov==7.1.*",
     "pytest-randomly==4.1.*",
     "pytest-xdist==3.8.*",
@@ -143,11 +142,19 @@ ignore = [
 allowed-confusables = ["（", "）", "："]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["SLF001"]  # Ignore private member access in tests
+"tests/**" = ["SLF001", "TID251"]  # Ignore private member access + fastapi.TestClient in tests
 "app/api/models/**" = ["TC001"]  # Ignore type-checking block (Pydantic models definition)
 "app/api/routers/**" = ["TC001"]  # Enums used in FastAPI path/query parameters need runtime import
 "app/api/dependencies.py" = ["TC001"]  # Port types needed at runtime for FastAPI Depends
 "app/domain/services/**" = ["TC001"]  # Locale/enums used in runtime method annotations
+"app/api/**" = ["TID251"]           # API layer owns FastAPI
+"app/adapters/**" = ["TID251"]      # BlizzardClient raises HTTPException for transport errors
+"app/infrastructure/**" = ["TID251"]  # Shared HTTPException helpers (Discord alerts, etc.)
+"app/monitoring/**" = ["TID251"]    # Prometheus/FastAPI router glue
+"app/main.py" = ["TID251"]          # App assembly
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"fastapi".msg = "Domain layer must stay framework-agnostic. Raise app.domain.exceptions instead of fastapi.HTTPException, use http.HTTPStatus instead of fastapi.status."
 
 [tool.ruff.lint.isort]
 # Consider app as first-party for imports in tests

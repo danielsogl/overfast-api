@@ -7,13 +7,13 @@ This module handles parsing of player profile HTML including:
 - Career stats (detailed statistics per hero)
 """
 
+from http import HTTPStatus
 from typing import TYPE_CHECKING
-
-from fastapi import status
 
 from app.config import settings
 from app.domain.exceptions import ParserBlizzardError, ParserParsingError
 from app.domain.parsers.utils import (
+    build_blizzard_url,
     extract_blizzard_id_from_url,
     parse_html_root,
     validate_response_status,
@@ -79,7 +79,7 @@ async def fetch_player_html(
         ParserBlizzardError: If player not found (404)
     """
 
-    url = f"{settings.blizzard_host}{settings.career_path}/{player_id}/"
+    url = build_blizzard_url(settings.career_path, player_id)
 
     response = await client.get(url)
     validate_response_status(response, valid_codes=[200, 404])
@@ -138,7 +138,7 @@ def parse_player_profile_html(
     # Check if player exists
     if not root_tag.css_first("blz-section.Profile-masthead"):
         raise ParserBlizzardError(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=HTTPStatus.NOT_FOUND.value,
             message="Player not found",
         )
 

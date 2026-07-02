@@ -2,6 +2,29 @@
 
 <!-- version list -->
 
+## v4.8.1 (2026-07-02)
+
+### Bug Fixes
+
+- Various security fixes and Sentry support removal
+  ([#434](https://github.com/TeKrop/overfast-api/pull/434),
+  [`ef8f0ba`](https://github.com/TeKrop/overfast-api/commit/ef8f0ba093e91d2028b873a891a6c1bcb17a27d0))
+
+
+## v4.8.0 (2026-07-01)
+
+### Chores
+
+- Improved DDD layering ([#432](https://github.com/TeKrop/overfast-api/pull/432),
+  [`5818d6c`](https://github.com/TeKrop/overfast-api/commit/5818d6cc54d2fa20296b66d7433b7b5b69d37f02))
+
+### Features
+
+- Updated dependencies and did some cleanup
+  ([#433](https://github.com/TeKrop/overfast-api/pull/433),
+  [`b496a9a`](https://github.com/TeKrop/overfast-api/commit/b496a9a2b74c27c8453412ef11e0016ac2642d07))
+
+
 ## v4.7.1 (2026-06-26)
 
 ### Bug Fixes
