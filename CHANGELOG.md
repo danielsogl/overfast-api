@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v4.8.3 (2026-07-04)
+
+### Bug Fixes
+
+- Fixed uv lock not being properly updated after release
+  ([#437](https://github.com/TeKrop/overfast-api/pull/437),
+  [`b6b3994`](https://github.com/TeKrop/overfast-api/commit/b6b39944309322affcc809885aa37ac8ada8bd85))
+
+
+## v4.8.2 (2026-07-04)
+
+### Bug Fixes
+
+- Parse endorsement level from new Blizzard frame URL format
+  ([#436](https://github.com/TeKrop/overfast-api/pull/436),
+  [`a9581bc`](https://github.com/TeKrop/overfast-api/commit/a9581bc9fe3b96732b2aac58fc07518e0a078608))
+
+
 ## v4.8.1 (2026-07-02)
 
 ### Bug Fixes
