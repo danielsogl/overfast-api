@@ -336,6 +336,17 @@ class HeroStatsSummary(BaseModel):
     )
     pickrate: float = Field(..., description="Pickrate (in percent)", ge=0.0, le=100.0)
     winrate: float = Field(..., description="Winrate (in percent)", ge=0.0, le=100.0)
+    banrate: float | None = Field(
+        None,
+        description=(
+            "Banrate (in percent). Null when Blizzard doesn't expose ban data "
+            "for the selected filters, typically because the gamemode doesn't "
+            "feature hero bans."
+        ),
+        examples=[12.7],
+        ge=0.0,
+        le=100.0,
+    )
 
 
 class BadRequestErrorMessage(BaseModel):

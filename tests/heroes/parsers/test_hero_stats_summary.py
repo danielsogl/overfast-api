@@ -132,6 +132,67 @@ def test_parse_hero_stats_json_raises_invalid_gamemode_filter_error():
     assert "1" in exc_info.value.message
 
 
+def _build_stats_json(columns: list[dict] | None, banrate: float = 12.7) -> dict:
+    """Build a minimal Blizzard-shaped payload with a single hero entry."""
+    payload = {
+        "rates": {
+            "selected": {"map": "all-maps", "rq": "2"},
+            "rates": [
+                {
+                    "id": "ana",
+                    "cells": {
+                        "name": "Ana",
+                        "pickrate": 25.1,
+                        "winrate": 48.5,
+                        "banrate": banrate,
+                    },
+                    "hero": {"role": "SUPPORT"},
+                }
+            ],
+        }
+    }
+    if columns is not None:
+        payload["columns"] = columns
+    return payload
+
+
+@pytest.mark.parametrize(
+    ("columns", "expected_banrate"),
+    [
+        # Blizzard declares banrate for gamemodes featuring hero bans
+        ([{"id": "name"}, {"id": "pickrate"}, {"id": "winrate"}, {"id": "banrate"}], 12.7),
+        # Quickplay : cells still carry a constant 0 banrate, but it's meaningless
+        ([{"id": "name"}, {"id": "pickrate"}, {"id": "winrate"}], None),
+        # Defensive : older/unexpected payloads without usable columns
+        ([], None),
+        (None, None),
+    ],
+)
+def test_parse_hero_stats_json_banrate(
+    columns: list[dict] | None, expected_banrate: float | None
+):
+    result = parse_hero_stats_json(
+        _build_stats_json(columns),
+        map_filter="all-maps",
+        gamemode=PlayerGamemode.COMPETITIVE,
+        gamemode_filter="2",
+    )
+
+    assert result[0]["banrate"] == expected_banrate
+
+
+def test_parse_hero_stats_json_banrate_normalizes_unavailable_value():
+    """Blizzard uses -1 for unavailable data, like it does for other rates."""
+    result = parse_hero_stats_json(
+        _build_stats_json([{"id": "banrate"}], banrate=-1),
+        map_filter="all-maps",
+        gamemode=PlayerGamemode.COMPETITIVE,
+        gamemode_filter="2",
+    )
+
+    assert result[0]["banrate"] == 0.0
+
+
 @pytest.mark.parametrize(
     "json_data",
     [
