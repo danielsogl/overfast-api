@@ -54,10 +54,12 @@ def test_get_hero_stats_response_shape(client: TestClient):
 
     first = response.json()[0]
 
-    assert set(first.keys()) == {"hero", "pickrate", "winrate"}
+    assert set(first.keys()) == {"hero", "pickrate", "winrate", "banrate"}
     assert isinstance(first["hero"], str)
     assert isinstance(first["pickrate"], float)
     assert isinstance(first["winrate"], float)
+    # The fixture payload has no "columns" declaring banrate, so it stays null
+    assert first["banrate"] is None
 
 
 def test_get_hero_stats_invalid_platform(client: TestClient):
