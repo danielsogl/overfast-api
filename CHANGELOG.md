@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v4.7.2 (2026-08-16)
+
+### Bug Fixes
+
+- **compose**: Drop insecure credential defaults and bind monitoring to loopback
+  ([`6581644`](https://github.com/danielsogl/overfast-api/commit/6581644484657a032b5e4e870323545703c50598))
+
+- **nginx**: Key rate limit zones on real client IP instead of raw header
+  ([`0260e80`](https://github.com/danielsogl/overfast-api/commit/0260e804458cbd9a05b42bedd7817bb419c4e2f4))
+
+
 ## v4.11.0 (2026-08-13)
 
 ### Features
