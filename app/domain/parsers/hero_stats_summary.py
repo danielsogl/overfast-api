@@ -11,6 +11,7 @@ from app.domain.exceptions import (
     ParserParsingError,
 )
 from app.domain.parsers.utils import validate_response_status
+from app.infrastructure.logger import logger
 
 if TYPE_CHECKING:
     from app.domain.ports import BlizzardClientPort
@@ -142,6 +143,12 @@ def parse_hero_stats_json(
                 "banrate": (
                     _normalize_rate(rate["cells"]["banrate"]) if has_banrate else None
                 ),
+                # Blizzard sends these on every row and the endpoint already
+                # filters on role and subrole — it just never reported them, so
+                # a client grouping a stats table had to fetch /heroes as well.
+                "role": rate["hero"]["role"].lower(),
+                "subrole": (rate["hero"].get("subrole") or "").lower() or None,
+                "color": _normalize_color(rate["hero"].get("color")),
             }
             for rate in hero_stats
         ]
@@ -171,6 +178,33 @@ def _is_column_available(json_data: dict, column_id: str) -> bool:
     """
     columns = json_data.get("columns") or []
     return any(column.get("id") == column_id for column in columns)
+
+
+def _normalize_color(raw: str | None) -> str | None:
+    """Turn Blizzard's hero colour into a CSS hex string, or None.
+
+    The format is not uniform: 43 of the 44 heroes in the fixture send 8 hex
+    digits (RGBA, alpha always "ff") and Pharah sends 6. Both normalise to
+    "#rrggbb"; the alpha carries no information and would only break a client
+    passing the value straight to CSS.
+    """
+    if not raw:
+        return None
+
+    value = raw.removeprefix("#")
+    rgba_length, rgb_length = 8, 6
+    if len(value) not in (rgba_length, rgb_length):
+        logger.warning("Unexpected hero colour {!r}, reporting null", raw)
+        return None
+
+    rgb = value[:rgb_length]
+    try:
+        int(rgb, 16)
+    except ValueError:
+        logger.warning("Non-hex hero colour {!r}, reporting null", raw)
+        return None
+
+    return f"#{rgb}"
 
 
 def _normalize_rate(rate: float) -> float:

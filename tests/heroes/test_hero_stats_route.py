@@ -54,12 +54,36 @@ def test_get_hero_stats_response_shape(client: TestClient):
 
     first = response.json()[0]
 
-    assert set(first.keys()) == {"hero", "pickrate", "winrate", "banrate"}
+    assert set(first.keys()) == {
+        "hero",
+        "pickrate",
+        "winrate",
+        "banrate",
+        "role",
+        "subrole",
+        "color",
+    }
     assert isinstance(first["hero"], str)
     assert isinstance(first["pickrate"], float)
     assert isinstance(first["winrate"], float)
     # The fixture payload has no "columns" declaring banrate, so it stays null
     assert first["banrate"] is None
+
+
+def test_get_hero_stats_reports_role_and_colour(client: TestClient):
+    """Blizzard sends these on every row; the endpoint filters on role and
+    subrole but used to report neither, so grouping a stats table meant a
+    second call to /heroes."""
+    rows = client.get("/heroes/stats", params=_BASE_PARAMS).json()
+
+    assert all(row["role"] in {"damage", "support", "tank"} for row in rows)
+    assert all(row["color"] is None or row["color"].startswith("#") for row in rows)
+
+    # Pharah is the one hero the fixture sends as RGB rather than RGBA, and both
+    # must normalise to the same 7-character CSS form.
+    by_hero = {row["hero"]: row for row in rows}
+    assert by_hero["pharah"]["color"] == "#58bcff"
+    assert by_hero["ana"]["color"] == "#48699e"
 
 
 def test_get_hero_stats_invalid_platform(client: TestClient):
