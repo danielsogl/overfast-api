@@ -103,19 +103,22 @@ def get_hero_keyname(input_str: str) -> str:
     return string_to_snakecase(input_str).replace("_", "-")
 
 
-def get_role_key_from_icon(icon_url: str) -> CompetitiveRole:
-    """Extract role key from the role icon."""
+def get_role_key_from_icon(icon_url: str) -> CompetitiveRole | None:
+    """Extract role key from the role icon, or None if Blizzard uses a new one.
+
+    Returns None rather than raising: a fourth competitive role would otherwise
+    be a KeyError, and the caller catches KeyError, so every ranked player would
+    have 500ed. Mirrors the division guard in ``_get_platform_competitive_ranks``.
+    """
     icon_role_key = (
         icon_url.rsplit("/", maxsplit=1)[-1]
         .split("-", maxsplit=1)[0]
         .split(".", maxsplit=1)[0]  # inline-SVG symbol ids: "TANK.<hash>.SVG#ICON"
         .upper()
     )
-    return (
-        CompetitiveRole.DAMAGE
-        if icon_role_key == "OFFENSE"
-        else CompetitiveRole[icon_role_key]
-    )
+    if icon_role_key == "OFFENSE":
+        return CompetitiveRole.DAMAGE
+    return CompetitiveRole.__members__.get(icon_role_key)
 
 
 def get_stats_hero_class(hero_class: str | None) -> str:
