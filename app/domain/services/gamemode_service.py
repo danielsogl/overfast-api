@@ -36,3 +36,4 @@ class GamemodeService(StaticDataService):
         Called by the background worker — bypasses the SWR layer.
         """
         await self._fetch_and_store(self._gamemodes_config("/gamemodes"))
+        await self._invalidate_derived_cache("/gamemodes", keep="/gamemodes")

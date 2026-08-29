@@ -55,3 +55,4 @@ class RoleService(StaticDataService):
             f"/roles?locale={locale_str}" if locale != Locale.ENGLISH_US else "/roles"
         )
         await self._fetch_and_store(self._roles_config(locale, cache_key))
+        await self._invalidate_derived_cache("/roles", keep=cache_key)
