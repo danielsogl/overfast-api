@@ -2,6 +2,41 @@
 
 <!-- version list -->
 
+## v4.14.0 (2026-08-29)
+
+### Bug Fixes
+
+- One unknown hero no longer 500s /heroes and /heroes/stats
+  ([#37](https://github.com/danielsogl/overfast-api/pull/37),
+  [`6259df0`](https://github.com/danielsogl/overfast-api/commit/6259df0e35c52650401a56a8a8ec53e17fc6db58))
+
+- **cache**: Evict only what we rendered, not the whole keyspace
+  ([#35](https://github.com/danielsogl/overfast-api/pull/35),
+  [`0bee3f6`](https://github.com/danielsogl/overfast-api/commit/0bee3f6e0c99f851e0820037eb053c56e7c3dbf5))
+
+- **cache**: Refresh reaches filtered and localised entries, not just the bare key
+  ([#34](https://github.com/danielsogl/overfast-api/pull/34),
+  [`694ead0`](https://github.com/danielsogl/overfast-api/commit/694ead0df3aee1e39d599bf547748461f5756b52))
+
+- **cache**: Stop undeclared query params from multiplying cache entries
+  ([#32](https://github.com/danielsogl/overfast-api/pull/32),
+  [`2fa4c70`](https://github.com/danielsogl/overfast-api/commit/2fa4c708762d9c5e8bc84daddad9528b1f6e2a00))
+
+- **nginx**: Make the trailing-slash redirect relative, keeping the query string
+  ([#33](https://github.com/danielsogl/overfast-api/pull/33),
+  [`430b1a8`](https://github.com/danielsogl/overfast-api/commit/430b1a877ba1044044d3f15a644f49bca4485d7f))
+
+- **parsers**: Repair the silent ability/video mispairing and three 500 paths
+  ([#31](https://github.com/danielsogl/overfast-api/pull/31),
+  [`7fa961b`](https://github.com/danielsogl/overfast-api/commit/7fa961b0bd33ff800ddbd398fbea384bc0afcffb))
+
+### Features
+
+- **heroes**: Report role, subrole and colour on /heroes/stats
+  ([#36](https://github.com/danielsogl/overfast-api/pull/36),
+  [`fdb7a72`](https://github.com/danielsogl/overfast-api/commit/fdb7a72baf0d5ae1db11393d0ddf416aeced96a0))
+
+
 ## v4.13.0 (2026-08-29)
 
 ### Features
