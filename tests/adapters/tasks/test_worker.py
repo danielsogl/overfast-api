@@ -16,6 +16,7 @@ from app.adapters.tasks.worker import (
     refresh_patch_notes,
     refresh_player_profile,
     refresh_roles,
+    snapshot_hero_stats,
 )
 from app.domain.enums import HeroKey, Locale
 
@@ -165,11 +166,12 @@ class TestRefreshPlayerProfile:
 
 class TestCleanupStalePlayers:
     @pytest.mark.asyncio
-    async def test_skipped_when_both_max_ages_zero(self):
+    async def test_skipped_when_all_max_ages_zero(self):
         mock_storage = AsyncMock()
         with patch("app.adapters.tasks.worker.settings") as mock_settings:
             mock_settings.player_profile_max_age = 0
             mock_settings.player_snapshot_max_age = 0
+            mock_settings.hero_stats_snapshot_max_age = 0
             await cast("Any", cleanup_stale_players).__wrapped__(mock_storage)
 
         mock_storage.delete_old_player_profiles.assert_not_awaited()
@@ -181,6 +183,7 @@ class TestCleanupStalePlayers:
         with patch("app.adapters.tasks.worker.settings") as mock_settings:
             mock_settings.player_profile_max_age = 86400
             mock_settings.player_snapshot_max_age = 31536000
+            mock_settings.hero_stats_snapshot_max_age = 63072000
             await cast("Any", cleanup_stale_players).__wrapped__(mock_storage)
 
         mock_storage.delete_old_player_profiles.assert_awaited_once_with(86400)
@@ -191,6 +194,7 @@ class TestCleanupStalePlayers:
         with patch("app.adapters.tasks.worker.settings") as mock_settings:
             mock_settings.player_profile_max_age = 86400
             mock_settings.player_snapshot_max_age = 31536000
+            mock_settings.hero_stats_snapshot_max_age = 63072000
             await cast("Any", cleanup_stale_players).__wrapped__(mock_storage)
 
         mock_storage.delete_old_player_snapshots.assert_awaited_once_with(31536000)
@@ -201,6 +205,7 @@ class TestCleanupStalePlayers:
         with patch("app.adapters.tasks.worker.settings") as mock_settings:
             mock_settings.player_profile_max_age = 86400
             mock_settings.player_snapshot_max_age = 0
+            mock_settings.hero_stats_snapshot_max_age = 63072000
             await cast("Any", cleanup_stale_players).__wrapped__(mock_storage)
 
         mock_storage.delete_old_player_profiles.assert_awaited_once_with(86400)
@@ -212,10 +217,34 @@ class TestCleanupStalePlayers:
         with patch("app.adapters.tasks.worker.settings") as mock_settings:
             mock_settings.player_profile_max_age = 0
             mock_settings.player_snapshot_max_age = 31536000
+            mock_settings.hero_stats_snapshot_max_age = 63072000
             await cast("Any", cleanup_stale_players).__wrapped__(mock_storage)
 
         mock_storage.delete_old_player_profiles.assert_not_awaited()
         mock_storage.delete_old_player_snapshots.assert_awaited_once_with(31536000)
+
+    @pytest.mark.asyncio
+    async def test_calls_delete_old_hero_stats_snapshots(self):
+        mock_storage = AsyncMock()
+        with patch("app.adapters.tasks.worker.settings") as mock_settings:
+            mock_settings.player_profile_max_age = 86400
+            mock_settings.player_snapshot_max_age = 31536000
+            mock_settings.hero_stats_snapshot_max_age = 63072000
+            await cast("Any", cleanup_stale_players).__wrapped__(mock_storage)
+
+        mock_storage.delete_old_hero_stats_snapshots.assert_awaited_once_with(63072000)
+
+    @pytest.mark.asyncio
+    async def test_hero_stats_retention_can_be_disabled_alone(self):
+        mock_storage = AsyncMock()
+        with patch("app.adapters.tasks.worker.settings") as mock_settings:
+            mock_settings.player_profile_max_age = 86400
+            mock_settings.player_snapshot_max_age = 31536000
+            mock_settings.hero_stats_snapshot_max_age = 0
+            await cast("Any", cleanup_stale_players).__wrapped__(mock_storage)
+
+        mock_storage.delete_old_player_snapshots.assert_awaited_once_with(31536000)
+        mock_storage.delete_old_hero_stats_snapshots.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_storage_exception_is_swallowed(self):
@@ -224,5 +253,27 @@ class TestCleanupStalePlayers:
         with patch("app.adapters.tasks.worker.settings") as mock_settings:
             mock_settings.player_profile_max_age = 3600
             mock_settings.player_snapshot_max_age = 31536000
+            mock_settings.hero_stats_snapshot_max_age = 63072000
             # Should not propagate
             await cast("Any", cleanup_stale_players).__wrapped__(mock_storage)
+
+
+# ── snapshot_hero_stats ───────────────────────────────────────────────────────
+
+
+class TestSnapshotHeroStats:
+    @pytest.mark.asyncio
+    async def test_calls_service_record(self):
+        mock_service = AsyncMock()
+
+        await cast("Any", snapshot_hero_stats).__wrapped__(mock_service)
+
+        mock_service.record_hero_stats_snapshots.assert_awaited_once_with()
+
+    def test_does_not_collide_with_the_cleanup_schedule(self):
+        cleanup = cast("Any", cleanup_stale_players).labels["schedule"]
+
+        schedule = cast("Any", snapshot_hero_stats).labels["schedule"]
+
+        assert schedule != cleanup
+        assert schedule == [{"cron": "0 5 * * *"}]

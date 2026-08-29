@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from datetime import date
+
     from app.domain.ports.storage import StaticDataCategory
 
 
@@ -25,6 +28,9 @@ class FakeStorage:
         # player_id -> last_updated_blizzard -> row, mirroring the composite
         # primary key that makes the real INSERT idempotent.
         self._snapshots: dict[str, dict[int, dict]] = {}
+        # (taken_on, platform, gamemode, region) -> payload, again mirroring the
+        # real primary key.
+        self._hero_stats: dict[tuple[date, str, str, str], list[dict]] = {}
 
     async def initialize(self) -> None:
         pass
@@ -140,6 +146,42 @@ class FakeStorage:
         return [{**row, "taken_at": int(row["taken_at"])} for row in rows[:limit]]
 
     # ------------------------------------------------------------------ #
+    # Hero stats snapshots
+    # ------------------------------------------------------------------ #
+
+    async def add_hero_stats_snapshot(
+        self,
+        taken_on: date,
+        platform: str,
+        gamemode: str,
+        region: str,
+        data: list[dict],
+    ) -> None:
+        # setdefault, not assignment: ON CONFLICT DO NOTHING keeps the first row
+        # recorded for this day and filter combination.
+        self._hero_stats.setdefault((taken_on, platform, gamemode, region), data)
+
+    async def get_hero_stats_snapshots(
+        self,
+        platform: str,
+        gamemode: str,
+        region: str,
+        since: int | None = None,
+        limit: int = 30,
+    ) -> list[dict]:
+        since_date = (
+            None if since is None else datetime.fromtimestamp(since, tz=UTC).date()
+        )
+        rows = [
+            {"taken_on": key[0], "data": data}
+            for key, data in self._hero_stats.items()
+            if key[1:] == (platform, gamemode, region)
+            and (since_date is None or key[0] >= since_date)
+        ]
+        rows.sort(key=lambda row: row["taken_on"], reverse=True)
+        return rows[:limit]
+
+    # ------------------------------------------------------------------ #
     # Maintenance
     # ------------------------------------------------------------------ #
 
@@ -169,8 +211,16 @@ class FakeStorage:
                 del self._snapshots[player_id]
         return deleted
 
+    async def delete_old_hero_stats_snapshots(self, max_age_seconds: int) -> int:
+        cutoff = (datetime.now(tz=UTC) - timedelta(seconds=max_age_seconds)).date()
+        stale = [key for key in self._hero_stats if key[0] < cutoff]
+        for key in stale:
+            del self._hero_stats[key]
+        return len(stale)
+
     async def clear_all_data(self) -> None:
         self._static.clear()
         self._profiles.clear()
         self._battletag_index.clear()
         self._snapshots.clear()
+        self._hero_stats.clear()

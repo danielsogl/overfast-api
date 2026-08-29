@@ -282,3 +282,21 @@ async def parse_hero_stats_summary(
     return parse_hero_stats_json(
         json_data, map_key, gamemode, gamemode_filter, role, order_by
     )
+
+
+def build_hero_stats_snapshot(stats: list[dict]) -> list[dict]:
+    """Reduce parsed hero stats to the payload stored in ``hero_stats_snapshots``.
+
+    Only the three rates are kept. Role, subrole and colour are hero attributes
+    rather than measurements — they do not move from one day to the next, and
+    the /heroes endpoints already serve them.
+    """
+    return [
+        {
+            "hero": row["hero"],
+            "winrate": row["winrate"],
+            "pickrate": row["pickrate"],
+            "banrate": row["banrate"],
+        }
+        for row in stats
+    ]

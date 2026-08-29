@@ -80,6 +80,13 @@ class Settings(BaseSettings):
     # Removed by the same daily cleanup task. Set to 0 to keep them forever.
     player_snapshot_max_age: int = 31536000  # 365 days
 
+    # Maximum age of hero stats snapshots in seconds. Three rows a day makes this
+    # the smallest table in the system, and its entire value is being long — a
+    # winrate series only becomes interesting once it spans several patches — so
+    # the window is much wider than the player one. Removed by the same daily
+    # cleanup task. Set to 0 to keep them forever.
+    hero_stats_snapshot_max_age: int = 63072000  # 2 years
+
     # Unknown player exponential backoff configuration
     unknown_player_initial_retry: int = 600  # 10 minutes (first check)
     unknown_player_retry_multiplier: int = 3  # retry_after *= 3 each check

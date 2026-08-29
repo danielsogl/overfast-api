@@ -427,6 +427,72 @@ class TestPlayerSnapshots:
 
 
 # ---------------------------------------------------------------------------
+# hero stats snapshots
+# ---------------------------------------------------------------------------
+
+
+class TestHeroStatsSnapshots:
+    _SLICE = ("pc", "competitive", "europe")
+
+    @pytest.mark.asyncio
+    async def test_insert_ignores_a_day_already_recorded(self):
+        taken_on = datetime.date(2026, 8, 29)
+        pool, conn = _make_pool()
+        storage = _make_storage(pool=pool)
+
+        await storage.add_hero_stats_snapshot(taken_on, *self._SLICE, [{"v": 1}])
+
+        sql, *args = conn.execute.call_args[0]
+        assert "ON CONFLICT (taken_on, platform, gamemode, region)" in sql
+        assert "DO NOTHING" in sql
+        assert args == [taken_on, "pc", "competitive", "europe", [{"v": 1}]]
+
+    @pytest.mark.asyncio
+    async def test_get_maps_rows_newest_first(self):
+        taken_on = datetime.date(2026, 8, 29)
+        pool, conn = _make_pool()
+        conn.fetch = AsyncMock(
+            return_value=[{"taken_on": taken_on, "data": [{"v": 1}]}]
+        )
+        storage = _make_storage(pool=pool)
+
+        result = await storage.get_hero_stats_snapshots(*self._SLICE)
+
+        sql = conn.fetch.call_args[0][0]
+        assert "ORDER BY taken_on DESC" in sql
+        assert result == [{"taken_on": taken_on, "data": [{"v": 1}]}]
+
+    @pytest.mark.asyncio
+    async def test_get_passes_since_as_a_nullable_timestamp(self):
+        pool, conn = _make_pool()
+        storage = _make_storage(pool=pool)
+
+        await storage.get_hero_stats_snapshots(*self._SLICE, since=1700000000, limit=5)
+
+        args = conn.fetch.call_args[0][1:]
+        assert args == ("pc", "competitive", "europe", 1700000000.0, 5)
+
+    @pytest.mark.asyncio
+    async def test_get_without_since_passes_null(self):
+        pool, conn = _make_pool()
+        storage = _make_storage(pool=pool)
+
+        await storage.get_hero_stats_snapshots(*self._SLICE)
+
+        assert conn.fetch.call_args[0][4] is None
+
+    @pytest.mark.asyncio
+    async def test_delete_old_returns_deleted_count(self):
+        pool, conn = _make_pool()
+        conn.execute = AsyncMock(return_value="DELETE 4")
+        storage = _make_storage(pool=pool)
+
+        result = await storage.delete_old_hero_stats_snapshots(63072000)
+
+        assert result == 4  # noqa: PLR2004
+
+
+# ---------------------------------------------------------------------------
 # clear_all_data
 # ---------------------------------------------------------------------------
 

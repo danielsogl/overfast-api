@@ -17,6 +17,7 @@ from app.api.models.heroes import (
     Hero,
     HeroParserErrorMessage,
     HeroShort,
+    HeroStatsHistory,
     HeroStatsSummary,
 )
 from app.config import settings
@@ -143,6 +144,93 @@ async def get_hero_stats(
         map_filter=map_,
         competitive_division=competitive_division,
         order_by=order_by,
+        cache_key=build_cache_key(request),
+    )
+    apply_swr_headers(
+        response,
+        settings.hero_stats_cache_timeout,
+        is_stale,
+        age,
+    )
+    return data
+
+
+# Declared before "/{hero_key}" (same reason as "/stats"): otherwise the path
+# parameter route would swallow "stats" and 404 on an unknown hero key.
+@router.get(
+    "/stats/history",
+    responses=routes_responses,
+    tags=[RouteTag.HEROES],
+    summary="Get hero stats history",
+    description=(
+        "Get the recorded history of hero winrate, pickrate and banrate for one "
+        "region, newest first. Blizzard publishes no history of its own : this "
+        "API takes one reading a day, so the series starts the day recording "
+        "began and has at most one point per day."
+        "<br />**Only one slice is recorded : PC, competitive, no role, map or "
+        "competitive division filter.** That is why this endpoint has no "
+        "`platform` or `gamemode` parameter — recording every combination of the "
+        "`/heroes/stats` filters would mean thousands of Blizzard requests a day, "
+        "and offering filters the data cannot answer would be worse than not "
+        "offering them."
+        "<br />An empty `snapshots` list means nothing has been recorded for the "
+        "region yet, which is a normal state and not an error."
+        f"<br />**Cache TTL : {get_human_readable_duration(settings.hero_stats_cache_timeout)}.**"
+    ),
+    operation_id="get_hero_stats_history",
+    response_model=HeroStatsHistory,
+)
+async def get_hero_stats_history(
+    request: Request,
+    response: Response,
+    service: HeroServiceDep,
+    region: Annotated[
+        PlayerRegion,
+        Query(
+            title="Region",
+            description="Region the series was recorded for.",
+            examples=["europe"],
+        ),
+    ],
+    hero: Annotated[
+        HeroKey | None,
+        Query(
+            title="Hero filter",
+            description=(
+                "Return only this hero's series. Days on which the hero was not "
+                "recorded are omitted. All heroes are returned by default."
+            ),
+            examples=["ana"],
+        ),
+    ] = None,
+    since: Annotated[
+        int | None,
+        Query(
+            title="Since",
+            description=(
+                "Only return readings taken on or after this Unix timestamp "
+                "(the day it falls on). All available readings by default."
+            ),
+            examples=[1739547600],
+            gt=0,
+        ),
+    ] = None,
+    limit: Annotated[
+        int,
+        Query(
+            title="Limit",
+            description="Maximum number of daily readings to return",
+            examples=[30],
+            ge=1,
+            le=365,
+        ),
+    ] = 30,
+) -> Any:
+    data, is_stale, age = await service.get_hero_stats_history(
+        region=region,
+        hero=str(hero) if hero else None,
+        since=since,
+        limit=limit,
         cache_key=build_cache_key(request),
     )
     apply_swr_headers(

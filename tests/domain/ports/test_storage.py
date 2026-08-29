@@ -1,5 +1,6 @@
 """Tests for the StoragePort contract — exercised via FakeStorage"""
 
+import datetime
 import time
 
 import pytest
@@ -246,6 +247,105 @@ class TestPlayerSnapshots:
 
         assert await storage_db.get_player_profile("abc123") is None
         assert len(await storage_db.get_player_snapshots("abc123")) == 1
+
+
+class TestHeroStatsSnapshots:
+    """Test the hero stats history operations"""
+
+    _SLICE = ("pc", "competitive", "europe")
+
+    @pytest.mark.asyncio
+    async def test_add_and_get_snapshot(self, storage_db):
+        data = [{"hero": "ana", "winrate": 52.1, "pickrate": 8.3, "banrate": None}]
+
+        await storage_db.add_hero_stats_snapshot(
+            datetime.date(2026, 8, 29), *self._SLICE, data
+        )
+
+        result = await storage_db.get_hero_stats_snapshots(*self._SLICE)
+        assert result == [{"taken_on": datetime.date(2026, 8, 29), "data": data}]
+
+    @pytest.mark.asyncio
+    async def test_get_snapshots_for_unrecorded_region(self, storage_db):
+        result = await storage_db.get_hero_stats_snapshots(
+            "pc", "competitive", "americas"
+        )
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_same_day_is_stored_once(self, storage_db):
+        taken_on = datetime.date(2026, 8, 29)
+        await storage_db.add_hero_stats_snapshot(taken_on, *self._SLICE, [{"v": 1}])
+        await storage_db.add_hero_stats_snapshot(taken_on, *self._SLICE, [{"v": 2}])
+
+        result = await storage_db.get_hero_stats_snapshots(*self._SLICE)
+
+        assert len(result) == 1
+        assert result[0]["data"] == [{"v": 1}]
+
+    @pytest.mark.asyncio
+    async def test_snapshots_are_returned_newest_first(self, storage_db):
+        for day in (27, 28, 29):
+            await storage_db.add_hero_stats_snapshot(
+                datetime.date(2026, 8, day), *self._SLICE, [{"day": day}]
+            )
+
+        result = await storage_db.get_hero_stats_snapshots(*self._SLICE)
+
+        assert [row["taken_on"].day for row in result] == [29, 28, 27]
+
+    @pytest.mark.asyncio
+    async def test_limit_keeps_the_newest(self, storage_db):
+        for day in (27, 28, 29):
+            await storage_db.add_hero_stats_snapshot(
+                datetime.date(2026, 8, day), *self._SLICE, [{"day": day}]
+            )
+
+        result = await storage_db.get_hero_stats_snapshots(*self._SLICE, limit=2)
+
+        assert [row["taken_on"].day for row in result] == [29, 28]
+
+    @pytest.mark.asyncio
+    async def test_since_filters_on_the_day(self, storage_db):
+        for day in (27, 29):
+            await storage_db.add_hero_stats_snapshot(
+                datetime.date(2026, 8, day), *self._SLICE, [{"day": day}]
+            )
+        since = int(datetime.datetime(2026, 8, 28, tzinfo=datetime.UTC).timestamp())
+
+        result = await storage_db.get_hero_stats_snapshots(*self._SLICE, since=since)
+
+        assert [row["taken_on"].day for row in result] == [29]
+
+    @pytest.mark.asyncio
+    async def test_snapshots_are_isolated_per_slice(self, storage_db):
+        taken_on = datetime.date(2026, 8, 29)
+        await storage_db.add_hero_stats_snapshot(taken_on, *self._SLICE, [{"v": 1}])
+        await storage_db.add_hero_stats_snapshot(
+            taken_on, "pc", "competitive", "asia", [{"v": 2}]
+        )
+
+        result = await storage_db.get_hero_stats_snapshots(*self._SLICE)
+
+        assert len(result) == 1
+        assert result[0]["data"] == [{"v": 1}]
+
+    @pytest.mark.asyncio
+    async def test_delete_old_snapshots(self, storage_db):
+        today = datetime.datetime.now(tz=datetime.UTC).date()
+        await storage_db.add_hero_stats_snapshot(today, *self._SLICE, [{"v": 1}])
+        await storage_db.add_hero_stats_snapshot(
+            today - datetime.timedelta(days=10), *self._SLICE, [{"v": 2}]
+        )
+
+        deleted = await storage_db.delete_old_hero_stats_snapshots(86400)
+
+        assert deleted == 1
+        assert [
+            row["taken_on"]
+            for row in await storage_db.get_hero_stats_snapshots(*self._SLICE)
+        ] == [today]
 
 
 class TestStorageStats:

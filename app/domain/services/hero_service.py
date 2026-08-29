@@ -1,17 +1,27 @@
 """Hero domain service — heroes list, hero detail, hero stats"""
 
 import json
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from app.config import settings
-from app.domain.enums import Locale, PlayerGamemode, SubRole
+from app.domain.enums import (
+    Locale,
+    PlayerGamemode,
+    PlayerPlatform,
+    PlayerRegion,
+    SubRole,
+)
 from app.domain.exceptions import (
     InvalidGamemodeFilterError,
     ParserInternalError,
     ParserParsingError,
 )
 from app.domain.parsers.hero import fetch_hero_html, parse_hero_html
-from app.domain.parsers.hero_stats_summary import parse_hero_stats_summary
+from app.domain.parsers.hero_stats_summary import (
+    build_hero_stats_snapshot,
+    parse_hero_stats_summary,
+)
 from app.domain.parsers.heroes import (
     fetch_heroes_html,
     filter_heroes,
@@ -19,16 +29,33 @@ from app.domain.parsers.heroes import (
 )
 from app.domain.parsers.heroes_hitpoints import parse_heroes_hitpoints
 from app.domain.services.static_data_service import StaticDataService, StaticFetchConfig
+from app.infrastructure.logger import logger
 
 if TYPE_CHECKING:
     from app.domain.enums import (
         CompetitiveDivisionFilter,
         HeroGamemode,
         MapKey,
-        PlayerPlatform,
-        PlayerRegion,
         Role,
     )
+
+# The one slice of the /heroes/stats cross product recorded daily: PC,
+# competitive, no role / map / competitive-division filter — one row per region,
+# so three Blizzard requests and three rows a day.
+#
+# Snapshotting the full cross product (platform, gamemode, region, role, map and
+# competitive division) would be thousands of requests a day and a table nobody
+# could query usefully, so this is a deliberate trade: the unfiltered slice is "the
+# meta as a whole", which is the question a winrate series actually answers.
+# Per-division or per-map history is a different feature needing its own
+# decision and its own request budget — it is not a setting, on purpose. A knob
+# here is an invitation to switch the cross product on by accident.
+HERO_STATS_SNAPSHOT_PLATFORM = PlayerPlatform.PC
+HERO_STATS_SNAPSHOT_GAMEMODE = PlayerGamemode.COMPETITIVE
+HERO_STATS_SNAPSHOT_SLICES = tuple(
+    (HERO_STATS_SNAPSHOT_PLATFORM, HERO_STATS_SNAPSHOT_GAMEMODE, region)
+    for region in PlayerRegion
+)
 
 
 class HeroService(StaticDataService):
@@ -200,7 +227,37 @@ class HeroService(StaticDataService):
         store in persistent storage. The Valkey API cache (populated here, served by nginx)
         is sufficient.
         """
+        data = await self._fetch_hero_stats(
+            platform,
+            gamemode,
+            region,
+            role,
+            map_filter,
+            competitive_division,
+            order_by,
+        )
+        await self._update_api_cache(
+            cache_key,
+            data,
+            settings.hero_stats_cache_timeout,
+        )
+        return data, False, 0
 
+    async def _fetch_hero_stats(
+        self,
+        platform: PlayerPlatform,
+        gamemode: PlayerGamemode,
+        region: PlayerRegion,
+        role: Role | SubRole | None,
+        map_filter: MapKey | None,
+        competitive_division: CompetitiveDivisionFilter | None,
+        order_by: str,
+    ) -> list[dict]:
+        """Fetch hero stats from Blizzard, trying each gamemode filter candidate.
+
+        Shared by the endpoint and the daily snapshot job so both benefit from
+        the filter fallback and both refresh the cached working filter.
+        """
         for gamemode_filter in await self._get_hero_stats_gamemode_filters(gamemode):
             try:
                 data = await self._get_hero_stats(
@@ -226,6 +283,87 @@ class HeroService(StaticDataService):
             ) from gamemode_filter_exception
 
         await self.cache.set_gamemode_filter(gamemode, working_filter)
+        return data
+
+    # ------------------------------------------------------------------
+    # Hero stats history  (GET /heroes/stats/history + daily snapshot job)
+    # ------------------------------------------------------------------
+
+    async def record_hero_stats_snapshots(self) -> int:
+        """Record today's reading of every canonical slice. Returns rows written.
+
+        Requests are sequential on purpose: they queue behind the same Blizzard
+        throttle either way, and firing three at once only makes the throttle
+        back off. A region that fails is logged and skipped — a partial day is
+        worth more than no day, and nothing here may abort the other regions.
+        """
+        taken_on = datetime.now(tz=UTC).date()
+        recorded = 0
+
+        for platform, gamemode, region in HERO_STATS_SNAPSHOT_SLICES:
+            try:
+                stats = await self._fetch_hero_stats(
+                    platform, gamemode, region, None, None, None, "hero:asc"
+                )
+                await self.storage.add_hero_stats_snapshot(
+                    taken_on,
+                    str(platform),
+                    str(gamemode),
+                    str(region),
+                    build_hero_stats_snapshot(stats),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "[hero stats history] Failed to record {} : {}", region, exc
+                )
+                continue
+
+            recorded += 1
+
+        logger.info(
+            "[hero stats history] Recorded {}/{} regions for {}",
+            recorded,
+            len(HERO_STATS_SNAPSHOT_SLICES),
+            taken_on,
+        )
+        return recorded
+
+    async def get_hero_stats_history(
+        self,
+        region: PlayerRegion,
+        cache_key: str,
+        hero: str | None = None,
+        since: int | None = None,
+        limit: int = 30,
+    ) -> tuple[dict, bool, int]:
+        """Return the recorded hero stats series for one region, newest first.
+
+        Only the canonical slice exists in storage, so platform and gamemode are
+        fixed here rather than exposed as filters. Filtering on ``hero`` drops
+        the days that hero was not recorded on, so a client charting one hero
+        gets points rather than gaps.
+        """
+        snapshots = await self.storage.get_hero_stats_snapshots(
+            str(HERO_STATS_SNAPSHOT_PLATFORM),
+            str(HERO_STATS_SNAPSHOT_GAMEMODE),
+            str(region),
+            since=since,
+            limit=limit,
+        )
+
+        series = []
+        for snapshot in snapshots:
+            stats = (
+                snapshot["data"]
+                if hero is None
+                else [row for row in snapshot["data"] if row["hero"] == hero]
+            )
+            if stats:
+                series.append(
+                    {"taken_on": snapshot["taken_on"].isoformat(), "stats": stats}
+                )
+
+        data = {"region": str(region), "snapshots": series}
         await self._update_api_cache(
             cache_key,
             data,

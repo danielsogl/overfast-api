@@ -214,16 +214,19 @@ async def refresh_player_profile(
 
 @broker.task(schedule=[{"cron": "0 3 * * *"}])
 async def cleanup_stale_players(storage: StorageDep) -> None:
-    """Apply the player retention windows (runs daily at 03:00 UTC).
+    """Apply every retention window (runs daily at 03:00 UTC).
 
-    Profiles and snapshots age out on separate clocks — a profile is a cache of
-    something Blizzard will hand back, a snapshot is not — but they are pruned in
-    one job so the cleanup stays one schedule and one log line. Either window can
-    be disabled on its own with ``<= 0``.
+    Profiles, player snapshots and hero stats snapshots age out on separate
+    clocks — a profile is a cache of something Blizzard will hand back, the
+    snapshots are not — but they are pruned in one job so the cleanup stays one
+    schedule and one log line. Any window can be disabled on its own with
+    ``<= 0``. (The name predates the hero stats table; the cron identity is not
+    worth churning to widen it.)
     """
     prune_profiles = settings.player_profile_max_age > 0
     prune_snapshots = settings.player_snapshot_max_age > 0
-    if not prune_profiles and not prune_snapshots:
+    prune_hero_stats = settings.hero_stats_snapshot_max_age > 0
+    if not prune_profiles and not prune_snapshots and not prune_hero_stats:
         logger.debug(
             "[Worker] cleanup_stale_players: disabled (max_age <= 0), skipping."
         )
@@ -235,11 +238,30 @@ async def cleanup_stale_players(storage: StorageDep) -> None:
             await storage.delete_old_player_profiles(settings.player_profile_max_age)
         if prune_snapshots:
             await storage.delete_old_player_snapshots(settings.player_snapshot_max_age)
+        if prune_hero_stats:
+            await storage.delete_old_hero_stats_snapshots(
+                settings.hero_stats_snapshot_max_age
+            )
     except Exception:  # noqa: BLE001
         logger.exception("[Worker] cleanup_stale_players: Failed.")
         return
 
     logger.info("[Worker] cleanup_stale_players: Done.")
+
+
+@broker.task(schedule=[{"cron": "0 5 * * *"}])
+async def snapshot_hero_stats(service: HeroServiceDep) -> None:
+    """Record the daily hero stats reading (runs daily at 05:00 UTC).
+
+    05:00 rather than 03:00 so it never overlaps ``cleanup_stale_players``:
+    both are cheap, but this one holds the Blizzard throttle for the length of
+    three sequential requests and there is no reason to run it beside a job
+    hammering the same database.
+
+    Failures of individual regions are handled inside the service — this task
+    only exists to put it on a schedule.
+    """
+    await service.record_hero_stats_snapshots()
 
 
 # ─── Task registry (used by ValkeyTaskQueue for dispatch) ────────────────────
