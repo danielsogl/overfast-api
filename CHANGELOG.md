@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v4.13.0 (2026-08-29)
+
+### Features
+
+- Close the four leftovers from the Blizzard data audit
+  ([#30](https://github.com/danielsogl/overfast-api/pull/30),
+  [`05086ca`](https://github.com/danielsogl/overfast-api/commit/05086ca4b8b0763d963f24e8ddc3d7b37caf7ddc))
+
+
 ## v4.12.1 (2026-08-29)
 
 ### Bug Fixes
