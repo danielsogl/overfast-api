@@ -264,25 +264,48 @@ class ValkeyCache(metaclass=Singleton):
 
     @handle_valkey_error(default_return=None)
     async def evict_volatile_data(self) -> None:
-        """Delete all Valkey keys except unknown-player status and cooldown keys."""
+        """Delete the keys holding data *we* rendered, and only those.
+
+        This runs on app startup and shutdown, and the reason it exists is real:
+        the api-cache holds JSON produced by the parsers, so a code change must
+        drop it or the old output keeps being served from Valkey while the
+        stored HTML behind it is already re-parsed correctly.
+
+        It used to be an exception list — ``scan_iter(match="*")``, delete
+        everything except the two unknown-player prefixes — which is the wrong
+        shape twice over. Every key type added later was silently deleted by
+        default, and two of them should never have been:
+
+        - ``throttle:*`` is the AIMD delay learned against Blizzard's rate limit.
+          Dropping it on every deploy means relearning the safe rate from the
+          2s start delay each time, with a fresh chance of earning a 403.
+        - the taskiq queue and its dedup keys are pending work. Wiping them
+          discards refreshes that were already scheduled.
+
+        Neither is rendered output, and neither goes stale because our code
+        changed. Listing what to evict, rather than what to spare, also means a
+        key type added tomorrow survives by default instead of vanishing.
+        """
         _evict_batch_size = 1000
-        prefixes_to_keep = (
-            settings.unknown_player_cooldown_key_prefix,
-            settings.unknown_player_status_key_prefix,
+        prefixes_to_evict = (
+            settings.api_cache_key_prefix,
+            settings.gamemode_filter_key_prefix,
         )
+        evicted = 0
         keys_to_delete = []
-        async for key in self.valkey_server.scan_iter(
-            match="*", count=_evict_batch_size
-        ):
-            key_str = key.decode("utf-8") if isinstance(key, bytes) else key
-            if not key_str.startswith(prefixes_to_keep):
+        for prefix in prefixes_to_evict:
+            async for key in self.valkey_server.scan_iter(
+                match=f"{prefix}:*", count=_evict_batch_size
+            ):
                 keys_to_delete.append(key)
                 if len(keys_to_delete) >= _evict_batch_size:
                     await self.valkey_server.delete(*keys_to_delete)
+                    evicted += len(keys_to_delete)
                     keys_to_delete.clear()
         if keys_to_delete:
             await self.valkey_server.delete(*keys_to_delete)
-        logger.info("Evicted volatile Valkey keys before shutdown")
+            evicted += len(keys_to_delete)
+        logger.info("Evicted {} rendered-response keys from Valkey", evicted)
 
     @handle_valkey_error(default_return=None)
     async def evict_low_count_player_statuses(self) -> None:
