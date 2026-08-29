@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v4.12.0 (2026-08-29)
+
+### Features
+
+- **ops**: Bring the VPS host scripts into the repo
+  ([`ace6583`](https://github.com/danielsogl/overfast-api/commit/ace6583e769d812a327a252aa54c48d804384b8c))
+
+
 ## v4.11.1 (2026-08-29)
 
 ### Bug Fixes
