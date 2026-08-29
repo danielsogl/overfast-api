@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v4.11.1 (2026-08-29)
+
+### Bug Fixes
+
+- **heroes**: Restore the fire-mode split, expose the subrole passive, filter stats by subrole
+  ([`baa3af2`](https://github.com/danielsogl/overfast-api/commit/baa3af2b74cf75c029f96722bb6791205fb47f69))
+
+
 ## v4.7.6 (2026-08-29)
 
 ### Build System
