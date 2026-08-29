@@ -2,6 +2,32 @@
 
 <!-- version list -->
 
+## v4.7.6 (2026-08-29)
+
+### Build System
+
+- Upgrade OpenResty to 1.31 and the two lagging dev pins
+  ([`844314f`](https://github.com/danielsogl/overfast-api/commit/844314ff924b2c4b4e3d1cbe50e03f680d1d92d0))
+
+- **nginx**: Retry the luarocks install so a registry hiccup cannot fail a deploy
+  ([`6644ad8`](https://github.com/danielsogl/overfast-api/commit/6644ad8e04e18a99df85f0f649baaea870358876))
+
+### Continuous Integration
+
+- Drop the manual approval gate on the deploy job
+  ([`ff3811f`](https://github.com/danielsogl/overfast-api/commit/ff3811fce916b50564e2d47d1397c33c70966c9b))
+
+### Performance Improvements
+
+- **players**: Parse a stored profile once instead of once per endpoint
+  ([`e36fc32`](https://github.com/danielsogl/overfast-api/commit/e36fc324a559ac9f650ec8b41035d0b99798027f))
+
+### Refactoring
+
+- Remove three dead parser wrappers, keep the ports, correct the docs
+  ([`dcbad9a`](https://github.com/danielsogl/overfast-api/commit/dcbad9afd019fc8aeed6337fad1f75da565ce46b))
+
+
 ## v4.7.5 (2026-08-29)
 
 ### Bug Fixes
