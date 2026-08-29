@@ -74,6 +74,12 @@ class Settings(BaseSettings):
     # background cleanup task to keep the database size bounded. Set to 0 to disable cleanup.
     player_profile_max_age: int = 604800  # 7 days
 
+    # Maximum age of player snapshots in seconds. Unlike profiles, snapshots are
+    # the one thing Blizzard cannot hand back — it publishes no history — so this
+    # window is what the history and diff endpoints can ever reach back to.
+    # Removed by the same daily cleanup task. Set to 0 to keep them forever.
+    player_snapshot_max_age: int = 31536000  # 365 days
+
     # Unknown player exponential backoff configuration
     unknown_player_initial_retry: int = 600  # 10 minutes (first check)
     unknown_player_retry_multiplier: int = 3  # retry_after *= 3 each check

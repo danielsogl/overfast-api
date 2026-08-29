@@ -1,5 +1,7 @@
 """Tests for the StoragePort contract — exercised via FakeStorage"""
 
+import time
+
 import pytest
 
 from app.domain.ports.storage import StaticDataCategory
@@ -141,6 +143,109 @@ class TestPlayerProfiles:
         actual = await storage_db.get_player_id_by_battletag("Unknown-9999")
 
         assert actual is None
+
+
+class TestPlayerSnapshots:
+    """Test the snapshot history operations"""
+
+    @pytest.mark.asyncio
+    async def test_add_and_get_snapshot(self, storage_db):
+        data = {"endorsement": 3, "competitive": {}, "heroes": {}}
+
+        await storage_db.add_player_snapshot("abc123", 1700000000, data)
+
+        result = await storage_db.get_player_snapshots("abc123")
+        assert len(result) == 1
+        assert result[0]["last_updated_blizzard"] == 1700000000  # noqa: PLR2004
+        assert result[0]["data"] == data
+        assert result[0]["taken_at"] > 0
+
+    @pytest.mark.asyncio
+    async def test_get_snapshots_for_unknown_player(self, storage_db):
+        result = await storage_db.get_player_snapshots("nobody")
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_same_version_is_stored_once(self, storage_db):
+        await storage_db.add_player_snapshot("abc123", 1700000000, {"v": 1})
+        await storage_db.add_player_snapshot("abc123", 1700000000, {"v": 2})
+
+        result = await storage_db.get_player_snapshots("abc123")
+
+        assert len(result) == 1
+        assert result[0]["data"] == {"v": 1}
+
+    @pytest.mark.asyncio
+    async def test_snapshots_are_returned_newest_first(self, storage_db):
+        for version in (1700000000, 1700000100, 1700000200):
+            await storage_db.add_player_snapshot("abc123", version, {"v": version})
+
+        result = await storage_db.get_player_snapshots("abc123")
+
+        assert [row["last_updated_blizzard"] for row in result] == [
+            1700000200,
+            1700000100,
+            1700000000,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_limit_keeps_the_newest(self, storage_db):
+        for version in (1700000000, 1700000100, 1700000200):
+            await storage_db.add_player_snapshot("abc123", version, {"v": version})
+
+        result = await storage_db.get_player_snapshots("abc123", limit=2)
+
+        assert [row["last_updated_blizzard"] for row in result] == [
+            1700000200,
+            1700000100,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_since_filters_on_taken_at(self, storage_db):
+        await storage_db.add_player_snapshot("abc123", 1700000000, {"v": 1})
+
+        in_window = await storage_db.get_player_snapshots("abc123", since=1)
+        out_of_window = await storage_db.get_player_snapshots(
+            "abc123", since=int(time.time()) + 3600
+        )
+
+        assert len(in_window) == 1
+        assert out_of_window == []
+
+    @pytest.mark.asyncio
+    async def test_snapshots_are_isolated_per_player(self, storage_db):
+        await storage_db.add_player_snapshot("abc123", 1700000000, {"v": 1})
+        await storage_db.add_player_snapshot("def456", 1700000000, {"v": 2})
+
+        result = await storage_db.get_player_snapshots("abc123")
+
+        assert len(result) == 1
+        assert result[0]["data"] == {"v": 1}
+
+    @pytest.mark.asyncio
+    async def test_delete_old_snapshots(self, storage_db):
+        await storage_db.add_player_snapshot("abc123", 1700000000, {"v": 1})
+
+        kept = await storage_db.delete_old_player_snapshots(3600)
+        deleted = await storage_db.delete_old_player_snapshots(0)
+
+        assert kept == 0
+        assert deleted == 1
+        assert await storage_db.get_player_snapshots("abc123") == []
+
+    @pytest.mark.asyncio
+    async def test_snapshots_survive_a_profile_cleanup(self, storage_db):
+        """No foreign key: the history outlives the profile it came from."""
+        await storage_db.set_player_profile(
+            player_id="abc123", html="<html/>", summary={"lastUpdated": 1700000000}
+        )
+        await storage_db.add_player_snapshot("abc123", 1700000000, {"v": 1})
+
+        await storage_db.delete_old_player_profiles(0)
+
+        assert await storage_db.get_player_profile("abc123") is None
+        assert len(await storage_db.get_player_snapshots("abc123")) == 1
 
 
 class TestStorageStats:

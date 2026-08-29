@@ -78,9 +78,46 @@ class StoragePort(Protocol):
         """Store player profile HTML and parsed summary with optional metadata"""
         ...
 
+    async def add_player_snapshot(
+        self,
+        player_id: str,
+        last_updated_blizzard: int,
+        data: dict,
+    ) -> None:
+        """Append one snapshot of a player's profile version.
+
+        Idempotent: ``(player_id, last_updated_blizzard)`` is the primary key, so
+        re-serving a profile version we already recorded stores nothing.
+        """
+        ...
+
+    async def get_player_snapshots(
+        self,
+        player_id: str,
+        since: int | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Return a player's snapshots, newest first.
+
+        ``since`` is an optional Unix timestamp filtering on ``taken_at``.
+
+        Each item is ``{'taken_at' (int Unix ts), 'last_updated_blizzard' (int),
+        'data' (dict)}``.
+        """
+        ...
+
     async def delete_old_player_profiles(self, max_age_seconds: int) -> int:
         """
         Delete player profiles not updated within max_age_seconds.
+
+        Returns:
+            Number of deleted rows
+        """
+        ...
+
+    async def delete_old_player_snapshots(self, max_age_seconds: int) -> int:
+        """
+        Delete snapshots taken longer than max_age_seconds ago.
 
         Returns:
             Number of deleted rows

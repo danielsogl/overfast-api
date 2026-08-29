@@ -45,3 +45,31 @@ CREATE INDEX IF NOT EXISTS idx_player_profiles_updated_at
 CREATE INDEX IF NOT EXISTS idx_player_profiles_battletag
     ON player_profiles (battletag)
     WHERE battletag IS NOT NULL;
+
+-- Snapshot history: one small row per profile version we ever served.
+--
+-- This is the one table whose contents Blizzard cannot hand back. Blizzard
+-- publishes no rank history, no match history and no session data, so a row
+-- deleted here is gone for good — but each row is derived from a scrape we were
+-- doing anyway, so the table costs no extra Blizzard traffic.
+--
+-- The primary key is what makes the write idempotent: (player_id,
+-- last_updated_blizzard) identifies a profile *version*, so serving the same
+-- version again inserts nothing (ON CONFLICT DO NOTHING) instead of duplicating
+-- a row on every request.
+--
+-- Deliberately NO foreign key to player_profiles. The daily cleanup_stale_players
+-- job deletes the profiles of players who stopped being requested, and a
+-- REFERENCES clause would take their history with them — exactly the data that
+-- cannot be refetched. Snapshots age out on their own clock
+-- (player_snapshot_max_age), not on the profile's.
+CREATE TABLE IF NOT EXISTS player_snapshots (
+    player_id             TEXT        NOT NULL,
+    last_updated_blizzard BIGINT      NOT NULL,
+    taken_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    data                  JSONB       NOT NULL,
+    PRIMARY KEY (player_id, last_updated_blizzard)
+);
+
+CREATE INDEX IF NOT EXISTS idx_player_snapshots_player_taken
+    ON player_snapshots (player_id, taken_at DESC);

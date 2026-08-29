@@ -588,6 +588,215 @@ PlayerCareerStats = create_model(  # ty: ignore[no-matching-overload]
 )
 
 
+# Player snapshot history
+class SnapshotCompetitiveRank(BaseModel):
+    division: CompetitiveDivision = Field(
+        ...,
+        description="Division of the rank",
+        examples=["diamond"],
+    )
+    tier: int = Field(
+        ...,
+        description="Tier inside the division, lower is better",
+        examples=[3],
+        ge=1,
+        le=5,
+    )
+
+
+class SnapshotData(BaseModel):
+    endorsement: int | None = Field(
+        None,
+        description="Endorsement level at the time of the snapshot, if any",
+        examples=[3],
+        ge=0,
+        le=5,
+    )
+    competitive: dict[str, dict[str, SnapshotCompetitiveRank]] = Field(
+        ...,
+        description=(
+            "Competitive ranks at the time of the snapshot, keyed by platform "
+            "then by role. Only ranked roles are present. Rank icon URLs are "
+            "deliberately not stored : they are static and never differ between "
+            "two snapshots of the same rank."
+        ),
+        examples=[{"pc": {"tank": {"division": "diamond", "tier": 3}}}],
+    )
+    heroes: dict[str, dict[str, dict[str, dict[str, StrictInt | StrictFloat]]]] = Field(
+        ...,
+        description=(
+            "Cumulative per-hero counters, keyed by platform, then gamemode, "
+            "then hero. Each hero carries `time_played` (seconds), `games_won` "
+            "and `win_percentage`. These are the only counters on the career "
+            "page that accumulate; every other value is an average and cannot "
+            "be differenced."
+        ),
+        examples=[
+            {
+                "pc": {
+                    "competitive": {
+                        "ana": {
+                            "time_played": 36000,
+                            "games_won": 42,
+                            "win_percentage": 54,
+                        }
+                    }
+                }
+            }
+        ],
+    )
+
+
+class PlayerSnapshot(BaseModel):
+    taken_at: int = Field(
+        ...,
+        description="Unix timestamp of the moment this snapshot was recorded",
+        examples=[1739634000],
+        gt=0,
+    )
+    last_updated_blizzard: int = Field(
+        ...,
+        description=(
+            "Blizzard's own `lastUpdated` stamp for the profile version this "
+            "snapshot was taken from. One snapshot is stored per version, so "
+            "this value is unique within a player's history."
+        ),
+        examples=[1739633000],
+        gt=0,
+    )
+    data: SnapshotData = Field(..., description="The recorded profile payload")
+
+
+class PlayerHistory(BaseModel):
+    snapshots: list[PlayerSnapshot] = Field(
+        ...,
+        description=(
+            "Recorded snapshots of the player profile, newest first. Empty when "
+            "nothing has been recorded for this player yet."
+        ),
+    )
+
+
+class PlayerRankMovement(BaseModel):
+    platform: str = Field(
+        ...,
+        description="Platform the rank belongs to",
+        examples=["pc"],
+    )
+    role: str = Field(
+        ...,
+        description="Competitive role the rank belongs to",
+        examples=["tank"],
+    )
+    before: SnapshotCompetitiveRank | None = Field(
+        ...,
+        description="Rank in the older snapshot. Null if the role was unranked then.",
+    )
+    after: SnapshotCompetitiveRank | None = Field(
+        ...,
+        description="Rank in the newer snapshot. Null if the role is unranked now.",
+    )
+
+
+class PlayerHeroDiff(BaseModel):
+    platform: str = Field(
+        ...,
+        description="Platform these deltas were played on",
+        examples=["pc"],
+    )
+    gamemode: str = Field(
+        ...,
+        description="Gamemode these deltas were played in",
+        examples=["competitive"],
+    )
+    hero: str = Field(
+        ...,
+        description="Key of the hero",
+        examples=["ana"],
+    )
+    time_played: StrictInt | StrictFloat = Field(
+        ...,
+        description="Seconds played on this hero between the two snapshots",
+        examples=[3600],
+    )
+    games_won: StrictInt | StrictFloat = Field(
+        ...,
+        description="Games won on this hero between the two snapshots",
+        examples=[7],
+    )
+    win_percentage_before: StrictInt | StrictFloat | None = Field(
+        None,
+        description="Win percentage in the older snapshot, if it was recorded",
+        examples=[52],
+    )
+    win_percentage_after: StrictInt | StrictFloat | None = Field(
+        None,
+        description="Win percentage in the newer snapshot, if it was recorded",
+        examples=[54],
+    )
+
+
+class PlayerDiffTotals(BaseModel):
+    time_played: StrictInt | StrictFloat = Field(
+        ...,
+        description="Seconds played across all heroes between the two snapshots",
+        examples=[7200],
+    )
+    games_won: StrictInt | StrictFloat = Field(
+        ...,
+        description="Games won across all heroes between the two snapshots",
+        examples=[13],
+    )
+
+
+class PlayerStatsDiff(BaseModel):
+    since: int = Field(
+        ...,
+        description=(
+            "Unix timestamp the comparison window starts at. Defaults to 24 "
+            "hours before the request."
+        ),
+        examples=[1739547600],
+        gt=0,
+    )
+    snapshots_compared: int = Field(
+        ...,
+        description=(
+            "Number of snapshots found in the window. Fewer than 2 means there "
+            "is nothing to compare yet and every delta below is empty — this is "
+            "a normal state for a player we only just started recording, not an "
+            "error."
+        ),
+        examples=[2],
+        ge=0,
+    )
+    compared_from: int | None = Field(
+        None,
+        description="Unix timestamp of the older snapshot used, if any",
+        examples=[1739547900],
+    )
+    compared_to: int | None = Field(
+        None,
+        description="Unix timestamp of the newer snapshot used, if any",
+        examples=[1739634000],
+    )
+    ranks: list[PlayerRankMovement] = Field(
+        ...,
+        description="Platform/role pairs whose rank changed within the window",
+    )
+    heroes: list[PlayerHeroDiff] = Field(
+        ...,
+        description=(
+            "Per-hero deltas within the window. Only heroes actually played "
+            "appear : an all-zero row carries nothing the live endpoints do not."
+        ),
+    )
+    totals: PlayerDiffTotals = Field(
+        ...,
+        description="Sum of the per-hero deltas above",
+    )
+
+
 class PlayerNotFoundError(BaseModel):
     """
     Enhanced 404 error response for unknown players with retry information.

@@ -244,6 +244,58 @@ class PostgresStorage(metaclass=Singleton):
             )
 
     # ------------------------------------------------------------------ #
+    # Player snapshots
+    # ------------------------------------------------------------------ #
+
+    async def add_player_snapshot(
+        self,
+        player_id: str,
+        last_updated_blizzard: int,
+        data: dict,
+    ) -> None:
+        """Append one snapshot, ignoring a version already recorded."""
+        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+            await conn.execute(
+                """INSERT INTO player_snapshots
+                       (player_id, last_updated_blizzard, data)
+                   VALUES ($1, $2, $3::jsonb)
+                   ON CONFLICT (player_id, last_updated_blizzard) DO NOTHING""",
+                player_id,
+                last_updated_blizzard,
+                data,
+            )
+
+    async def get_player_snapshots(
+        self,
+        player_id: str,
+        since: int | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Return a player's snapshots, newest first."""
+        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+            rows = await conn.fetch(
+                """SELECT taken_at, last_updated_blizzard, data
+                   FROM player_snapshots
+                   WHERE player_id = $1
+                     AND ($2::double precision IS NULL
+                          OR taken_at >= TO_TIMESTAMP($2))
+                   ORDER BY taken_at DESC, last_updated_blizzard DESC
+                   LIMIT $3""",
+                player_id,
+                None if since is None else float(since),
+                limit,
+            )
+
+        return [
+            {
+                "taken_at": int(row["taken_at"].timestamp()),
+                "last_updated_blizzard": row["last_updated_blizzard"],
+                "data": row["data"],
+            }
+            for row in rows
+        ]
+
+    # ------------------------------------------------------------------ #
     # Maintenance
     # ------------------------------------------------------------------ #
 
@@ -265,7 +317,27 @@ class PostgresStorage(metaclass=Singleton):
         )
         return deleted
 
+    async def delete_old_player_snapshots(self, max_age_seconds: int) -> int:
+        """Delete snapshots taken longer than max_age_seconds ago.
+
+        Returns:
+            Number of deleted rows.
+        """
+        cutoff = time.time() - max_age_seconds
+        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+            result = await conn.execute(
+                "DELETE FROM player_snapshots WHERE taken_at < TO_TIMESTAMP($1)",
+                cutoff,
+            )
+        deleted = int(result.split()[-1])
+        logger.info(
+            "Deleted {} old player snapshots (max_age={}s)", deleted, max_age_seconds
+        )
+        return deleted
+
     async def clear_all_data(self) -> None:
         """Truncate all tables (for testing)."""
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
-            await conn.execute("TRUNCATE static_data, player_profiles")
+            await conn.execute(
+                "TRUNCATE static_data, player_profiles, player_snapshots"
+            )

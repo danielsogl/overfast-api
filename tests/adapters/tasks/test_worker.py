@@ -151,22 +151,57 @@ class TestRefreshPlayerProfile:
 
 class TestCleanupStalePlayers:
     @pytest.mark.asyncio
-    async def test_skipped_when_max_age_zero(self):
+    async def test_skipped_when_both_max_ages_zero(self):
         mock_storage = AsyncMock()
         with patch("app.adapters.tasks.worker.settings") as mock_settings:
             mock_settings.player_profile_max_age = 0
+            mock_settings.player_snapshot_max_age = 0
             await cast("Any", cleanup_stale_players).__wrapped__(mock_storage)
 
         mock_storage.delete_old_player_profiles.assert_not_awaited()
+        mock_storage.delete_old_player_snapshots.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_calls_delete_old_player_profiles(self):
         mock_storage = AsyncMock()
         with patch("app.adapters.tasks.worker.settings") as mock_settings:
             mock_settings.player_profile_max_age = 86400
+            mock_settings.player_snapshot_max_age = 31536000
             await cast("Any", cleanup_stale_players).__wrapped__(mock_storage)
 
         mock_storage.delete_old_player_profiles.assert_awaited_once_with(86400)
+
+    @pytest.mark.asyncio
+    async def test_calls_delete_old_player_snapshots(self):
+        mock_storage = AsyncMock()
+        with patch("app.adapters.tasks.worker.settings") as mock_settings:
+            mock_settings.player_profile_max_age = 86400
+            mock_settings.player_snapshot_max_age = 31536000
+            await cast("Any", cleanup_stale_players).__wrapped__(mock_storage)
+
+        mock_storage.delete_old_player_snapshots.assert_awaited_once_with(31536000)
+
+    @pytest.mark.asyncio
+    async def test_snapshot_retention_can_be_disabled_alone(self):
+        mock_storage = AsyncMock()
+        with patch("app.adapters.tasks.worker.settings") as mock_settings:
+            mock_settings.player_profile_max_age = 86400
+            mock_settings.player_snapshot_max_age = 0
+            await cast("Any", cleanup_stale_players).__wrapped__(mock_storage)
+
+        mock_storage.delete_old_player_profiles.assert_awaited_once_with(86400)
+        mock_storage.delete_old_player_snapshots.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_profile_retention_can_be_disabled_alone(self):
+        mock_storage = AsyncMock()
+        with patch("app.adapters.tasks.worker.settings") as mock_settings:
+            mock_settings.player_profile_max_age = 0
+            mock_settings.player_snapshot_max_age = 31536000
+            await cast("Any", cleanup_stale_players).__wrapped__(mock_storage)
+
+        mock_storage.delete_old_player_profiles.assert_not_awaited()
+        mock_storage.delete_old_player_snapshots.assert_awaited_once_with(31536000)
 
     @pytest.mark.asyncio
     async def test_storage_exception_is_swallowed(self):
@@ -174,5 +209,6 @@ class TestCleanupStalePlayers:
         mock_storage.delete_old_player_profiles.side_effect = Exception("DB gone")
         with patch("app.adapters.tasks.worker.settings") as mock_settings:
             mock_settings.player_profile_max_age = 3600
+            mock_settings.player_snapshot_max_age = 31536000
             # Should not propagate
             await cast("Any", cleanup_stale_players).__wrapped__(mock_storage)

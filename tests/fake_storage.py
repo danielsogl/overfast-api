@@ -22,6 +22,9 @@ class FakeStorage:
         self._static: dict[str, dict] = {}
         self._profiles: dict[str, dict] = {}
         self._battletag_index: dict[str, str] = {}
+        # player_id -> last_updated_blizzard -> row, mirroring the composite
+        # primary key that makes the real INSERT idempotent.
+        self._snapshots: dict[str, dict[int, dict]] = {}
 
     async def initialize(self) -> None:
         pass
@@ -98,6 +101,45 @@ class FakeStorage:
             self._battletag_index[battletag] = player_id
 
     # ------------------------------------------------------------------ #
+    # Player snapshots
+    # ------------------------------------------------------------------ #
+
+    async def add_player_snapshot(
+        self,
+        player_id: str,
+        last_updated_blizzard: int,
+        data: dict,
+    ) -> None:
+        # setdefault, not assignment: ON CONFLICT DO NOTHING keeps the first row.
+        self._snapshots.setdefault(player_id, {}).setdefault(
+            last_updated_blizzard,
+            {
+                # Sub-second precision so ordering stays deterministic when a
+                # test writes several snapshots in the same second.
+                "taken_at": time.time(),
+                "last_updated_blizzard": last_updated_blizzard,
+                "data": data,
+            },
+        )
+
+    async def get_player_snapshots(
+        self,
+        player_id: str,
+        since: int | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        rows = [
+            row
+            for row in self._snapshots.get(player_id, {}).values()
+            if since is None or row["taken_at"] >= since
+        ]
+        rows.sort(
+            key=lambda row: (row["taken_at"], row["last_updated_blizzard"]),
+            reverse=True,
+        )
+        return [{**row, "taken_at": int(row["taken_at"])} for row in rows[:limit]]
+
+    # ------------------------------------------------------------------ #
     # Maintenance
     # ------------------------------------------------------------------ #
 
@@ -113,7 +155,22 @@ class FakeStorage:
             del self._profiles[pid]
         return len(to_delete)
 
+    async def delete_old_player_snapshots(self, max_age_seconds: int) -> int:
+        cutoff = time.time() - max_age_seconds
+        deleted = 0
+        for player_id, versions in list(self._snapshots.items()):
+            stale = [
+                version for version, row in versions.items() if row["taken_at"] < cutoff
+            ]
+            for version in stale:
+                del versions[version]
+            deleted += len(stale)
+            if not versions:
+                del self._snapshots[player_id]
+        return deleted
+
     async def clear_all_data(self) -> None:
         self._static.clear()
         self._profiles.clear()
         self._battletag_index.clear()
+        self._snapshots.clear()
