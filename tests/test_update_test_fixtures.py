@@ -35,6 +35,7 @@ players_calls = [
     for player in players_ids
 ]
 home_calls = [("Updating {}{}...", test_data_path, "/home.html")]
+patch_notes_calls = [("Updating {}{}...", test_data_path, "/patch-notes.html")]
 
 
 @pytest.mark.parametrize(
@@ -43,12 +44,13 @@ home_calls = [("Updating {}{}...", test_data_path, "/home.html")]
         (Mock(heroes=True, home=False, players=False), heroes_calls),
         (Mock(heroes=False, home=True, players=False), home_calls),
         (Mock(heroes=False, home=False, players=True), players_calls),
+        (Mock(heroes=False, home=False, players=False), patch_notes_calls),
         (Mock(heroes=True, home=True, players=False), heroes_calls + home_calls),
         (Mock(heroes=True, home=False, players=True), heroes_calls + players_calls),
         (Mock(heroes=False, home=True, players=True), home_calls + players_calls),
         (
             Mock(heroes=True, home=True, players=True),
-            heroes_calls + home_calls + players_calls,
+            heroes_calls + home_calls + players_calls + patch_notes_calls,
         ),
     ],
 )

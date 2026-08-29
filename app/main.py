@@ -13,6 +13,7 @@ from app.api.routers.docs import router as docs
 from app.api.routers.gamemodes import router as gamemodes
 from app.api.routers.heroes import router as heroes
 from app.api.routers.maps import router as maps
+from app.api.routers.patch_notes import router as patch_notes
 from app.api.routers.players import router as players
 from app.api.routers.roles import router as roles
 from app.config import settings
@@ -79,6 +80,16 @@ app = FastAPI(
             "description": "Overwatch maps details",
         },
         {
+            "name": RouteTag.PATCH_NOTES,
+            "description": (
+                "Overwatch patch notes : hero, map and general updates, newest first"
+            ),
+            "externalDocs": {
+                "description": "Blizzard live patch notes page, source of the information",
+                "url": "https://overwatch.blizzard.com/en-us/news/patch-notes/live",
+            },
+        },
+        {
             "name": RouteTag.PLAYERS,
             "description": players_section_description,
             "externalDocs": {
@@ -121,6 +132,7 @@ app.include_router(heroes, prefix="/heroes")
 app.include_router(roles, prefix="/roles")
 app.include_router(gamemodes, prefix="/gamemodes")
 app.include_router(maps, prefix="/maps")
+app.include_router(patch_notes, prefix="/patch-notes")
 app.include_router(players, prefix="/players")
 
 logger.info("OverFast API... Online !")

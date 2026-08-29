@@ -202,7 +202,9 @@ def check_hero_detail(hero_key: str) -> None:
 #
 # which is enough. The "from" value is exactly what a stale row still says.
 
-PATCH_NOTES_PATH = "/news/patch-notes/live"
+# Same page the /patch-notes endpoint parses; one constant, so a Blizzard move
+# cannot leave the canary checking a URL the API no longer uses.
+PATCH_NOTES_PATH = settings.patch_notes_path
 PATCH_NOTE_MONTHS = 3
 
 # Only these three map onto columns we store. Anything else in the notes —

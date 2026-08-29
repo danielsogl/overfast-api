@@ -14,9 +14,24 @@
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'static_data_category') THEN
-        CREATE TYPE static_data_category AS ENUM ('heroes', 'hero', 'gamemodes', 'maps', 'roles');
+        CREATE TYPE static_data_category AS ENUM ('heroes', 'hero', 'gamemodes', 'maps', 'roles', 'patch_notes');
     END IF;
 END $$;
+
+-- The block above only runs when the type is ABSENT, so on any database that
+-- already has it a value added to StaticDataCategory would never reach postgres
+-- and every write in that category would fail. These ALTERs are the migration:
+-- idempotent, safe on every boot, and no-ops on a database that just ran the
+-- CREATE TYPE above. One line per StaticDataCategory member, and
+-- tests/adapters/storage/test_schema.py fails if a member has no line here.
+-- (PostgreSQL 12+ allows ADD VALUE inside a transaction block as long as the
+-- new value is not used in the same transaction; nothing below uses one.)
+ALTER TYPE static_data_category ADD VALUE IF NOT EXISTS 'heroes';
+ALTER TYPE static_data_category ADD VALUE IF NOT EXISTS 'hero';
+ALTER TYPE static_data_category ADD VALUE IF NOT EXISTS 'gamemodes';
+ALTER TYPE static_data_category ADD VALUE IF NOT EXISTS 'maps';
+ALTER TYPE static_data_category ADD VALUE IF NOT EXISTS 'roles';
+ALTER TYPE static_data_category ADD VALUE IF NOT EXISTS 'patch_notes';
 
 CREATE TABLE IF NOT EXISTS static_data (
     key          VARCHAR(255)           PRIMARY KEY,

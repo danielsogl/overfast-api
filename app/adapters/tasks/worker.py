@@ -34,6 +34,7 @@ from app.api.dependencies import (
     get_gamemode_service,
     get_hero_service,
     get_map_service,
+    get_patch_notes_service,
     get_player_service,
     get_role_service,
     get_storage,
@@ -46,6 +47,7 @@ from app.domain.services import (
     GamemodeService,
     HeroService,
     MapService,
+    PatchNotesService,
     PlayerService,
     RoleService,
 )
@@ -77,6 +79,9 @@ HeroServiceDep = Annotated[HeroService, TaskiqDepends(get_hero_service)]
 RoleServiceDep = Annotated[RoleService, TaskiqDepends(get_role_service)]
 MapServiceDep = Annotated[MapService, TaskiqDepends(get_map_service)]
 GamemodeServiceDep = Annotated[GamemodeService, TaskiqDepends(get_gamemode_service)]
+PatchNotesServiceDep = Annotated[
+    PatchNotesService, TaskiqDepends(get_patch_notes_service)
+]
 PlayerServiceDep = Annotated[PlayerService, TaskiqDepends(get_player_service)]
 BlizzardClientDep = Annotated[BlizzardClientPort, TaskiqDepends(get_blizzard_client)]
 StorageDep = Annotated[StoragePort, TaskiqDepends(get_storage)]
@@ -175,6 +180,21 @@ async def refresh_gamemodes(
 
 
 @broker.task
+async def refresh_patch_notes(
+    entity_id: str,
+    service: PatchNotesServiceDep,
+    task_queue: TaskQueueDep,
+) -> None:
+    """Refresh the patch notes for one locale.
+
+    ``entity_id`` format: ``patch_notes:{locale}``  e.g. ``patch_notes:en-us``
+    """
+    _, locale_str = entity_id.split(":", 1)
+    async with _run_refresh_task(entity_id, task_queue):
+        await service.refresh_list(Locale(locale_str))
+
+
+@broker.task
 async def refresh_player_profile(
     entity_id: str, service: PlayerServiceDep, task_queue: TaskQueueDep
 ) -> None:
@@ -231,6 +251,7 @@ TASK_MAP.update(
         "refresh_roles": refresh_roles,
         "refresh_maps": refresh_maps,
         "refresh_gamemodes": refresh_gamemodes,
+        "refresh_patch_notes": refresh_patch_notes,
         "refresh_player_profile": refresh_player_profile,
     }
 )

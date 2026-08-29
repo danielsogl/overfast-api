@@ -46,6 +46,14 @@ def parse_parameters() -> argparse.Namespace:  # pragma: no cover
         help="update players test data",
     )
 
+    parser.add_argument(
+        "-Pn",
+        "--patch-notes",
+        action="store_true",
+        default=False,
+        help="update patch notes test data",
+    )
+
     args = parser.parse_args()
 
     # If no value was given by the user, all is true
@@ -53,6 +61,7 @@ def parse_parameters() -> argparse.Namespace:  # pragma: no cover
         args.heroes = True
         args.home = True
         args.players = True
+        args.patch_notes = True
 
     return args
 
@@ -88,6 +97,10 @@ def list_routes_to_update(args: argparse.Namespace) -> dict[str, str]:
     if args.home:
         logger.info("Adding home routes...")
         route_file_mapping[settings.home_path] = "/home.html"
+
+    if args.patch_notes:
+        logger.info("Adding patch notes route...")
+        route_file_mapping[settings.patch_notes_path] = "/patch-notes.html"
 
     return route_file_mapping
 

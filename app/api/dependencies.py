@@ -13,6 +13,7 @@ from app.domain.services import (
     GamemodeService,
     HeroService,
     MapService,
+    PatchNotesService,
     PlayerService,
     RoleService,
 )
@@ -83,6 +84,15 @@ def get_role_service(
     return RoleService(cache, storage, blizzard_client, task_queue)
 
 
+def get_patch_notes_service(
+    cache: CachePort = Depends(get_cache),
+    storage: StoragePort = Depends(get_storage),
+    blizzard_client: BlizzardClientPort = Depends(get_blizzard_client),
+    task_queue: TaskQueuePort = Depends(get_task_queue),
+) -> PatchNotesService:
+    return PatchNotesService(cache, storage, blizzard_client, task_queue)
+
+
 def get_player_service(
     cache: CachePort = Depends(get_cache),
     storage: StoragePort = Depends(get_storage),
@@ -100,4 +110,5 @@ HeroServiceDep = Annotated[HeroService, Depends(get_hero_service)]
 MapServiceDep = Annotated[MapService, Depends(get_map_service)]
 GamemodeServiceDep = Annotated[GamemodeService, Depends(get_gamemode_service)]
 RoleServiceDep = Annotated[RoleService, Depends(get_role_service)]
+PatchNotesServiceDep = Annotated[PatchNotesService, Depends(get_patch_notes_service)]
 PlayerServiceDep = Annotated[PlayerService, Depends(get_player_service)]

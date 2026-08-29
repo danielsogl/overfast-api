@@ -12,6 +12,7 @@ class StaticDataCategory(StrEnum):
     GAMEMODES = "gamemodes"
     MAPS = "maps"
     ROLES = "roles"
+    PATCH_NOTES = "patch_notes"
 
 
 class StoragePort(Protocol):
