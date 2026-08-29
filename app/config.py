@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     postgres_password: str
     postgres_pool_min_size: int = 2
     postgres_pool_max_size: int = 10
+    # Seconds before a query is cancelled and its connection returned to the
+    # pool. Every statement here is a single-row cache read or write against an
+    # indexed key, so 10s is already several orders of magnitude of headroom —
+    # anything slower is stuck, not slow.
+    postgres_command_timeout: float = 10.0
 
     @property
     def postgres_dsn(self) -> str:

@@ -1,4 +1,15 @@
 -- PostgreSQL schema for OverFast API persistent storage
+--
+-- CREATE TABLE IF NOT EXISTS with no migration tool is a deliberate choice, not
+-- an oversight. Both tables hold nothing but regenerable Blizzard content:
+-- static_data is scraped HTML and player_profiles is cached profiles, so the
+-- migration for any breaking change is DROP TABLE plus a refetch. That costs
+-- Blizzard round-trips behind the throttle and nothing else — there is no
+-- user-owned data here to migrate, and no state that cannot be rebuilt.
+--
+-- Adding Alembic would buy a guarantee this schema does not need and leave a
+-- versions/ directory to keep honest forever. Revisit only if a table ever
+-- starts holding something Blizzard cannot hand back.
 
 DO $$
 BEGIN
