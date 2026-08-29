@@ -56,9 +56,11 @@ exec command="":
     {{ docker_run }} {{ command }}
 
 # run tests, pytest_args can be specified
+# -n 4, not `auto`: the app service is capped at 1g and xdist would spawn one
+# worker per host CPU (18 here), OOM-killing the run with no output at all.
 test pytest_args="":
     @echo {{ if pytest_args != "" { "Running tests on " + pytest_args + "..." } else { "Running all tests with coverage..." } }}
-    {{ docker_run }} {{ if pytest_args != "" { "uv run python -m pytest " + pytest_args } else { "uv run python -m pytest --cov app/ --cov-report html -n auto tests/" } }}
+    {{ docker_run }} {{ if pytest_args != "" { "uv run python -m pytest " + pytest_args } else { "uv run python -m pytest --cov app/ --cov-report html -n 4 tests/" } }}
 
 # build & run OverFastAPI application (production mode)
 up profile="":
