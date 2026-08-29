@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v4.7.4 (2026-08-29)
+
+### Bug Fixes
+
+- **nginx**: Key rate limiting on the real client IP by default
+  ([`6b1f109`](https://github.com/danielsogl/overfast-api/commit/6b1f109f461cffd0fd44f4c55a2a2007a0ab4d0e))
+
+
 ## v4.7.3 (2026-08-29)
 
 ### Build System
