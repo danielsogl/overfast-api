@@ -16,7 +16,9 @@ Run locally with:
     POSTGRES_PASSWORD=x uv run python scripts/check_blizzard_drift.py
 """
 
+import csv
 import sys
+from pathlib import Path
 
 import httpx2
 
@@ -25,9 +27,14 @@ from app.domain.enums import HeroGamemode, HeroKey, Role
 from app.domain.parsers.hero import parse_hero_html
 from app.domain.parsers.heroes import parse_heroes_html
 from app.domain.parsers.roles import parse_roles_html
+from app.domain.utils.csv_reader import read_csv_file
 
 LOCALE = "en-us"
 TIMEOUT = 30
+
+# --fix writes the mechanical part of a new hero into heroes.csv instead of only
+# reporting it. Used by the scheduled workflow, which opens a PR with the result.
+FIX = "--fix" in sys.argv
 
 failures: list[str] = []
 warnings: list[str] = []
@@ -56,6 +63,57 @@ def fetch(path: str) -> str:
     return response.text
 
 
+def add_heroes_to_csv(new_heroes: list[dict]) -> None:
+    """Insert new heroes into heroes.csv, alphabetically, with zeroed hitpoints.
+
+    Only key/name/role can be filled from the Blizzard page. Hitpoints appear
+    nowhere on the site, so they land as 0 and the check above keeps failing
+    until someone supplies them — the point is to remove the mechanical part of
+    the edit, not to pretend the data is complete.
+
+    Existing rows are left exactly as they are; the file is only nearly sorted
+    and reordering it would bury the real change in noise.
+    """
+    path = (
+        Path(__file__).parent.parent
+        / "app"
+        / "domain"
+        / "utils"
+        / "data"
+        / "heroes.csv"
+    )
+    with path.open(encoding="utf-8", newline="") as csv_file:
+        reader = csv.DictReader(csv_file)
+        fieldnames = reader.fieldnames or []
+        rows = list(reader)
+
+    for hero in sorted(new_heroes, key=lambda h: h["key"]):
+        row = {
+            "key": hero["key"],
+            "name": hero["name"],
+            "role": hero["role"],
+            "health": "0",
+            "armor": "0",
+            "shields": "0",
+        }
+        position = next(
+            (i for i, existing in enumerate(rows) if existing["key"] > hero["key"]),
+            len(rows),
+        )
+        rows.insert(position, row)
+        print(f"  added {hero['key']!r} to heroes.csv (hitpoints left at 0)")
+
+    with path.open("w", encoding="utf-8", newline="") as csv_file:
+        # csv defaults to CRLF, which rewrites every line of a LF file and buries
+        # a one-hero change in a whole-file diff.
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+
+    # The cached reader would otherwise hand back the pre-write rows.
+    read_csv_file.cache_clear()
+
+
 def check_heroes() -> list[dict]:
     """Parse the live heroes index and compare its keys with the HeroKey enum."""
     print("=== heroes index ===")
@@ -75,6 +133,22 @@ def check_heroes() -> list[dict]:
             f"new hero(es) on Blizzard missing from heroes.csv: {', '.join(missing)}. "
             "Add key/name/role; health/armor/shields are not published by Blizzard "
             "and must be filled in by hand."
+        )
+        if FIX:
+            add_heroes_to_csv([h for h in heroes if h["key"] in set(missing)])
+
+    # An auto-added row carries zeroed hitpoints, which no real hero has. Fail
+    # until a human fills them in, so an unfinished row cannot sit in main
+    # quietly serving wrong data.
+    if unfilled := sorted(
+        row["key"]
+        for row in read_csv_file("heroes")
+        if int(row["health"] or 0) == 0  # ty: ignore[invalid-argument-type]
+    ):
+        fail(
+            f"hero(es) in heroes.csv with health=0: {', '.join(unfilled)}. "
+            "These rows were added automatically — fill in health/armor/shields "
+            "from the in-game hero screen."
         )
 
     # We have heroes Blizzard doesn't. Legitimate for an unreleased hero added
