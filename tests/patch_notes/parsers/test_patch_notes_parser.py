@@ -2,6 +2,8 @@
 
 ``tests/fixtures/html/patch-notes.html`` is the unmodified
 ``https://overwatch.blizzard.com/en-us/news/patch-notes/live`` page.
+``patch-notes-fr-fr.html`` and ``heroes-fr-fr.html`` are the same pages in
+``fr-fr``, fetched the same way.
 """
 
 from datetime import date
@@ -157,6 +159,72 @@ class TestParsePatchNotesHtml:
 
         with pytest.raises(ParserParsingError):
             parse_patch_notes_html(html)
+
+
+def _hero_entries(patch_notes: list[dict]) -> list[dict]:
+    return [
+        entry
+        for patch in patch_notes
+        for section in patch["sections"]
+        for entry in section["entries"]
+        if section["kind"] == "hero_update"
+    ]
+
+
+class TestParseLocalisedPatchNotesHtml:
+    def test_localised_names_do_not_resolve_against_the_english_csv(
+        self, patch_notes_fr_html_data: str
+    ):
+        patch_notes = parse_patch_notes_html(patch_notes_fr_html_data)
+
+        unresolved = {
+            entry["title"] for entry in _hero_entries(patch_notes) if not entry["hero"]
+        }
+
+        assert {"Écho", "Chacal", "Danger", "Vital"} <= unresolved
+
+    def test_localised_names_resolve_with_the_locale_index(
+        self, patch_notes_fr_html_data: str, fr_hero_keys: dict[str, str]
+    ):
+        patch_notes = parse_patch_notes_html(patch_notes_fr_html_data, fr_hero_keys)
+
+        hero_entries = _hero_entries(patch_notes)
+        resolved = {entry["title"]: entry["hero"] for entry in hero_entries}
+
+        assert hero_entries
+        assert all(entry["hero"] in HeroKey for entry in hero_entries)
+        assert resolved["Écho"] == HeroKey.ECHO
+        assert resolved["Chacal"] == HeroKey.JUNKRAT
+        assert resolved["Danger"] == HeroKey.HAZARD
+        assert resolved["Vital"] == HeroKey.LIFEWEAVER
+
+    def test_unknown_localised_name_is_kept_with_a_null_key(
+        self, patch_notes_fr_html_data: str, fr_hero_keys: dict[str, str]
+    ):
+        # A hero shipped on patch day: it is named in the notes before it
+        # appears in any locale's heroes list.
+        html = patch_notes_fr_html_data.replace(">Écho<", ">Nouveau Héros<")
+
+        patch_notes = parse_patch_notes_html(html, fr_hero_keys)
+
+        unknown = [
+            entry
+            for entry in _hero_entries(patch_notes)
+            if entry["title"] == "Nouveau Héros"
+        ]
+        assert unknown
+        assert all(entry["hero"] is None for entry in unknown)
+        assert all(entry["details"] or entry["abilities"] for entry in unknown)
+
+    def test_english_page_is_unchanged_by_the_default_index(
+        self, patch_notes_html_data: str
+    ):
+        without_index = parse_patch_notes_html(patch_notes_html_data)
+
+        with_explicit_none = parse_patch_notes_html(patch_notes_html_data, None)
+
+        assert with_explicit_none == without_index
+        assert all(entry["hero"] in HeroKey for entry in _hero_entries(without_index))
 
 
 class TestLimitPatchNotes:

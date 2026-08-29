@@ -56,6 +56,67 @@ def test_get_patch_notes_with_locale(client: TestClient, patch_notes_html_data: 
     assert "/fr-fr/news/patch-notes/live" in mock_get.call_args[0][0]
 
 
+def _hero_keys_by_title(patch_notes: list[dict]) -> dict[str, str | None]:
+    return {
+        entry["title"]: entry["hero"]
+        for patch in patch_notes
+        for section in patch["sections"]
+        for entry in section["entries"]
+        if section["kind"] == "hero_update"
+    }
+
+
+def test_get_patch_notes_resolves_localised_hero_names(
+    client: TestClient,
+    patch_notes_fr_html_data: str,
+    heroes_fr_html_data: str,
+):
+    # Populate the fr-fr heroes list the way the API itself does, so the patch
+    # notes request finds it in storage under "heroes:fr-fr".
+    with patch(
+        "httpx2.AsyncClient.get",
+        return_value=Mock(status_code=status.HTTP_200_OK, text=heroes_fr_html_data),
+    ):
+        client.get("/heroes?locale=fr-fr")
+
+    with patch(
+        "httpx2.AsyncClient.get",
+        return_value=Mock(
+            status_code=status.HTTP_200_OK, text=patch_notes_fr_html_data
+        ),
+    ):
+        response = client.get("/patch-notes?locale=fr-fr")
+
+    heroes = _hero_keys_by_title(response.json())
+
+    assert response.status_code == status.HTTP_200_OK
+    assert heroes["Écho"] == "echo"
+    assert heroes["Chacal"] == "junkrat"
+    assert heroes["Danger"] == "hazard"
+    assert heroes["Vital"] == "lifeweaver"
+
+
+def test_get_patch_notes_without_a_localised_heroes_list_keeps_raw_names(
+    client: TestClient,
+    patch_notes_fr_html_data: str,
+):
+    with patch(
+        "httpx2.AsyncClient.get",
+        return_value=Mock(
+            status_code=status.HTTP_200_OK, text=patch_notes_fr_html_data
+        ),
+    ):
+        response = client.get("/patch-notes?locale=fr-fr")
+
+    heroes = _hero_keys_by_title(response.json())
+
+    assert response.status_code == status.HTTP_200_OK
+    assert heroes["Écho"] is None
+    assert heroes["Chacal"] is None
+    # English-identical names still resolve through the heroes.csv fallback.
+    assert heroes["Ana"] == "ana"
+
+
 def test_get_patch_notes_rejects_a_zero_limit(client: TestClient):
     response = client.get("/patch-notes?limit=0")
 
