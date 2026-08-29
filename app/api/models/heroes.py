@@ -98,7 +98,14 @@ class Ability(BaseModel):
             "https://d15f34w2p8l1cc.cloudfront.net/overwatch/24a3f2f619859812bba6b6374513fa971b6b19ccb34950c02118b41cc4f93142.png",
         ],
     )
-    video: AbilityVideo = Field(..., description="Video of the ability")
+    video: AbilityVideo | None = Field(
+        None,
+        description=(
+            "Video of the ability. Null when Blizzard publishes no video for it, "
+            "which happens around a hero release. Previously this was filled "
+            "from document order and could show a neighbouring ability's video."
+        ),
+    )
 
 
 class Media(BaseModel):
@@ -206,17 +213,18 @@ class Perk(BaseModel):
 
 
 class PerksContainer(BaseModel):
+    # No exact length pin on either list. Blizzard owns these counts, so pinning
+    # them means a balance patch that ships a third minor perk turns into a 500
+    # on /heroes/{key} — a response-model failure we cannot fix without a deploy.
     minor: list[Perk] = Field(
         ...,
-        description="List of minor perks.",
-        min_length=2,
-        max_length=2,
+        description="List of minor perks. Two today; Blizzard sets the number.",
+        min_length=1,
     )
     major: list[Perk] = Field(
         ...,
-        description="List of major perks.",
-        min_length=2,
-        max_length=2,
+        description="List of major perks. Two today; Blizzard sets the number.",
+        min_length=1,
     )
 
 
@@ -307,17 +315,28 @@ class Hero(BaseModel):
         description="List of hero abilities",
         min_length=1,
     )
-    perks: PerksContainer = Field(
-        ...,
-        description="Hero perks (minor and major)",
+    perks: PerksContainer | None = Field(
+        None,
+        description=(
+            "Hero perks (minor and major). Null when Blizzard ships the hero "
+            "page without a perks section, as happens on release."
+        ),
     )
     stadium_powers: list[StadiumPower] | None = Field(
         None,
-        description="List of Stadium powers. Can be null if hero isn't available on Stadium gamemode.",
-        min_length=12,
-        max_length=12,
+        description=(
+            "List of Stadium powers. Null if the hero isn't available in the "
+            "Stadium gamemode. Twelve today; Blizzard sets the number."
+        ),
+        min_length=1,
     )
-    story: Story = Field(..., description="Story of the hero")
+    story: Story | None = Field(
+        None,
+        description=(
+            "Story of the hero. Null when Blizzard ships the hero page without "
+            "a lore section, as happens on release."
+        ),
+    )
 
 
 class HeroShort(BaseModel):

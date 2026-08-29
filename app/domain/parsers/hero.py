@@ -69,11 +69,19 @@ def parse_hero_html(html: str, locale: Locale = Locale.ENGLISH_US) -> dict:
             msg = "Hero overview section (blz-page-header) not found"
             raise ParserParsingError(msg)
 
+        # Only the overview is mandatory. Perks and lore are whole sections that
+        # a freshly released hero can ship without — the same reason `portrait`
+        # is nullable — and losing one of them is no reason to 500 the rest.
+        if not perks_section:
+            logger.warning("Hero page has no perks section, reporting null perks")
+        if not lore_section:
+            logger.warning("Hero page has no lore section, reporting null story")
+
         hero_data = {
             **_parse_hero_summary(overview_section, locale),
             "abilities": _parse_hero_abilities(abilities_section),
-            "perks": _parse_hero_perks(perks_section),
-            "story": _parse_hero_story(lore_section),
+            "perks": _parse_hero_perks(perks_section) if perks_section else None,
+            "story": _parse_hero_story(lore_section) if lore_section else None,
         }
         if stadium_wrapper := root_tag.css_first("div.stadium-wrapper"):
             hero_data["stadium_powers"] = _parse_hero_stadium_powers(stadium_wrapper)
@@ -219,17 +227,13 @@ def _parse_hero_abilities(abilities_section: LexborNode) -> list[dict]:
         for desc_div in abilities_list_div.css("blz-feature")
     ]
 
-    # Parse ability videos
-    abilities_videos = [
-        {
-            "thumbnail": safe_get_attribute(video_div, "poster"),
-            "link": {
-                "mp4": safe_get_attribute(video_div, "mp4"),
-                "webm": safe_get_attribute(video_div, "webm"),
-            },
-        }
-        for video_div in carousel_section_div.css("blz-web-video")
-    ]
+    # Videos live in the carousel *section*, one DOM level above the abilities
+    # themselves, so they cannot be read per ability. Blizzard numbers them with
+    # data-group instead, and that number is the ability index — key off it
+    # rather than off document order. Enumerating the list positionally means a
+    # single extra <blz-web-video> anywhere in the section shifts every ability
+    # onto the next one's video: no exception, valid URLs, cached for 24h.
+    abilities_videos = _parse_ability_videos(carousel_section_div)
 
     # Combine into abilities list
     abilities = []
@@ -243,11 +247,46 @@ def _parse_hero_abilities(abilities_section: LexborNode) -> list[dict]:
                 "description": abilities_desc[ability_index][0],
                 "fire_modes": abilities_desc[ability_index][1],
                 "icon": safe_get_attribute(ability_div.css_first("blz-image"), "src"),
-                "video": abilities_videos[ability_index],
+                # None rather than a neighbour's video. A missing video is
+                # visibly missing; a wrong one is indistinguishable from a right
+                # one, and the old positional index also raised IndexError
+                # whenever Blizzard shipped fewer videos than abilities.
+                "video": abilities_videos.get(ability_index),
             }
         )
 
     return abilities
+
+
+def _parse_ability_videos(carousel_section_div: LexborNode) -> dict[int, dict]:
+    """Map Blizzard's ``data-group`` ordinal to the video it belongs to.
+
+    A video missing any of its three URLs is dropped: the response model types
+    them as URLs, so a partial one fails validation for the whole hero.
+    """
+    videos: dict[int, dict] = {}
+
+    for video_div in carousel_section_div.css("blz-web-video"):
+        group = safe_get_attribute(video_div, "data-group")
+        if group is None or not group.isdigit():
+            logger.warning(
+                "Ability video without a usable data-group ({!r}), skipping", group
+            )
+            continue
+
+        thumbnail = safe_get_attribute(video_div, "poster")
+        mp4 = safe_get_attribute(video_div, "mp4")
+        webm = safe_get_attribute(video_div, "webm")
+        if not (thumbnail and mp4 and webm):
+            logger.warning("Incomplete ability video in group {}, skipping", group)
+            continue
+
+        videos[int(group)] = {
+            "thumbnail": thumbnail,
+            "link": {"mp4": mp4, "webm": webm},
+        }
+
+    return videos
 
 
 def _parse_hero_perks(perks_section: LexborNode) -> dict:

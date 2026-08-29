@@ -372,11 +372,22 @@ def _get_role_icon(role_wrapper: LexborNode) -> str:
 
 
 def _parse_stats(root_tag: LexborNode) -> dict | None:
-    """Parse stats for all platforms"""
-    stats = {
-        platform.value: _parse_platform_stats(root_tag, platform_class)
-        for platform, platform_class in PLATFORMS_DIV_MAPPING.items()
-    }
+    """Parse stats for all platforms.
+
+    Wrapped like ``_parse_summary``. Without this the markup-volatile half of
+    the player parser was also the unmonitored half: ``ParserParsingError``
+    reaches a handler that returns JSON and raises an alert, while a bare
+    ``KeyError`` from here escaped all four registered handlers as a plain-text
+    500 that nothing reported.
+    """
+    try:
+        stats = {
+            platform.value: _parse_platform_stats(root_tag, platform_class)
+            for platform, platform_class in PLATFORMS_DIV_MAPPING.items()
+        }
+    except (AttributeError, KeyError, IndexError, TypeError) as error:
+        error_msg = f"Failed to parse player stats: {error!r}"
+        raise ParserParsingError(error_msg) from error
 
     # If no data for any platform, return None
     return None if not any(stats.values()) else stats

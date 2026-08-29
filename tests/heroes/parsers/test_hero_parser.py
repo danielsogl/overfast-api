@@ -146,3 +146,67 @@ class TestSubrolePassive:
 
         assert hero["subrole_passive"]
         assert hero["subrole_passive"] == hero["subrole_passive"].strip()
+
+
+class TestAbilityVideoPairing:
+    """Videos sit in the carousel *section*, abilities in the carousel inside it.
+
+    Pairing them by document order meant a single stray <blz-web-video> shifted
+    every ability onto the next one's video — valid URLs, no exception, cached
+    for 24 hours. Blizzard numbers the videos with data-group; these tests pin
+    that the number is what decides, not the position.
+    """
+
+    @pytest.mark.parametrize("hero_html_data", ["ana"], indirect=True)
+    def test_every_ability_keeps_its_own_video(self, hero_html_data: str):
+        hero = parse_hero_html(hero_html_data, Locale.ENGLISH_US)
+        videos = [a["video"]["link"]["mp4"] for a in hero["abilities"]]
+
+        assert len(videos) == len(set(videos)), "an ability reused another's video"
+
+    @pytest.mark.parametrize("hero_html_data", ["ana"], indirect=True)
+    def test_a_stray_video_does_not_shift_the_mapping(self, hero_html_data: str):
+        """The actual failure mode, reproduced by mutating a real page."""
+        before = parse_hero_html(hero_html_data, Locale.ENGLISH_US)
+
+        # Blizzard numbers real ability videos; an unnumbered one is exactly what
+        # positional pairing could not survive.
+        stray = '<blz-web-video poster="https://x/p.jpg" mp4="https://x/s.mp4" webm="https://x/s.webm"></blz-web-video>'
+        mutated = hero_html_data.replace("<blz-web-video", stray + "<blz-web-video", 1)
+        after = parse_hero_html(mutated, Locale.ENGLISH_US)
+
+        assert [a["video"] for a in after["abilities"]] == [
+            a["video"] for a in before["abilities"]
+        ]
+
+    @pytest.mark.parametrize("hero_html_data", ["ana"], indirect=True)
+    def test_missing_video_is_null_not_a_crash(self, hero_html_data: str):
+        """Fewer videos than abilities used to raise IndexError -> unmonitored 500."""
+        mutated = hero_html_data.replace("<blz-web-video", "<blz-removed-video")
+        hero = parse_hero_html(mutated, Locale.ENGLISH_US)
+
+        assert hero["abilities"], "abilities must survive the loss of their videos"
+        assert all(a["video"] is None for a in hero["abilities"])
+
+
+class TestOptionalHeroSections:
+    """Perks and lore are whole sections a freshly released hero can ship
+    without. Losing one is no reason to 500 the rest of the hero."""
+
+    @pytest.mark.parametrize("hero_html_data", ["ana"], indirect=True)
+    def test_hero_without_perks_still_parses(self, hero_html_data: str):
+        mutated = hero_html_data.replace('id="perks"', 'id="perks-removed"')
+        hero = parse_hero_html(mutated, Locale.ENGLISH_US)
+
+        assert hero["perks"] is None
+        assert hero["name"]
+        assert hero["abilities"]
+
+    @pytest.mark.parametrize("hero_html_data", ["ana"], indirect=True)
+    def test_hero_without_lore_still_parses(self, hero_html_data: str):
+        mutated = hero_html_data.replace('class="lore"', 'class="lore-removed"')
+        hero = parse_hero_html(mutated, Locale.ENGLISH_US)
+
+        assert hero["story"] is None
+        assert hero["name"]
+        assert hero["abilities"]
