@@ -3,8 +3,17 @@ and rots after balance patches. The *changes* are published though, and this is
 the logic that reads them. Every sample below is real patch-note wording.
 """
 
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock, patch
+
+import httpx2
 import pytest
-from scripts.check_blizzard_drift import hitpoint_findings, parse_rotation_maps
+import scripts.check_blizzard_drift as drift
+from scripts.check_blizzard_drift import (
+    check_hero_stats_recording,
+    hitpoint_findings,
+    parse_rotation_maps,
+)
 
 _ROWS = {
     "Reaper": {"health": "275", "armor": "0", "shields": "0"},
@@ -152,3 +161,65 @@ class TestRotationMapParsing:
         result = parse_rotation_maps("<html><body>no dropdown here</body></html>")
 
         assert result == {}
+
+
+def _days_ago(days: int) -> str:
+    return (datetime.now(UTC).date() - timedelta(days=days)).isoformat()
+
+
+def _api_response(snapshots: list[dict]) -> MagicMock:
+    response = MagicMock()
+    response.json.return_value = {"region": "europe", "snapshots": snapshots}
+    return response
+
+
+class TestHeroStatsRecording:
+    """The daily snapshot job can stop writing and nothing notices: a failed
+    region is a log line nobody reads. This queries the live API instead of the
+    table, so it covers cron -> storage -> endpoint in one request.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_findings(self):
+        drift.failures.clear()
+        drift.warnings.clear()
+
+    # 1 day is the normal state: the job and this check both run at 05:00 UTC,
+    # so today's reading often does not exist yet. 2 absorbs one failed run.
+    @pytest.mark.parametrize("age", [0, 1, 2])
+    def test_fresh_reading_passes(self, age: int):
+        response = _api_response([{"taken_on": _days_ago(age), "stats": [{}]}])
+
+        with patch("httpx2.get", return_value=response):
+            check_hero_stats_recording()
+
+        assert drift.failures == []
+        assert drift.warnings == []
+
+    def test_stale_reading_fails(self):
+        response = _api_response([{"taken_on": _days_ago(5), "stats": [{}]}])
+
+        with patch("httpx2.get", return_value=response):
+            check_hero_stats_recording()
+
+        assert len(drift.failures) == 1
+        assert "has stopped" in drift.failures[0]
+
+    def test_empty_history_warns_rather_than_fails(self):
+        """Empty is the normal state until the first cron run after a fresh
+        deployment, and there is nothing to backfill."""
+        response = _api_response([])
+
+        with patch("httpx2.get", return_value=response):
+            check_hero_stats_recording()
+
+        assert drift.failures == []
+        assert len(drift.warnings) == 1
+
+    def test_unreachable_api_warns_rather_than_fails(self):
+        """The canary being unreachable is not recording having stopped."""
+        with patch("httpx2.get", side_effect=httpx2.ConnectError("no route to host")):
+            check_hero_stats_recording()
+
+        assert drift.failures == []
+        assert len(drift.warnings) == 1

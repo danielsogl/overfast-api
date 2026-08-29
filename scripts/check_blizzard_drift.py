@@ -10,6 +10,9 @@ This closes that gap using the project's own parsers, so there is no second
 copy of the scraping logic to keep in sync. It deliberately does *not* run on
 pull requests: Blizzard being slow or down must never block a merge.
 
+One check points the other way — at our own live API — for the same reason: the
+daily hero-stats snapshot job can stop recording without anything noticing.
+
 Exits non-zero when it finds drift, which turns the scheduled workflow red.
 
 Run locally with:
@@ -19,7 +22,7 @@ Run locally with:
 import csv
 import re
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import httpx2
@@ -415,6 +418,78 @@ def check_maps_in_rotation() -> None:
     print(f"  checked {len(live)} maps in rotation against {len(ours)} known")
 
 
+# ── Hero stats recording ─────────────────────────────────────────────────────
+#
+# The snapshot_hero_stats cron writes one hero-stats reading per region every
+# day at 05:00 UTC. A region that fails is logged and skipped; a day where every
+# region fails logs "Recorded 0/3" and moves on. There is no alerting and no
+# metrics stack, so nobody sees either — the table just stops growing and the
+# first person to notice is a user staring at an empty chart weeks later.
+#
+# This workflow has no database access, so the table cannot be queried directly.
+# The live API is the better probe anyway: it exercises the whole chain (cron
+# ran -> storage wrote -> endpoint serves) instead of one table.
+
+# settings.app_base_url is overridable via APP_BASE_URL, so this can be pointed
+# at a staging instance without editing the script.
+HISTORY_PATH = "/heroes/stats/history"
+
+# The region is only a probe: all three slices are written by the same loop in
+# the same job, so if europe stopped, recording stopped.
+HISTORY_REGION = "europe"
+
+# Both the snapshot cron and this workflow fire at 05:00 UTC, so today's reading
+# may legitimately not exist yet when we look — one day of slack is structural,
+# not laxity. The second day absorbs a single failed run (Blizzard down for an
+# hour is not a stopped canary). Two consecutive missing days is no longer
+# explainable that way, and that is what this fails on. A check that flapped on
+# the 05:00 boundary would be muted within a week, which would cost more than
+# the day of detection latency this buys.
+MAX_SNAPSHOT_AGE_DAYS = 2
+
+
+def check_hero_stats_recording() -> None:
+    """Assert the live API is still serving a recent hero-stats reading."""
+    print("=== hero stats recording ===")
+
+    url = f"{settings.app_base_url.rstrip('/')}{HISTORY_PATH}"
+    try:
+        response = httpx2.get(
+            url,
+            params={"region": HISTORY_REGION, "limit": 1},
+            timeout=TIMEOUT,
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+        snapshots = response.json()["snapshots"]
+    except (httpx2.HTTPError, ValueError, KeyError) as exc:
+        # The canary being unreachable is not the same as recording having
+        # stopped, and a failure here would say the wrong thing.
+        warn(f"could not read {url}: {exc}")
+        return
+
+    if not snapshots:
+        # Normal for a while after a deployment: recording starts on the first
+        # cron run and there is nothing to backfill. A failure here would be red
+        # on day one and muted for good, so this stays a warning permanently.
+        warn(
+            f"no hero stats recorded yet for {HISTORY_REGION} — expected only "
+            "right after a fresh deployment, otherwise recording never started"
+        )
+        return
+
+    taken_on = date.fromisoformat(snapshots[0]["taken_on"])
+    age = (datetime.now(UTC).date() - taken_on).days
+    if age > MAX_SNAPSHOT_AGE_DAYS:
+        fail(
+            f"newest hero stats reading for {HISTORY_REGION} is {taken_on} "
+            f"({age} days old) — the daily snapshot_hero_stats job has stopped "
+            "recording. Check the worker logs for '[hero stats history]'."
+        )
+    else:
+        print(f"  newest reading for {HISTORY_REGION} is {taken_on} ({age}d old)")
+
+
 def check_roles() -> None:
     """Parse the roles block off the home page."""
     print("=== roles ===")
@@ -443,6 +518,7 @@ def main() -> int:
         check_roles()
         check_hitpoints_against_patch_notes()
         check_maps_in_rotation()
+        check_hero_stats_recording()
     except httpx2.HTTPError as exc:
         # Network trouble is not drift; say so rather than reporting a false
         # positive, but still exit non-zero so the run is not silently green.
