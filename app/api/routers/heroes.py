@@ -114,7 +114,8 @@ async def get_hero_stats(
         ),
     ],
     role: Annotated[
-        Role | None, Query(title="Role filter", examples=["support"])
+        Role | SubRole | None,
+        Query(title="Role or subrole filter", examples=["support"]),
     ] = None,
     map_: Annotated[
         MapKey | None, Query(alias="map", title="Map key filter", examples=["hanaoka"])
