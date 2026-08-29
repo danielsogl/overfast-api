@@ -51,9 +51,7 @@ running_image_id() {
 
 # ── Step 1: Snapshot running image IDs before we rebuild ─────────────────────
 log "Capturing current image IDs..."
-NGINX_IMAGE_BEFORE=$(running_image_id nginx)
 VALKEY_IMAGE_BEFORE=$(running_image_id valkey)
-log "  nginx  : ${NGINX_IMAGE_BEFORE:-<none>}"
 log "  valkey : ${VALKEY_IMAGE_BEFORE:-<none>}"
 
 # ── Step 2: Build all images, pulling fresh base layers ──────────────────────
@@ -200,27 +198,28 @@ docker compose up -d --no-deps --remove-orphans worker scheduler 2>&1 | tee -a "
 wait_healthy app 90
 wait_healthy scheduler 60
 
-# ── Step 7: Decide how to handle nginx ───────────────────────────────────────
-# Image-change detection: compare the image that the running nginx
-# container was launched from (NGINX_IMAGE_BEFORE) against the latest
-# tagged 'overfast-api-nginx:latest' (which is what compose build just
-# produced). 'docker compose images nginx' returns the running
-# container's image, so we use 'docker image inspect' on the tag for
-# the freshly built one.
-NGINX_IMAGE_AFTER=$(docker image inspect overfast-api-nginx --format '{{.Id}}' 2>/dev/null || true)
+# ── Step 7: Reconcile nginx ──────────────────────────────────────────────────
+# `up -d` is the authority on whether the container must be replaced: it
+# compares the whole service definition — image, mounts, ports, env — and
+# no-ops when nothing changed, so the zero-downtime intent is preserved
+# without us reimplementing its diff.
+#
+# The old logic compared only image IDs, which silently missed a mount change:
+# switching the static files from a named volume to a bind mount would have
+# taken the reload path and never applied, leaving map screenshots 404 exactly
+# as before.
+log "Reconciling nginx against the current compose definition..."
+NGINX_ID_BEFORE=$(docker compose ps -q nginx 2>/dev/null || true)
+docker compose up -d --no-deps nginx 2>&1 | tee -a "$LOG_FILE"
+NGINX_ID_AFTER=$(docker compose ps -q nginx 2>/dev/null || true)
 
-log "  Nginx image before: ${NGINX_IMAGE_BEFORE:-<none>}"
-log "  Nginx image after : ${NGINX_IMAGE_AFTER:-<none>}"
-
-if [ -z "$NGINX_IMAGE_BEFORE" ]; then
-    log "nginx was not running. Starting nginx..."
-    docker compose up -d --no-deps nginx 2>&1 | tee -a "$LOG_FILE"
-elif [ -n "$NGINX_IMAGE_AFTER" ] && [ "$NGINX_IMAGE_BEFORE" != "$NGINX_IMAGE_AFTER" ]; then
-    log "nginx image changed. Recreating nginx container..."
-    docker compose up -d --no-deps nginx 2>&1 | tee -a "$LOG_FILE"
-else
-    log "nginx image unchanged. Reloading nginx config in-place..."
+if [ -n "$NGINX_ID_BEFORE" ] && [ "$NGINX_ID_BEFORE" = "$NGINX_ID_AFTER" ]; then
+    # Untouched, so the generated config may still be stale: the entrypoint
+    # renders it from templates and .env at container start.
+    log "nginx container unchanged. Reloading config in-place..."
     docker compose exec -T nginx nginx -s reload 2>&1 | tee -a "$LOG_FILE"
+else
+    log "nginx container was replaced by compose."
 fi
 
 # ── Step 8: Final health assertion ───────────────────────────────────────────
