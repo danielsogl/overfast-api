@@ -1050,6 +1050,15 @@ class TestStoreSnapshot:
         assert await storage.get_player_snapshots(_BLIZZARD_ID) == []
 
 
+def _cache_holding(*keys: str) -> AsyncMock:
+    """A cache whose ``scan_keys`` answers from a fixed keyspace, like Valkey."""
+    cache = AsyncMock()
+    cache.scan_keys = AsyncMock(
+        side_effect=lambda pattern: [key for key in keys if fnmatch(key, pattern)]
+    )
+    return cache
+
+
 class TestEvictionCoversTheHistoryEndpoints:
     @pytest.mark.asyncio
     async def test_glob_matches_history_and_diff_cache_keys(self):
@@ -1083,6 +1092,80 @@ class TestEvictionCoversTheHistoryEndpoints:
         prefix = f"{settings.api_cache_key_prefix}:"
         stored_key = f"{prefix}/players/{quote(_BLIZZARD_ID, safe='')}/summary"
         assert fnmatch(stored_key, pattern)
+
+    @pytest.mark.asyncio
+    async def test_battletag_refresh_also_clears_the_blizzard_id_keys(self):
+        """Both identifiers reach the same profile, so both can be cached. A
+        refresh triggered with the BattleTag used to clear only that glob,
+        leaving the Blizzard-ID keys serving the pre-refresh payload."""
+        prefix = f"{settings.api_cache_key_prefix}:"
+        battletag_key = f"{prefix}/players/{_BATTLETAG}/summary"
+        blizzard_key = f"{prefix}/players/{quote(_BLIZZARD_ID, safe='')}/summary"
+        storage = FakeStorage()
+        await storage.set_player_profile(
+            _BLIZZARD_ID, html="<html></html>", battletag=_BATTLETAG
+        )
+        cache = _cache_holding(battletag_key, blizzard_key)
+        svc = _make_service(cache=cache, storage=storage)
+
+        await svc._evict_player_cache_keys(_BATTLETAG)
+
+        assert cache.delete.await_args[0] == (battletag_key, blizzard_key)
+        assert cache.delete.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_blizzard_id_refresh_also_clears_the_battletag_keys(self):
+        """The mirror case: the profile row carries the battletag, so the keys
+        cached under that spelling are reachable and must go too."""
+        prefix = f"{settings.api_cache_key_prefix}:"
+        battletag_key = f"{prefix}/players/{_BATTLETAG}/summary"
+        blizzard_key = f"{prefix}/players/{quote(_BLIZZARD_ID, safe='')}/summary"
+        storage = FakeStorage()
+        await storage.set_player_profile(
+            _BLIZZARD_ID, html="<html></html>", battletag=_BATTLETAG
+        )
+        cache = _cache_holding(battletag_key, blizzard_key)
+        svc = _make_service(cache=cache, storage=storage)
+
+        await svc._evict_player_cache_keys(_BLIZZARD_ID)
+
+        assert cache.delete.await_args[0] == (blizzard_key, battletag_key)
+        assert cache.delete.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_unknown_counterpart_falls_back_to_the_requested_form(self):
+        """A player only ever requested one way has no counterpart — that is
+        normal, and must cost neither an extra scan nor the eviction."""
+        prefix = f"{settings.api_cache_key_prefix}:"
+        battletag_key = f"{prefix}/players/{_BATTLETAG}/summary"
+        cache = _cache_holding(battletag_key)
+        storage = FakeStorage()
+        lookup = AsyncMock(return_value=None)
+        svc = _make_service(cache=cache, storage=storage)
+
+        with patch.object(storage, "get_player_id_by_battletag", lookup):
+            await svc._evict_player_cache_keys(_BATTLETAG)
+
+        assert lookup.await_count == 1
+        assert cache.scan_keys.await_count == 1
+        assert cache.delete.await_args[0] == (battletag_key,)
+
+    @pytest.mark.asyncio
+    async def test_storage_failure_still_evicts_the_requested_form(self):
+        """This runs after a completed refresh, so a storage hiccup costs the
+        second glob, never the eviction — and never raises."""
+        prefix = f"{settings.api_cache_key_prefix}:"
+        battletag_key = f"{prefix}/players/{_BATTLETAG}/summary"
+        cache = _cache_holding(battletag_key)
+        storage = FakeStorage()
+        lookup = AsyncMock(side_effect=Exception("postgres is down"))
+        svc = _make_service(cache=cache, storage=storage)
+
+        with patch.object(storage, "get_player_id_by_battletag", lookup):
+            await svc._evict_player_cache_keys(_BATTLETAG)
+
+        assert lookup.await_count == 1
+        assert cache.delete.await_args[0] == (battletag_key,)
 
 
 class TestGetPlayerHistory:

@@ -275,11 +275,23 @@ class PlayerService(BaseService):
         the pre-refresh payload until its TTL ran out, which is precisely the
         window this eviction exists to close.  BattleTags are unaffected by the
         quoting, so one call covers both id forms.
+
+        Both *spellings* of the player are evicted, not just the one the
+        refresh was triggered with: either identifier reaches the same profile,
+        so ``/players/TeKrop-2217/summary`` and
+        ``/players/abc%7Cdef/summary`` can both be cached, and clearing one
+        left the other serving the pre-refresh payload until its TTL ran out.
         """
-        pattern = (
-            f"{settings.api_cache_key_prefix}:/players/{quote(player_id, safe='')}*"
-        )
-        keys = await self.cache.scan_keys(pattern)
+        ids = [player_id]
+        counterpart = await self._counterpart_player_id(player_id)
+        if counterpart and counterpart != player_id:
+            ids.append(counterpart)
+
+        keys: list[str] = []
+        for pid in ids:
+            pattern = f"{settings.api_cache_key_prefix}:/players/{quote(pid, safe='')}*"
+            keys.extend(await self.cache.scan_keys(pattern))
+
         if keys:
             # One round-trip, not one per key: this runs after every completed
             # player refresh, and a busy profile has a key per endpoint and
@@ -288,6 +300,31 @@ class PlayerService(BaseService):
             logger.debug(
                 "[refresh] Evicted {} cache key(s) for {}", len(keys), player_id
             )
+
+    async def _counterpart_player_id(self, player_id: str) -> str | None:
+        """Return the other identifier the same player may be cached under.
+
+        The mapping is already in storage, so no extra data is needed: a
+        profile row carries its ``battletag``, and the battletag index carries
+        the Blizzard ID.
+
+        Returns ``None`` when nothing is recorded — a player only ever
+        requested one way is the normal case, not an error — and also when
+        storage fails: this runs after a *completed* refresh, so an
+        infrastructure hiccup must cost the second glob, never the eviction.
+        """
+        try:
+            if is_blizzard_id(player_id):
+                profile = await self.storage.get_player_profile(player_id)
+                return (profile or {}).get("battletag")
+            return await self.storage.get_player_id_by_battletag(player_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[refresh] Could not resolve the other id form of {}: {}",
+                player_id,
+                exc,
+            )
+            return None
 
     # ------------------------------------------------------------------
     # Player stats  (GET /players/{player_id}/stats)
