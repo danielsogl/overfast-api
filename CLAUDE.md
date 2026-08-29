@@ -98,12 +98,32 @@ are the ones that say *nothing does*.
 | heroes.csv hitpoints | Blizzard patch notes (deltas only) | `check_hitpoints_against_patch_notes`, daily |
 | maps.csv in live rotation (30 of 58) | the rates page map dropdown | `check_maps_in_rotation`, daily |
 | maps.csv arcade / retired / workshop / Stadium (28) | wiki only | **nothing** — manual |
-| maps.csv location, country_code | wiki infobox `{{flag\|xx}}` | **nothing** — manual |
+| maps.csv location, country_code | wiki infobox `{{flag\|xx}}` | **nothing** — manual, audited once (see below) |
 | gamemodes.csv descriptions | none; Blizzard deleted the source | **nothing** — frozen |
 | static/maps/*.jpg | none | the route test asserts presence only |
 | CSV/asset internal consistency | ourselves | `tests/domain/test_static_data_integrity.py` |
 
-Three things worth knowing before you go looking for a better source:
+Four things worth knowing before you go looking for a better source:
+
+**Map locations were audited once, on 2026-08-29, and must not be auto-synced.**
+All 59 rows were compared against the wiki infobox. 38 matched exactly. Of the
+rest, exactly one was a real contradiction — Route 66 read "Albuquerque, New
+Mexico" against the wiki's "Deadlock Gorge, Arizona", two mutually exclusive
+states. Our value came from an inherited upstream commit with no source at all,
+the wiki's cites a 2016 Blizzplanet article, so the wiki won. (The Fandom copy
+of that infobox is byte-identical — it is a mirror, not a second opinion.)
+
+Everything else that differed was *not* an error, which is the point:
+
+- Nine rows where the wiki is merely more specific (`Veracruz, Mexico` vs
+  `Mexico`). Ours are correct, just coarser.
+- Paris, where the wiki says only "France" and **ours is the better value**.
+- Three country codes — Antarctic Peninsula, Ecopoint: Antarctica, Practice
+  Range — where the wiki flags the *Overwatch organisation* rather than a
+  country. Our `AQ`/`CH` are real ISO codes and the column wants ISO.
+
+A sync would have degraded Paris and destroyed three country codes. Compare by
+hand, adopt individually.
 
 **Blizzard publishes no map list.** `/en-us/maps/` is an 8 KB shell containing
 zero map names, `/en-us/maps/data/` 404s, and the rates JSON only echoes the map

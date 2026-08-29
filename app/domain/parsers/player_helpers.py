@@ -181,6 +181,38 @@ def get_hero_role(hero_key: HeroKey) -> Role | None:
     return Role(role_key)
 
 
+# Blizzard's own stat IDs for the heroes-comparison categories, which it puts
+# on both the <select> option and the matching progress-bar block.
+#
+# The API key used to be derived from the option's English label. That label is
+# demonstrably unstable: our own fixtures carry `0x0860000000000039` as both
+# "Game Won" and "Games Won", and `0x08600000000003D2` as both "Elimination per
+# Life" and "Eliminations per Life" — which is exactly what the singular/plural
+# mapping in get_real_category_name() was written to paper over. The ID stayed
+# the same across both spellings, so key off it instead and let the label be
+# just a label.
+#
+# A category ID missing here falls back to the label path, so a category
+# Blizzard adds still comes through under its English name.
+CAREER_COMPARISON_CATEGORY_IDS = {
+    "0x0860000000000021": "time_played",
+    "0x0860000000000039": "games_won",
+    "0x08600000000003D1": "win_percentage",
+    "0x08600000000001BB": "weapon_accuracy_best_in_game",
+    "0x08600000000003D2": "eliminations_per_life",
+    "0x0860000000000223": "kill_streak_best",
+    "0x0860000000000346": "multikill_best",
+    "0x08600000000004D4": "eliminations_avg_per_10_min",
+    "0x08600000000004D3": "deaths_avg_per_10_min",
+    "0x08600000000004D5": "final_blows_avg_per_10_min",
+    "0x08600000000004DA": "solo_kills_avg_per_10_min",
+    "0x08600000000004D8": "objective_kills_avg_per_10_min",
+    "0x08600000000004D9": "objective_time_avg_per_10_min",
+    "0x08600000000004BD": "hero_damage_done_avg_per_10_min",
+    "0x08600000000004D6": "healing_done_avg_per_10_min",
+}
+
+
 @cache
 def get_real_category_name(category_name: str) -> str:
     """Specific method used because Blizzard sometimes name their categories

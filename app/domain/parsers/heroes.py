@@ -71,6 +71,9 @@ def parse_heroes_html(html: str) -> list[dict]:
                     "role": safe_get_attribute(hero_element, "data-role"),
                     "subrole": safe_get_attribute(hero_element, "data-subrole"),
                     "gamemodes": gamemodes,
+                    # Blizzard's own "new hero" marker, which it drops again a
+                    # season or two after release. Absent on every other card.
+                    "is_new": hero_element.attributes.get("data-new") == "true",
                 }
             )
 

@@ -37,14 +37,25 @@ crontab -l 2>/dev/null | { cat; cat <<'CRON'; } | crontab -
 CRON
 ```
 
-## Health check: no alerting
+## Health check: alerting
 
 `healthcheck.sh` detects an unreachable API or an unhealthy container, logs it,
-and deduplicates so a single outage does not spam. It then does **nothing** —
-the notification call is an empty placeholder, and the box has no MTA, so a
-non-zero exit from cron goes nowhere either.
+and deduplicates so a single outage does not spam. It sends one message when the
+outage starts and one when it clears — a down alert with no all-clear is
+indistinguishable from an ongoing outage.
 
-That is a deliberate open gap, not an oversight: the monitoring stack was
-removed on purpose and no alert channel has been chosen. Until one is, an
-outage at 03:00 is visible only in `/var/log/overfast-health.log`. Filling in
-the placeholder needs one `curl` and a URL, nothing more.
+Where it sends them is `ALERT_WEBHOOK_URL` in `.env`:
+
+```
+ALERT_WEBHOOK_URL=https://hooks.slack.com/services/...
+```
+
+The POST body carries the message under both `text` and `content`, which Slack
+and Discord read respectively; anything else accepting a JSON POST works too.
+The URL is deliberately generic — the box has no MTA, cron's non-zero exit goes
+nowhere, and choosing a channel is not this script's job.
+
+**Leave it empty and nothing is sent.** That is the shipped default and a valid
+choice: an outage at 03:00 is then visible only in
+`/var/log/overfast-health.log`. A failing webhook is logged as a warning and
+never masks the outage it was meant to report.
