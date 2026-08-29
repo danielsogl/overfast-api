@@ -15,6 +15,7 @@ staleness strategy (Blizzard ``lastUpdated`` comparison) and storage logic
 
 from typing import TYPE_CHECKING, Any
 
+from app.config import settings
 from app.infrastructure.logger import logger
 
 if TYPE_CHECKING:
@@ -69,6 +70,50 @@ class BaseService:
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("[SWR] Valkey write failed for {}: {}", cache_key, exc)
+
+    async def _invalidate_derived_cache(self, path: str, keep: str) -> None:
+        """Drop the API-cache entries derived from *path*, except *keep*.
+
+        Refresh tasks write a single hardcoded key — ``/heroes``, ``/maps`` — but
+        the request that enqueued the refresh may well have been
+        ``/heroes?role=damage``. Refreshing only the bare key left every filtered
+        and localised variant stale for its full 24h TTL: each request found it
+        stale, enqueued a refresh, and that refresh once again updated a key the
+        request had not asked for.
+
+        Deleting the variants rather than refetching them is deliberate. The
+        refresh has already put fresh data in storage, so the next request for a
+        variant rebuilds it from there — no Blizzard call, no throttle.
+
+        *keep* is the key this refresh just wrote, and it must survive: a
+        localised refresh writes ``/heroes?locale=de-de``, which the pattern
+        below matches and would otherwise delete immediately after writing it.
+
+        ponytail: this also drops other locales' entries, which then rebuild
+        from their own unchanged storage. Harmless and cheap at this keyspace
+        size (~74 entries in production); scope the pattern per locale if that
+        ever stops being true.
+        """
+        # "\?" — in a Valkey glob a bare "?" matches ANY single character, so
+        # "/heroes?*" also matches "/heroes/ana" and would wipe every hero detail
+        # entry, plus /heroes/stats, on a heroes-list refresh. Verified: the
+        # unescaped pattern deleted 5 keys where 2 were meant.
+        pattern = f"{settings.api_cache_key_prefix}:{path}\\?*"
+        keep_key = f"{settings.api_cache_key_prefix}:{keep}"
+        try:
+            keys = [k for k in await self.cache.scan_keys(pattern) if k != keep_key]
+            if keys:
+                await self.cache.delete(*keys)
+                logger.info(
+                    "[SWR] Invalidated {} derived cache entr{} for {}",
+                    len(keys),
+                    "y" if len(keys) == 1 else "ies",
+                    path,
+                )
+        except Exception as exc:  # noqa: BLE001
+            # Same posture as _update_api_cache: a cache problem must not fail
+            # the refresh that just succeeded.
+            logger.warning("[SWR] Failed to invalidate variants of {}: {}", path, exc)
 
     async def _enqueue_refresh(
         self,

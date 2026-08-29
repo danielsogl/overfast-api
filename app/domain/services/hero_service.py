@@ -101,6 +101,7 @@ class HeroService(StaticDataService):
             f"/heroes?locale={locale_str}" if locale != Locale.ENGLISH_US else "/heroes"
         )
         await self._fetch_and_store(self._heroes_list_config(locale, cache_key))
+        await self._invalidate_derived_cache("/heroes", keep=cache_key)
 
     # ------------------------------------------------------------------
     # Single hero  (GET /heroes/{hero_key})
@@ -176,6 +177,7 @@ class HeroService(StaticDataService):
         await self._fetch_and_store(
             self._hero_detail_config(hero_key, locale, cache_key)
         )
+        await self._invalidate_derived_cache(f"/heroes/{hero_key}", keep=cache_key)
 
     # ------------------------------------------------------------------
     # Hero stats summary  (GET /heroes/stats)

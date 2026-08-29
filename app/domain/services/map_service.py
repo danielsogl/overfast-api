@@ -49,3 +49,4 @@ class MapService(StaticDataService):
         Called by the background worker — bypasses the SWR layer.
         """
         await self._fetch_and_store(self._maps_config("/maps"))
+        await self._invalidate_derived_cache("/maps", keep="/maps")
