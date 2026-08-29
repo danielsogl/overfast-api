@@ -13,9 +13,9 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v10.0.1
         with:
-          version: "0.9.28"
+          version: "0.12.7"
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
@@ -52,6 +52,12 @@ jobs:
 
       - name: Run smoke test
         run: bash scripts/smoke-test.sh
+
+      # The smoke test only reads static endpoints, so it stayed green while
+      # the cluster was written to a throwaway anonymous volume. This asserts
+      # the database actually survives a container lifecycle.
+      - name: Run persistence test
+        run: bash scripts/persistence-test.sh
 
       - name: Dump logs on failure
         if: failure()

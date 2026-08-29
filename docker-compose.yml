@@ -1,3 +1,11 @@
+# Long-lived services on the default json-file driver grow without bound; a
+# full disk on the VPS takes down postgres and valkey together.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   app:
     build:
@@ -6,6 +14,7 @@ services:
     command: /code/.venv/bin/fastapi run app/main.py --port 8080 --proxy-headers
     env_file: ${APP_VOLUME_PATH:-.}/.env
     restart: unless-stopped
+    logging: *default-logging
     deploy:
       resources:
         limits:
@@ -30,6 +39,7 @@ services:
     command: /code/.venv/bin/taskiq worker app.adapters.tasks.worker:broker --workers 1
     env_file: ${APP_VOLUME_PATH:-.}/.env
     restart: unless-stopped
+    logging: *default-logging
     deploy:
       resources:
         limits:
@@ -56,6 +66,7 @@ services:
     command: /code/.venv/bin/taskiq scheduler app.adapters.tasks.worker:scheduler
     env_file: ${APP_VOLUME_PATH:-.}/.env
     restart: unless-stopped
+    logging: *default-logging
     deploy:
       resources:
         limits:
@@ -79,12 +90,17 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-overfast}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     restart: unless-stopped
+    logging: *default-logging
     deploy:
       resources:
         limits:
           memory: 1g
     volumes:
-      - pg-data:/var/lib/postgresql
+      # Must be the PGDATA path itself: postgres:17 declares
+      # VOLUME /var/lib/postgresql/data, which shadows a mount on the parent
+      # with an anonymous volume — `docker compose down` then drops the cluster.
+      # (Upstream mounts the parent because it runs postgres:18, where PGDATA moved up.)
+      - pg-data:/var/lib/postgresql/data
     healthcheck:
       test:
         [
@@ -100,9 +116,8 @@ services:
       context: ./build/valkey
     command: sh -c "./entrypoint.sh"
     env_file: ${APP_VOLUME_PATH:-.}/.env
-    # Run as privileged to allow the container to change the vm.overcommit_memory setting
-    privileged: true
     restart: unless-stopped
+    logging: *default-logging
     deploy:
       resources:
         limits:
@@ -118,6 +133,7 @@ services:
     build:
       context: ./build/nginx
     restart: unless-stopped
+    logging: *default-logging
     deploy:
       resources:
         limits:
@@ -161,7 +177,7 @@ services:
     profiles:
       - monitoring
       - prometheus
-    image: oliver006/redis_exporter:alpine
+    image: oliver006/redis_exporter:v1.90.0-alpine
     environment:
       - REDIS_ADDR=valkey:6379
     ports:
@@ -184,12 +200,13 @@ services:
       timeout: 5s
       retries: 3
     restart: unless-stopped
+    logging: *default-logging
 
   postgres-exporter:
     profiles:
       - monitoring
       - prometheus
-    image: prometheuscommunity/postgres-exporter:latest
+    image: prometheuscommunity/postgres-exporter:v0.20.1
     command: ["--config.file="]
     environment:
       - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER:-overfast}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-overfast}?sslmode=disable
@@ -205,12 +222,13 @@ services:
       timeout: 5s
       retries: 3
     restart: unless-stopped
+    logging: *default-logging
 
   prometheus:
     profiles:
       - monitoring
       - prometheus
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.14.0
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -227,6 +245,7 @@ services:
       - nginx
       - app
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
       interval: 10s
@@ -238,7 +257,7 @@ services:
     profiles:
       - monitoring
       - grafana
-    image: grafana/grafana:latest
+    image: grafana/grafana:13.2.0
     volumes:
       - ./build/grafana/provisioning:/etc/grafana/provisioning
       - grafana-data:/var/lib/grafana
@@ -253,6 +272,7 @@ services:
     depends_on:
       - prometheus
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test:
         ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
