@@ -58,8 +58,8 @@ class ParserInternalError(OverfastError):
     """Raised by domain services when an unexpected parsing failure occurs.
 
     Carries the ``blizzard_url`` that was being parsed and the underlying
-    ``cause`` so the API layer can call ``overfast_internal_error`` and send
-    an alert without the domain needing to know about FastAPI or Discord.
+    ``cause`` so the API layer can call ``overfast_internal_error`` and report
+    it without the domain needing to know about FastAPI.
     """
 
     message = "Internal Server Error"

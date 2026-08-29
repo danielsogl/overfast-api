@@ -4,7 +4,7 @@ Tasks are executed by the taskiq worker process::
 
     taskiq worker app.adapters.tasks.worker:broker
 
-The cron task ``check_new_hero`` is scheduled by the taskiq scheduler::
+Cron tasks are scheduled by the taskiq scheduler::
 
     taskiq scheduler app.adapters.tasks.worker:scheduler
 
@@ -42,8 +42,7 @@ from app.api.dependencies import (
     get_task_queue,
 )
 from app.config import settings
-from app.domain.enums import HeroKey, Locale
-from app.domain.parsers.heroes import fetch_heroes_html, parse_heroes_html
+from app.domain.enums import Locale
 from app.domain.ports import BlizzardClientPort, StoragePort, TaskQueuePort
 from app.domain.services import (
     GamemodeService,
@@ -52,7 +51,6 @@ from app.domain.services import (
     PlayerService,
     RoleService,
 )
-from app.infrastructure.helpers import send_discord_webhook_message
 from app.infrastructure.logger import logger
 from app.monitoring.metrics import (
     background_refresh_completed_total,
@@ -236,46 +234,6 @@ async def cleanup_stale_players(storage: StorageDep) -> None:
         return
 
     logger.info("[Worker] cleanup_stale_players: Done.")
-
-
-@broker.task(schedule=[{"cron": "0 2 * * *"}])
-async def check_new_hero(client: BlizzardClientDep) -> None:
-    """Detect new Blizzard heroes and notify via Discord (runs daily at 02:00 UTC)."""
-    if not settings.discord_webhook_enabled:
-        logger.debug("[Worker] check_new_hero: Discord webhook disabled, skipping.")
-        return
-
-    logger.info("[Worker] check_new_hero: Checking for new heroes...")
-    try:
-        html = await fetch_heroes_html(client)
-        heroes = parse_heroes_html(html)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[Worker] check_new_hero: Failed to fetch heroes: {}", exc)
-        return
-
-    new_keys = {hero["key"] for hero in heroes} - set(HeroKey)
-    if not new_keys:
-        logger.info("[Worker] check_new_hero: No new heroes found.")
-        return
-
-    logger.info("[Worker] check_new_hero: New heroes found: {}", new_keys)
-    send_discord_webhook_message(
-        title="🎮 New Heroes Detected",
-        description="New Overwatch heroes have been released!",
-        fields=[
-            {
-                "name": "Hero Keys",
-                "value": f"`{', '.join(sorted(new_keys))}`",
-                "inline": False,
-            },
-            {
-                "name": "Action Required",
-                "value": "Please add these keys to the `HeroKey` enum configuration.",
-                "inline": False,
-            },
-        ],
-        color=0x2ECC71,
-    )
 
 
 # ─── Task registry (used by ValkeyTaskQueue for dispatch) ────────────────────

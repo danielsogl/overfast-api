@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING
 from app.adapters.cache.valkey_cache import ValkeyCache
 from app.config import settings
 from app.domain.exceptions import RateLimitedError
-from app.infrastructure.helpers import send_discord_webhook_message
 from app.infrastructure.logger import logger
 from app.infrastructure.metaclasses import Singleton
 from app.monitoring.metrics import (
@@ -174,21 +173,6 @@ class BlizzardThrottle(metaclass=Singleton):
             new_delay,
             settings.throttle_penalty_duration,
         )
-
-        if settings.discord_message_on_rate_limit:
-            send_discord_webhook_message(
-                title="⚠️ Blizzard Rate Limit Reached",
-                description="Throttle penalty activated — backing off Blizzard requests.",
-                fields=[
-                    {"name": "New Delay", "value": f"{new_delay:.1f}s", "inline": True},
-                    {
-                        "name": "Penalty Duration",
-                        "value": f"{settings.throttle_penalty_duration}s",
-                        "inline": True,
-                    },
-                ],
-                color=0xF39C12,
-            )
 
     async def _on_success(self) -> None:
         raw_streak = await self._cache.get(_STREAK_KEY)

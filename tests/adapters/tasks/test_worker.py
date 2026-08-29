@@ -8,7 +8,6 @@ import pytest
 
 from app.adapters.tasks.worker import (
     _run_refresh_task,
-    check_new_hero,
     cleanup_stale_players,
     refresh_gamemodes,
     refresh_hero,
@@ -236,90 +235,3 @@ class TestCleanupStalePlayers:
             mock_settings.player_profile_max_age = 3600
             # Should not propagate
             await cast("Any", cleanup_stale_players).__wrapped__(mock_storage)
-
-
-# ── check_new_hero ────────────────────────────────────────────────────────────
-
-
-class TestCheckNewHero:
-    @pytest.mark.asyncio
-    async def test_skipped_when_webhook_disabled(self):
-        mock_client = AsyncMock()
-        with (
-            patch("app.adapters.tasks.worker.settings") as mock_settings,
-            patch("app.adapters.tasks.worker.fetch_heroes_html") as mock_fetch,
-        ):
-            mock_settings.discord_webhook_enabled = False
-            await cast("Any", check_new_hero).__wrapped__(mock_client)
-
-        mock_fetch.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_no_notification_when_no_new_keys(self):
-        mock_client = AsyncMock()
-        existing_heroes = [{"key": str(k)} for k in HeroKey]
-
-        with (
-            patch("app.adapters.tasks.worker.settings") as mock_settings,
-            patch(
-                "app.adapters.tasks.worker.fetch_heroes_html",
-                return_value="<html>",
-            ),
-            patch(
-                "app.adapters.tasks.worker.parse_heroes_html",
-                return_value=existing_heroes,
-            ),
-            patch(
-                "app.adapters.tasks.worker.send_discord_webhook_message"
-            ) as mock_discord,
-        ):
-            mock_settings.discord_webhook_enabled = True
-            await cast("Any", check_new_hero).__wrapped__(mock_client)
-
-        mock_discord.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_notification_sent_for_new_hero(self):
-        mock_client = AsyncMock()
-        heroes_with_new = [{"key": str(k)} for k in HeroKey] + [
-            {"key": "brand-new-hero"}
-        ]
-
-        with (
-            patch("app.adapters.tasks.worker.settings") as mock_settings,
-            patch(
-                "app.adapters.tasks.worker.fetch_heroes_html",
-                return_value="<html>",
-            ),
-            patch(
-                "app.adapters.tasks.worker.parse_heroes_html",
-                return_value=heroes_with_new,
-            ),
-            patch(
-                "app.adapters.tasks.worker.send_discord_webhook_message"
-            ) as mock_discord,
-        ):
-            mock_settings.discord_webhook_enabled = True
-            await cast("Any", check_new_hero).__wrapped__(mock_client)
-
-        mock_discord.assert_called_once()
-        call_kwargs = mock_discord.call_args.kwargs
-        assert "brand-new-hero" in call_kwargs["fields"][0]["value"]
-
-    @pytest.mark.asyncio
-    async def test_fetch_exception_is_swallowed(self):
-        mock_client = AsyncMock()
-        with (
-            patch("app.adapters.tasks.worker.settings") as mock_settings,
-            patch(
-                "app.adapters.tasks.worker.fetch_heroes_html",
-                side_effect=Exception("network error"),
-            ),
-            patch(
-                "app.adapters.tasks.worker.send_discord_webhook_message"
-            ) as mock_discord,
-        ):
-            mock_settings.discord_webhook_enabled = True
-            await cast("Any", check_new_hero).__wrapped__(mock_client)
-
-        mock_discord.assert_not_called()
