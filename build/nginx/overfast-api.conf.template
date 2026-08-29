@@ -53,9 +53,28 @@ server {
     return 404;
   }
 
-  # Redirect trailing slashes to routes without slashes
+  # Redirect trailing slashes to routes without slashes.
+  #
+  # Relative on purpose. The absolute form was
+  #   return 301 $scheme://$host$no_slash;
+  # and it was wrong three ways at once:
+  #
+  #   $scheme  is always "http" in here, because TLS terminates at the proxy in
+  #            front. Every redirect on an HTTPS request answered with an http://
+  #            Location, bouncing the client through plaintext.
+  #   $host    comes from a client-controlled header and this server block sets
+  #            no server_name, so any Host was echoed back into Location.
+  #   $args    were dropped entirely: /heroes/?role=damage redirected to /heroes,
+  #            and the client silently received all heroes instead of an error.
+  #
+  # A relative Location is resolved by the client against the origin it actually
+  # used, which removes all three.
+  # absolute_redirect off is what actually makes it relative: nginx otherwise
+  # rebuilds a bare URI back into $scheme://$host + URI on its way out, which is
+  # how the first two problems above would survive the rewrite.
   location ~ (?<no_slash>.+)/$ {
-    return 301 $scheme://$host$no_slash;
+    absolute_redirect off;
+    return 301 $no_slash$is_args$args;
   }
 
   # Main route

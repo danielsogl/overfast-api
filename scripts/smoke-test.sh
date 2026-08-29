@@ -178,6 +178,32 @@ done < app/domain/utils/data/gamemodes.csv
 [ "$ASSET_404" -eq 0 ] || fail "$ASSET_404 static asset(s) not served"
 echo "  $CHECKED assets served"
 
+# ── Trailing-slash redirect ──────────────────────────────────────────────────
+#
+# The absolute form of this redirect dropped the query string, so
+# /heroes/?role=damage answered with every hero instead of the filtered set —
+# a wrong result rather than an error, which no status-code check would catch.
+# It also emitted the container's own scheme and the client's Host header.
+echo "=== Trailing-slash redirect ==="
+# The raw header, not curl's %{redirect_url} — that one resolves a relative
+# Location against the request URL and so always looks absolute.
+LOCATION=$(curl -sI "$BASE_URL/heroes/?role=damage" \
+    | tr -d '\r' | awk 'tolower($1) == "location:" { print $2 }')
+echo "  Location: $LOCATION"
+case "$LOCATION" in
+    *"role=damage") ;;
+    *) fail "redirect dropped the query string: $LOCATION" ;;
+esac
+case "$LOCATION" in
+    http://*|https://*) fail "redirect is absolute, must be relative: $LOCATION" ;;
+esac
+
+REDIRECTED_COUNT=$(curl -sfL --compressed "$BASE_URL/heroes/?role=damage" | jq 'length')
+DIRECT_COUNT=$(fetch "/heroes?role=damage" | jq 'length')
+[ "$REDIRECTED_COUNT" = "$DIRECT_COUNT" ] \
+    || fail "redirect changed the result: $REDIRECTED_COUNT vs $DIRECT_COUNT heroes"
+echo "  $DIRECT_COUNT heroes, filter survives the redirect"
+
 echo ""
 if [ "$ERRORS" -gt 0 ]; then
     echo "::error::$ERRORS validation error(s)"
