@@ -5,6 +5,7 @@ import time
 from fnmatch import fnmatch
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
+from urllib.parse import quote
 
 import pytest
 from fastapi import HTTPException, status
@@ -1066,6 +1067,22 @@ class TestEvictionCoversTheHistoryEndpoints:
         assert fnmatch(f"{prefix}/players/{_BATTLETAG}/history?limit=50", pattern)
         assert fnmatch(f"{prefix}/players/{_BATTLETAG}/stats/diff", pattern)
         assert fnmatch(f"{prefix}/players/{_BATTLETAG}/stats/diff?since=1", pattern)
+
+    @pytest.mark.asyncio
+    async def test_glob_matches_percent_encoded_blizzard_id_keys(self):
+        """A Blizzard ID reaches the service decoded ("abc|def") while its cache
+        keys are stored percent-encoded ("abc%7Cdef"), so an unquoted glob
+        matched nothing and the refresh evicted none of that player's keys."""
+        cache = AsyncMock()
+        cache.scan_keys = AsyncMock(return_value=[])
+        svc = _make_service(cache=cache)
+
+        await svc._evict_player_cache_keys(_BLIZZARD_ID)
+
+        pattern = cache.scan_keys.call_args[0][0]
+        prefix = f"{settings.api_cache_key_prefix}:"
+        stored_key = f"{prefix}/players/{quote(_BLIZZARD_ID, safe='')}/summary"
+        assert fnmatch(stored_key, pattern)
 
 
 class TestGetPlayerHistory:
