@@ -85,5 +85,44 @@ Both run in CI on every PR. Running the suite outside Docker needs `POSTGRES_PAS
 
   A value that was never right *and* never changed in a patch is invisible to every gate — D.Mon
   shipped with D.Va's numbers because the row was copy-pasted. Check a new hero against rung 2.
+## Data we cannot scrape
+
+Most hero content is scraped live on every cache miss, so it self-corrects. The
+hand-maintained parts do not, and they have all rotted at least once. Each one
+below names its best available source and what guards it — the honest entries
+are the ones that say *nothing does*.
+
+| Data | Source | Guard |
+|---|---|---|
+| heroes.csv key/name/role | the live heroes page | `check_heroes`, daily |
+| heroes.csv hitpoints | Blizzard patch notes (deltas only) | `check_hitpoints_against_patch_notes`, daily |
+| maps.csv in live rotation (30 of 58) | the rates page map dropdown | `check_maps_in_rotation`, daily |
+| maps.csv arcade / retired / workshop / Stadium (28) | wiki only | **nothing** — manual |
+| maps.csv location, country_code | wiki infobox `{{flag\|xx}}` | **nothing** — manual |
+| gamemodes.csv descriptions | none; Blizzard deleted the source | **nothing** — frozen |
+| static/maps/*.jpg | none | the route test asserts presence only |
+| CSV/asset internal consistency | ourselves | `tests/domain/test_static_data_integrity.py` |
+
+Three things worth knowing before you go looking for a better source:
+
+**Blizzard publishes no map list.** `/en-us/maps/` is an 8 KB shell containing
+zero map names, `/en-us/maps/data/` 404s, and the rates JSON only echoes the map
+you asked for. The rates *page* is the exception — and only when query
+parameters are present, otherwise it serves the same shell.
+
+**Patch notes are not a usable map source.** They announce new maps in twelve
+different phrasings across three years, and four maps (Arena Victoriae,
+Gogadoro, Place Lacroix, Redwood Dam) were never named in any patch note at all.
+A regex over them would miss a third of releases while matching lines like "New
+Holiday decorations have been added to the following maps". Hitpoints are
+different: there the phrasing is stable *and* the check only fails when our
+value equals the published pre-patch one, which no false positive can satisfy.
+
+**The gamemode descriptions came from Blizzard and no longer can.** Until commit
+`28ffc84` they were scraped from a carousel on the Overwatch homepage; Blizzard
+removed it around December 2024. Nine of the thirteen are still Blizzard's
+wording, four never had any. They are ours now — edit them as prose, and do not
+go looking for the page.
+
 - The **domain layer must stay framework-agnostic** — `fastapi` is a banned import there, enforced
   by ruff's `TID251`.
