@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v4.16.0 (2026-08-29)
+
+### Bug Fixes
+
+- **cache**: Evict both id forms a player is cached under
+  ([`1f1f92a`](https://github.com/danielsogl/overfast-api/commit/1f1f92a6423b3302de942d6c66501030da953643))
+
+- **patch-notes**: Resolve localised hero names against the locale's hero list
+  ([`3724f54`](https://github.com/danielsogl/overfast-api/commit/3724f545cf6ca5e8a63f1b7b5c9e48d6dc32d89a))
+
+### Features
+
+- **cache**: Answer unchanged polls with 304 on both response paths
+  ([`2e8ff51`](https://github.com/danielsogl/overfast-api/commit/2e8ff51879ddb7139581c7ad82dcdf97f075e748))
+
+- **scripts**: Fail the daily drift check when hero-stats recording stops
+  ([`842cc40`](https://github.com/danielsogl/overfast-api/commit/842cc40303cff02f496724d07722864705b6bf69))
+
+
 ## v4.15.0 (2026-08-29)
 
 ### Bug Fixes
