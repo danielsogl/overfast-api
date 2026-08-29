@@ -27,7 +27,10 @@ class Settings(BaseSettings):
 
     # Base URL of the application
     # Used in some endpoints for exposing internal and static links
-    app_base_url: str = "https://overfast-api.tekrop.fr"
+    # This fork's own deployment. Overridden via APP_BASE_URL; the default
+    # matters because it is what the OpenAPI examples and every static asset
+    # URL fall back to.
+    app_base_url: str = "https://api.mercy-stats.app"
 
     # Log level for Loguru
     log_level: str = "info"

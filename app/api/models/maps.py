@@ -15,7 +15,7 @@ class Map(BaseModel):
     screenshot: HttpUrl = Field(
         ...,
         description="Screenshot of the map",
-        examples=["https://overfast-api.tekrop.fr/static/maps/aatlis.jpg"],
+        examples=["https://api.mercy-stats.app/static/maps/aatlis.jpg"],
     )
     gamemodes: list[MapGamemode] = Field(
         ...,

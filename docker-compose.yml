@@ -20,7 +20,6 @@ services:
         limits:
           memory: 1g
     volumes:
-      - static_volume:/code/static
       - ${APP_VOLUME_PATH:-/tmp}/app-logs:/code/logs
     depends_on:
       valkey:
@@ -141,7 +140,11 @@ services:
     entrypoint: ["/entrypoint.sh"]
     env_file: ${APP_VOLUME_PATH:-.}/.env
     volumes:
-      - static_volume:/static
+      # Bind-mount, not a named volume: Docker fills a named volume from the
+      # image only on first creation, so assets added later never arrive.
+      # neon-junction.jpg sat 404 in production for two months because of it.
+      # `git reset --hard` in the deploy keeps this directory current.
+      - ./static:/static:ro
     depends_on:
       app:
         condition: service_healthy
@@ -170,6 +173,5 @@ services:
       timeout: 2s
 
 volumes:
-  static_volume:
   valkey-data:
   pg-data:

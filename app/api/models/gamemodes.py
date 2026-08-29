@@ -19,7 +19,7 @@ class GamemodeDetails(BaseModel):
         ...,
         description="Icon URL of the gamemode",
         examples=[
-            "https://overfast-api.tekrop.fr/static/gamemodes/push-icon.svg",
+            "https://api.mercy-stats.app/static/gamemodes/push-icon.svg",
         ],
     )
     description: str = Field(
@@ -33,6 +33,6 @@ class GamemodeDetails(BaseModel):
         ...,
         description="URL of an example screenshot of a map for the gamemode",
         examples=[
-            "https://overfast-api.tekrop.fr/static/gamemodes/push.avif",
+            "https://api.mercy-stats.app/static/gamemodes/push.avif",
         ],
     )

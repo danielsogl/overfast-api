@@ -65,8 +65,8 @@ class PlayerShort(BaseModel):
         title="Career URL",
         description="Player's career OverFast API URL (Get player career data)",
         examples=[
-            "https://overfast-api.tekrop.fr/players/TeKrop-2217",
-            "https://overfast-api.tekrop.fr/players/e651af82ba3ccafcbfa120%7C41daffa5861594b6cd5a6c27dc961232",
+            "https://api.mercy-stats.app/players/TeKrop-2217",
+            "https://api.mercy-stats.app/players/e651af82ba3ccafcbfa120%7C41daffa5861594b6cd5a6c27dc961232",
         ],
     )
     blizzard_id: str = Field(
