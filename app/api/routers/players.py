@@ -1,8 +1,19 @@
 """Players endpoints router : players search, players career, statistics, etc."""
 
+import asyncio
 from typing import Annotated, Any
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    Response,
+    status,
+)
 
 from app.api.dependencies import PlayerServiceDep
 from app.api.enums import RouteTag
@@ -21,7 +32,9 @@ from app.api.models.players import (
     PlayerSearchResult,
     PlayerStatsDiff,
     PlayerStatsSummary,
+    PlayerSummaries,
     PlayerSummary,
+    PlayerSummaryError,
 )
 from app.config import settings
 from app.domain.enums import (
@@ -29,6 +42,13 @@ from app.domain.enums import (
     PlayerGamemode,
     PlayerPlatform,
 )
+from app.domain.exceptions import OverfastError, ParserInternalError
+from app.infrastructure.logger import logger
+
+# Upper bound on a single fan-out. Each id may cost two throttled Blizzard
+# round-trips on a cold profile, so an unbounded list would let one client
+# monopolise the throttle for everyone.
+MAX_BATCH_SUMMARIES = 20
 
 # Custom route responses for player careers
 career_routes_responses = {
@@ -141,6 +161,146 @@ async def search_players(
     )
     apply_swr_headers(response, settings.search_account_path_cache_timeout, False, 0)
     return data
+
+
+def parse_player_ids(ids: str) -> list[str]:
+    """Split, trim and de-duplicate the comma-separated ``ids`` parameter."""
+    player_ids = list(
+        dict.fromkeys(
+            player_id.strip() for player_id in ids.split(",") if player_id.strip()
+        )
+    )
+    if not player_ids or len(player_ids) > MAX_BATCH_SUMMARIES:
+        msg = (
+            "The ids parameter must contain between 1 and "
+            f"{MAX_BATCH_SUMMARIES} distinct player ids "
+            f"(got {len(player_ids)})"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=msg
+        )
+    return player_ids
+
+
+def build_summary_cache_key(player_id: str) -> str:
+    """Return the cache key ``GET /players/{player_id}/summary`` would build.
+
+    ``build_cache_key`` keys on the *raw* (percent-encoded) request path, and
+    the summary route declares no query parameter, so its key is exactly the
+    encoded path. Re-encoding here is what makes a batch call warm the cache
+    for later single-player calls and vice versa — without it every player
+    would be stored twice.
+    """
+    return f"/players/{quote(player_id, safe='')}/summary"
+
+
+def build_summary_error(player_id: str, exc: BaseException) -> PlayerSummaryError:
+    """Map a per-player exception to its error entry.
+
+    Mirrors what the API exception handlers would have returned for the
+    single-player route : ``OverfastError`` carries its own status and message,
+    ``HTTPException`` (Blizzard unavailable / rate limited) its status and
+    detail. Anything else is unexpected, and is logged with its traceback
+    rather than allowed to fail the whole batch.
+    """
+    if isinstance(exc, ParserInternalError):
+        logger.opt(exception=exc.cause).critical(
+            "Internal server error for URL {}", exc.blizzard_url
+        )
+    elif isinstance(exc, OverfastError):
+        return PlayerSummaryError(status_code=exc.status_code, message=exc.message)
+    elif isinstance(exc, HTTPException):
+        return PlayerSummaryError(status_code=exc.status_code, message=exc.detail)
+    else:
+        logger.opt(exception=exc).critical(
+            "Unexpected error while retrieving summary of {}", player_id
+        )
+
+    return PlayerSummaryError(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        message=settings.internal_server_error_message,
+    )
+
+
+# ROUTE ORDER MATTERS : "/summaries" must stay declared before "/{player_id}",
+# otherwise FastAPI matches it as a player id and this endpoint becomes
+# unreachable. Same precedent as "/stats" in the heroes router.
+@router.get(
+    "/summaries",
+    responses=common_routes_responses,
+    tags=[RouteTag.PLAYERS],
+    summary="Get several player summaries at once",
+    description=(
+        "Get the summaries of up to "
+        f"{MAX_BATCH_SUMMARIES} players in a single request, saving a friends "
+        "list or a team roster one round-trip per player. "
+        "<br />Partial failure is expected : an unknown or unavailable player "
+        "fills its own <code>error</code> entry, it never fails the batch. "
+        "Results are returned in the requested order, duplicates removed."
+        f"<br />**Cache TTL : {get_human_readable_duration(settings.career_path_cache_timeout)}.**"
+    ),
+    operation_id="get_players_summaries",
+    response_model=PlayerSummaries,
+)
+async def get_players_summaries(
+    response: Response,
+    service: PlayerServiceDep,
+    ids: Annotated[
+        str,
+        Query(
+            title="Player unique names, comma-separated",
+            description=(
+                "Comma-separated list of player identifiers, each in the same "
+                'format as the player_id path parameter : BattleTag (with "#" '
+                'replaced by "-") or Blizzard ID. Between 1 and '
+                f"{MAX_BATCH_SUMMARIES} distinct ids, duplicates are collapsed."
+            ),
+            examples=["TeKrop-2217,KIRIKO-12460"],
+        ),
+    ],
+) -> Any:
+    player_ids = parse_player_ids(ids)
+
+    # The single-flight lock in PlayerService already collapses concurrent work
+    # for the same player, so a shared id costs one Blizzard round-trip.
+    outcomes = await asyncio.gather(
+        *(
+            service.get_player_summary(
+                player_id=player_id,
+                cache_key=build_summary_cache_key(player_id),
+            )
+            for player_id in player_ids
+        ),
+        return_exceptions=True,
+    )
+
+    results = []
+    batch_is_stale = False
+    batch_age = 0
+    for player_id, outcome in zip(player_ids, outcomes, strict=True):
+        if isinstance(outcome, BaseException):
+            results.append(
+                {
+                    "player_id": player_id,
+                    "summary": None,
+                    "error": build_summary_error(player_id, outcome),
+                }
+            )
+            continue
+
+        summary, is_stale, age = outcome
+        results.append({"player_id": player_id, "summary": summary, "error": None})
+        batch_is_stale = batch_is_stale or is_stale
+        batch_age = max(batch_age, age)
+
+    # ponytail: the batch response is deliberately not cached under its own key.
+    # Every entry is already cached individually by get_player_summary, and a
+    # second copy keyed on the id-list would give each distinct friend-list
+    # permutation its own Valkey entry — cache pollution under volatile-lru.
+    apply_swr_headers(
+        response, settings.career_path_cache_timeout, batch_is_stale, batch_age
+    )
+    return {"results": results}
 
 
 @router.get(

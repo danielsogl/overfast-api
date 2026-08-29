@@ -1,5 +1,7 @@
 """Set of pydantic models used for Players API routes"""
 
+from typing import Any
+
 from pydantic import (
     AnyHttpUrl,
     BaseModel,
@@ -255,6 +257,64 @@ class PlayerSummary(BaseModel):
             "Can be null if couldn't retrieve any"
         ),
         examples=[1704209332],
+    )
+
+
+class PlayerSummaryError(BaseModel):
+    status_code: int = Field(
+        ...,
+        description=(
+            "HTTP status code the single-player route would have returned for "
+            "this player (404 unknown player, 500 internal error, 503 Blizzard "
+            "rate limit, 504 Blizzard unavailable)."
+        ),
+        examples=[404, 500, 503, 504],
+    )
+    message: str | dict[str, Any] = Field(
+        ...,
+        description=(
+            "Error payload, identical to the ``error`` value of the "
+            "single-player route. Usually a string ; for an unknown player it "
+            "is the enhanced object described by the 404 model (retry_after, "
+            "next_check_at, check_count)."
+        ),
+        examples=[
+            "Player not found",
+            {
+                "error": "Player not found",
+                "retry_after": 600,
+                "next_check_at": 1739634000,
+                "check_count": 1,
+            },
+        ],
+    )
+
+
+class PlayerSummaryResult(BaseModel):
+    player_id: str = Field(
+        ...,
+        description="Requested player identifier, echoed back unchanged",
+        examples=["TeKrop-2217"],
+    )
+    summary: PlayerSummary | None = Field(
+        ...,
+        description="Player summary, or null when the player couldn't be retrieved",
+    )
+    error: PlayerSummaryError | None = Field(
+        ...,
+        description="Reason this player couldn't be retrieved, null on success",
+    )
+
+
+class PlayerSummaries(BaseModel):
+    results: list[PlayerSummaryResult] = Field(
+        ...,
+        description=(
+            "One entry per requested (de-duplicated) player identifier, in the "
+            "order they were requested. Exactly one of ``summary`` and "
+            "``error`` is set on each entry."
+        ),
+        min_length=1,
     )
 
 
