@@ -11,7 +11,10 @@ from fastapi.testclient import TestClient
 
 from app.adapters.tasks.task_registry import TASK_MAP
 from app.api.dependencies import get_storage
-from app.domain.services.player_service import clear_parsed_profile_cache
+from app.domain.services.player_service import (
+    clear_inflight_locks,
+    clear_parsed_profile_cache,
+)
 from app.infrastructure.metaclasses import Singleton
 from app.main import app
 from tests.fake_storage import FakeStorage
@@ -52,8 +55,9 @@ async def _patch_before_every_test(
     # Reset singletons so state doesn't bleed between tests
     Singleton.clear_all()
 
-    # The parsed-profile cache is module-level, so it survives Singleton.clear_all()
+    # Both are module-level, so they survive Singleton.clear_all()
     clear_parsed_profile_cache()
+    clear_inflight_locks()
 
     app.dependency_overrides[get_storage] = lambda: storage_db
 

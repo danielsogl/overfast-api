@@ -28,5 +28,19 @@ COPY ./static /code/static
 
 # For dev image, copy the tests and install necessary dependencies
 FROM main AS dev
-RUN uv sync --frozen --no-cache
+# memray publishes no musllinux aarch64 wheel for any version, so on Apple
+# Silicon uv has to build its sdist — and `main` already deleted build-base.
+#
+# The LDFLAGS are not optional. memray's sdist links its C++ extension through
+# setuptools' LDSHARED (`cc -shared`, not the C++ driver), so libstdc++ never
+# lands in DT_NEEDED; musl resolves relocations eagerly, so the import dies on
+# `_ZSt20__throw_length_errorPKc` even though the library is right there.
+# `--no-as-needed` is required too: LDFLAGS is appended ahead of the object
+# files and Alpine's gcc would otherwise drop the unused-looking -lstdc++.
+#
+# Nothing is removed afterwards: libstdc++, libgcc, liblz4, libunwind,
+# libucontext and libdebuginfod are all runtime deps of the built extension.
+# This image is never deployed — production builds the `main` target.
+RUN apk add --no-cache build-base pkgconf libunwind-dev lz4-dev elfutils-dev \
+    && LDFLAGS="-Wl,--no-as-needed -lstdc++" uv sync --frozen --no-cache
 COPY ./tests /code/tests
