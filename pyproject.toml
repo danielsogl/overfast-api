@@ -38,7 +38,7 @@ Issues = "https://github.com/TeKrop/overfast-api/issues"
 
 [dependency-groups]
 dev = [
-    "fakeredis[valkey]==2.36.*",
+    "fakeredis[valkey]==2.37.*",
     "ipdb==0.13.*",
     "pytest==9.1.*",
     "pytest-asyncio==1.4.*",
@@ -48,7 +48,7 @@ dev = [
     "ruff==0.16.*",
     "pre-commit==4.6.*",
     "pyinstrument==5.1.*",
-    "memray==1.19.*",
+    "memray==1.20.*",
     "objgraph==3.6.*",
     "ty==0.0.*",
 ]
