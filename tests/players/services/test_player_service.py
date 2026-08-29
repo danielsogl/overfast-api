@@ -1,5 +1,6 @@
 """Unit tests for PlayerService domain service"""
 
+import asyncio
 import time
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -14,10 +15,12 @@ from app.domain.exceptions import (
 )
 from app.domain.models.player import PlayerIdentity
 from app.domain.services.player_service import (
+    _INFLIGHT_LOCKS,
     _PARSED_PROFILE_CACHE,
     _PARSED_PROFILE_CACHE_MAXSIZE,
     PlayerService,
     parse_stored_profile,
+    single_flight,
 )
 from tests.fake_storage import FakeStorage
 from tests.helpers import read_html_file
@@ -841,3 +844,83 @@ class TestParseStoredProfileCache:
         assert career["summary"] == {"username": "TeKrop"}
 
         await storage.close()
+
+
+# ---------------------------------------------------------------------------
+# single_flight — concurrent cold misses collapse to one Blizzard fetch
+# ---------------------------------------------------------------------------
+
+
+class TestSingleFlightColdMiss:
+    """A cold player costs at least two Blizzard requests, all queued behind the
+    same throttle. Concurrent requests for one player must not multiply that."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_cold_requests_fetch_blizzard_once(self):
+        storage = FakeStorage()
+        await storage.initialize()
+        svc = _make_service(storage=storage)
+        fetch_calls = 0
+
+        async def _slow_fetch(_client, _pid):
+            nonlocal fetch_calls
+            fetch_calls += 1
+            # Hold long enough that every sibling task is queued on the lock.
+            await asyncio.sleep(0.05)
+            return _TEKROP_HTML, "abc123|def456"
+
+        with (
+            patch(
+                "app.domain.services.player_service.is_blizzard_id", return_value=True
+            ),
+            patch(
+                "app.domain.services.player_service.fetch_player_html",
+                side_effect=_slow_fetch,
+            ),
+            patch.object(
+                PlayerService,
+                "_enrich_from_blizzard_id",
+                new_callable=AsyncMock,
+                return_value=({}, None),
+            ),
+            patch("app.domain.services.player_service.settings") as s,
+        ):
+            s.player_staleness_threshold = 99999
+            s.prometheus_enabled = False
+            s.career_path_cache_timeout = 300
+            results = await asyncio.gather(
+                *(svc.get_player_summary("abc123|def456", f"key-{i}") for i in range(8))
+            )
+
+        assert fetch_calls == 1
+        assert all(r[0] for r in results)
+
+    @pytest.mark.asyncio
+    async def test_lock_is_released_and_dropped(self):
+        """The lock dict must not grow without bound across distinct players."""
+        async with single_flight("p1"):
+            assert "p1" in _INFLIGHT_LOCKS
+
+        assert _INFLIGHT_LOCKS == {}
+
+    @pytest.mark.asyncio
+    async def test_lock_dropped_even_when_the_body_raises(self):
+        msg = "boom"
+        with pytest.raises(ValueError, match=msg):
+            async with single_flight("p2"):
+                raise ValueError(msg)
+
+        assert _INFLIGHT_LOCKS == {}
+
+    @pytest.mark.asyncio
+    async def test_distinct_players_do_not_block_each_other(self):
+        order = []
+
+        async def _work(key: str, delay: float):
+            async with single_flight(key):
+                await asyncio.sleep(delay)
+                order.append(key)
+
+        await asyncio.gather(_work("slow", 0.05), _work("fast", 0.0))
+
+        assert order == ["fast", "slow"]

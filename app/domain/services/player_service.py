@@ -1,12 +1,14 @@
 """Player domain service — career, stats, summary, and search"""
 
+import asyncio
 import time
-from collections import OrderedDict
+from collections import Counter, OrderedDict
+from contextlib import asynccontextmanager
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Never, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import AsyncIterator, Callable
 
 from app.config import settings
 from app.domain.enums import HeroKeyCareerFilter, PlayerGamemode, PlayerPlatform
@@ -90,6 +92,40 @@ def parse_stored_profile(
 def clear_parsed_profile_cache() -> None:
     """Drop all memoised profiles (tests)."""
     _PARSED_PROFILE_CACHE.clear()
+
+
+# A cold player costs at least two Blizzard requests (identity search, then the
+# profile page), and they all queue behind the same throttle. Without this, ten
+# concurrent requests for one uncached player fire twenty, each slower than the
+# last as the throttle paces them — and nineteen are redundant, because the
+# first one stores the profile every later request could have read.
+_INFLIGHT_LOCKS: dict[str, asyncio.Lock] = {}
+_INFLIGHT_WAITERS: Counter[str] = Counter()
+
+
+@asynccontextmanager
+async def single_flight(key: str) -> AsyncIterator[None]:
+    """Serialise concurrent work for *key*, dropping the lock when nobody waits.
+
+    Callers must re-check their data source after acquiring: the point is that
+    the holder ahead of them has usually already produced it.
+    """
+    lock = _INFLIGHT_LOCKS.setdefault(key, asyncio.Lock())
+    _INFLIGHT_WAITERS[key] += 1
+    try:
+        async with lock:
+            yield
+    finally:
+        _INFLIGHT_WAITERS[key] -= 1
+        if _INFLIGHT_WAITERS[key] <= 0:
+            del _INFLIGHT_WAITERS[key]
+            _INFLIGHT_LOCKS.pop(key, None)
+
+
+def clear_inflight_locks() -> None:
+    """Drop all in-flight locks (tests)."""
+    _INFLIGHT_LOCKS.clear()
+    _INFLIGHT_WAITERS.clear()
 
 
 class PlayerService(BaseService):
@@ -305,20 +341,32 @@ class PlayerService(BaseService):
                 logger.info(
                     "Serving player data from persistent storage (within staleness threshold)"
                 )
-                parsed = parse_stored_profile(
-                    player_id,
-                    profile["updated_at"],
-                    profile["profile"],
-                    profile["summary"],
-                )
+                parsed = self._parse_stored(player_id, profile)
             else:
-                identity = await self._resolve_player_identity(player_id)
-                effective_id = identity.blizzard_id or player_id
-                html = await self._get_player_html(effective_id, identity)
-                # ponytail: not memoised — a cold fetch parses once anyway, and
-                # the next endpoint reads the profile back from storage and
-                # populates the cache with the authoritative ``updated_at``.
-                parsed = parse_player_profile_html(html, identity.player_summary)
+                # Single-flight: the lock is held across the Blizzard round-trip
+                # on purpose. Waiters would otherwise queue behind the throttle
+                # anyway, and this way they get the stored profile instead of
+                # firing their own redundant fetch.
+                async with single_flight(player_id):
+                    profile, age = await self._get_fresh_stored_profile(player_id)
+                    if profile is not None:
+                        stored_at = profile["updated_at"]
+                        logger.info(
+                            "Profile for {} was fetched by a concurrent request "
+                            "while waiting — skipping Blizzard",
+                            player_id,
+                        )
+                        parsed = self._parse_stored(player_id, profile)
+                    else:
+                        identity = await self._resolve_player_identity(player_id)
+                        effective_id = identity.blizzard_id or player_id
+                        html = await self._get_player_html(effective_id, identity)
+                        # ponytail: not memoised — a cold fetch parses once
+                        # anyway, and the next endpoint reads the profile back
+                        # from storage with the authoritative ``updated_at``.
+                        parsed = parse_player_profile_html(
+                            html, identity.player_summary
+                        )
 
             data = data_factory(parsed)
 
@@ -341,6 +389,16 @@ class PlayerService(BaseService):
     # ------------------------------------------------------------------
     # Profile caching helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _parse_stored(player_id: str, profile: dict) -> dict:
+        """Parse a storage hit through the shared parsed-profile cache."""
+        return parse_stored_profile(
+            player_id,
+            profile["updated_at"],
+            profile["profile"],
+            profile["summary"],
+        )
 
     async def get_player_profile_cache(self, player_id: str) -> dict | None:
         """Get player profile from persistent storage."""
