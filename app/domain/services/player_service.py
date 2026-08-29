@@ -6,6 +6,7 @@ from collections import Counter, OrderedDict
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Never, cast
+from urllib.parse import quote
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
@@ -264,8 +265,20 @@ class PlayerService(BaseService):
         Uses a glob scan so every endpoint/parameter combination is cleared
         without needing to enumerate them explicitly.  The next request for
         each key will hit the storage fast-path and repopulate the cache.
+
+        The id is percent-encoded first because that is the form the keys are
+        stored under: ``build_cache_key`` keys on the *raw* request path, while
+        ``player_id`` arrives here decoded from the path parameter.  Blizzard
+        IDs contain a ``|``, so without this the glob read
+        ``/players/abc|def*`` and never matched the stored
+        ``/players/abc%7Cdef/summary`` — every Blizzard-ID player kept serving
+        the pre-refresh payload until its TTL ran out, which is precisely the
+        window this eviction exists to close.  BattleTags are unaffected by the
+        quoting, so one call covers both id forms.
         """
-        pattern = f"{settings.api_cache_key_prefix}:/players/{player_id}*"
+        pattern = (
+            f"{settings.api_cache_key_prefix}:/players/{quote(player_id, safe='')}*"
+        )
         keys = await self.cache.scan_keys(pattern)
         if keys:
             # One round-trip, not one per key: this runs after every completed
