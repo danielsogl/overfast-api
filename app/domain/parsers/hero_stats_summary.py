@@ -142,14 +142,17 @@ def parse_hero_stats_json(
         msg = f"Unexpected Blizzard hero stats JSON structure: {error!r}"
         raise ParserParsingError(msg) from error
 
-    # Apply ordering
+    # Apply ordering. banrate is None for gamemodes without hero bans, and None
+    # is not comparable to a float — keep those out of the comparison entirely
+    # and append them, so they land last whichever direction was asked for.
     order_field, order_arrangement = order_by.split(":")
-    hero_stats.sort(
-        key=lambda stat: stat[order_field],
-        reverse=(order_arrangement == "desc"),
-    )
+    sortable = [
+        (value, stat) for stat in hero_stats if (value := stat[order_field]) is not None
+    ]
+    unrated = [stat for stat in hero_stats if stat[order_field] is None]
+    sortable.sort(key=lambda pair: pair[0], reverse=(order_arrangement == "desc"))
 
-    return hero_stats
+    return [stat for _, stat in sortable] + unrated
 
 
 def _is_column_available(json_data: dict, column_id: str) -> bool:

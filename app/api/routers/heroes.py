@@ -130,7 +130,7 @@ async def get_hero_stats(
         str,
         Query(
             title="Ordering field and the way it's arranged (asc[ending]/desc[ending])",
-            pattern=r"^(hero|winrate|pickrate):(asc|desc)$",
+            pattern=r"^(hero|winrate|pickrate|banrate):(asc|desc)$",
         ),
     ] = "hero:asc",
 ) -> Any:
