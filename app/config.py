@@ -41,12 +41,6 @@ class Settings(BaseSettings):
     # Route path to display as new on the documentation
     new_route_path: str | None = None
 
-    # Enable Prometheus metrics collection and /metrics endpoint
-    prometheus_enabled: bool = False
-
-    # Port for the worker process Prometheus metrics endpoint
-    prometheus_worker_port: int = 9091
-
     ############
     # PERSISTENT STORAGE CONFIGURATION (PostgreSQL)
     ############

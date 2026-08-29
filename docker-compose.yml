@@ -44,9 +44,6 @@ services:
       resources:
         limits:
           memory: 1g
-    ports:
-      # Bind to loopback only — Caddy on the host fronts the public side.
-      - "127.0.0.1:${PROMETHEUS_WORKER_PORT:-9091}:9091"
     volumes:
       - ${APP_VOLUME_PATH:-/tmp}/worker-logs:/code/logs
     depends_on:
@@ -141,7 +138,6 @@ services:
     ports:
       # Bind to loopback only — Caddy on the host fronts the public side.
       - "127.0.0.1:${APP_PORT}:80"
-      - "127.0.0.1:${PROMETHEUS_NGINX_PORT:-9145}:9145"
     entrypoint: ["/entrypoint.sh"]
     env_file: ${APP_VOLUME_PATH:-.}/.env
     volumes:
@@ -173,117 +169,7 @@ services:
       interval: 5s
       timeout: 2s
 
-  valkey-exporter:
-    profiles:
-      - monitoring
-      - prometheus
-    image: oliver006/redis_exporter:v1.90.0-alpine
-    environment:
-      - REDIS_ADDR=valkey:6379
-    ports:
-      # Bind to loopback only — exporters expose unauthenticated internals.
-      - "127.0.0.1:${VALKEY_EXPORTER_PORT:-9121}:9121"
-    depends_on:
-      valkey:
-        condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "-q",
-          "-O",
-          "/dev/null",
-          "http://localhost:9121/metrics",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-    restart: unless-stopped
-    logging: *default-logging
-
-  postgres-exporter:
-    profiles:
-      - monitoring
-      - prometheus
-    image: prometheuscommunity/postgres-exporter:v0.20.1
-    command: ["--config.file="]
-    environment:
-      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER:-overfast}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-overfast}?sslmode=disable
-    ports:
-      # Bind to loopback only — exporters expose unauthenticated internals.
-      - "127.0.0.1:${POSTGRES_EXPORTER_PORT:-9187}:9187"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9187/metrics"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-    restart: unless-stopped
-    logging: *default-logging
-
-  prometheus:
-    profiles:
-      - monitoring
-      - prometheus
-    image: prom/prometheus:v3.14.0
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-      - "--web.console.libraries=/etc/prometheus/console_libraries"
-      - "--web.console.templates=/etc/prometheus/consoles"
-      - "--web.enable-lifecycle"
-    volumes:
-      - ./build/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus-data:/prometheus
-    ports:
-      # Bind to loopback only — Prometheus has no authentication.
-      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
-    depends_on:
-      - nginx
-      - app
-    restart: unless-stopped
-    logging: *default-logging
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
-  grafana:
-    profiles:
-      - monitoring
-      - grafana
-    image: grafana/grafana:13.2.0
-    volumes:
-      - ./build/grafana/provisioning:/etc/grafana/provisioning
-      - grafana-data:/var/lib/grafana
-    ports:
-      # Bind to loopback only — front it with Caddy if it needs to be public.
-      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
-    environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
-      - GF_SERVER_ROOT_URL=${GRAFANA_SERVER_ROOT_URL:-%(protocol)s://%(domain)s:%(http_port)s/}
-      - GF_USERS_ALLOW_SIGN_UP=false
-    depends_on:
-      - prometheus
-    restart: unless-stopped
-    logging: *default-logging
-    healthcheck:
-      test:
-        ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
-
 volumes:
   static_volume:
   valkey-data:
   pg-data:
-  prometheus-data:
-  grafana-data:

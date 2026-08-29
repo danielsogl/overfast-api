@@ -147,31 +147,6 @@ class TestStorageStats:
     """Test storage statistics"""
 
     @pytest.mark.asyncio
-    async def test_get_stats_returns_counts(self, storage_db):
-        await storage_db.set_static_data(
-            key="map-ilios", data={"name": "Ilios"}, category=StaticDataCategory.MAPS
-        )
-        await storage_db.set_player_profile(
-            player_id="Stats-1234", html="<html/>", summary={"name": "Stats"}
-        )
-
-        stats = await storage_db.get_stats()
-        assert stats["static_data_count"] == 1
-        assert stats["player_profiles_count"] == 1
-        assert "size_bytes" in stats
-
-    @pytest.mark.asyncio
-    async def test_get_stats_empty_database(self, storage_db):
-        stats = await storage_db.get_stats()
-        assert stats["static_data_count"] == 0
-        assert stats["player_profiles_count"] == 0
-        assert stats["size_bytes"] >= 0
-
-
-class TestDataIntegrity:
-    """Test that data survives storage round-trips intact"""
-
-    @pytest.mark.asyncio
     async def test_large_html_integrity(self, storage_db):
         large_html = "<html>" + ("x" * 10000) + "</html>"
         await storage_db.set_player_profile(

@@ -117,20 +117,3 @@ class FakeStorage:
         self._static.clear()
         self._profiles.clear()
         self._battletag_index.clear()
-
-    # ------------------------------------------------------------------ #
-    # Statistics
-    # ------------------------------------------------------------------ #
-
-    async def get_stats(self) -> dict:
-        now = time.time()
-        ages = sorted(now - p["updated_at"] for p in self._profiles.values())
-        n = len(ages)
-        return {
-            "size_bytes": 0,
-            "static_data_count": len(self._static),
-            "player_profiles_count": n,
-            "player_profile_age_p50": ages[n // 2] if ages else 0,
-            "player_profile_age_p90": ages[min(int(n * 0.9), n - 1)] if ages else 0,
-            "player_profile_age_p99": ages[min(int(n * 0.99), n - 1)] if ages else 0,
-        }

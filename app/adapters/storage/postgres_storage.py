@@ -14,10 +14,6 @@ import asyncpg
 from app.config import settings
 from app.infrastructure.logger import logger
 from app.infrastructure.metaclasses import Singleton
-from app.monitoring.metrics import (
-    storage_connection_errors_total,
-    track_storage_operation,
-)
 
 if TYPE_CHECKING:
     from app.domain.ports.storage import StaticDataCategory
@@ -73,10 +69,6 @@ class PostgresStorage(metaclass=Singleton):
                     break
                 except Exception as exc:
                     if attempt == self._MAX_POOL_CREATION_ATTEMPTS:
-                        if settings.prometheus_enabled:
-                            storage_connection_errors_total.labels(
-                                error_type="pool_creation"
-                            ).inc()
                         logger.error("Failed to create PostgreSQL pool: {}", exc)
                         raise
                     logger.warning(
@@ -118,7 +110,6 @@ class PostgresStorage(metaclass=Singleton):
     # Static data
     # ------------------------------------------------------------------ #
 
-    @track_storage_operation("static_data", "get")
     async def get_static_data(self, key: str) -> dict | None:
         """Get static data by key. Returns dict with 'data' (decompressed str),
         'category', 'updated_at' (Unix int), 'data_version' or None."""
@@ -139,7 +130,6 @@ class PostgresStorage(metaclass=Singleton):
             "data_version": row["data_version"],
         }
 
-    @track_storage_operation("static_data", "set")
     async def set_static_data(
         self,
         key: str,
@@ -168,7 +158,6 @@ class PostgresStorage(metaclass=Singleton):
     # Player profiles
     # ------------------------------------------------------------------ #
 
-    @track_storage_operation("player_profiles", "get")
     async def get_player_profile(self, player_id: str) -> dict | None:
         """Get player profile by player_id.
 
@@ -200,7 +189,6 @@ class PostgresStorage(metaclass=Singleton):
             "data_version": row["data_version"],
         }
 
-    @track_storage_operation("player_profiles", "get")
     async def get_player_id_by_battletag(self, battletag: str) -> str | None:
         """Get Blizzard ID (player_id) for a given BattleTag."""
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
@@ -210,7 +198,6 @@ class PostgresStorage(metaclass=Singleton):
             )
         return row["player_id"] if row else None
 
-    @track_storage_operation("player_profiles", "set")
     async def set_player_profile(
         self,
         player_id: str,
@@ -254,7 +241,6 @@ class PostgresStorage(metaclass=Singleton):
     # Maintenance
     # ------------------------------------------------------------------ #
 
-    @track_storage_operation("player_profiles", "delete")
     async def delete_old_player_profiles(self, max_age_seconds: int) -> int:
         """Delete player profiles not updated within max_age_seconds.
 
@@ -277,52 +263,3 @@ class PostgresStorage(metaclass=Singleton):
         """Truncate all tables (for testing)."""
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             await conn.execute("TRUNCATE static_data, player_profiles")
-
-    # ------------------------------------------------------------------ #
-    # Statistics
-    # ------------------------------------------------------------------ #
-
-    async def get_stats(self) -> dict:
-        """Return storage statistics for monitoring."""
-        stats: dict = {
-            "size_bytes": 0,
-            "static_data_count": 0,
-            "player_profiles_count": 0,
-            "player_profile_age_p50": 0,
-            "player_profile_age_p90": 0,
-            "player_profile_age_p99": 0,
-        }
-        try:
-            async with self._pool.acquire() as conn:  # type: ignore[union-attr]
-                row = await conn.fetchrow("SELECT COUNT(*) AS n FROM static_data")
-                stats["static_data_count"] = row["n"]
-
-                row = await conn.fetchrow("SELECT COUNT(*) AS n FROM player_profiles")
-                stats["player_profiles_count"] = row["n"]
-
-                # Approximate disk size via pg_total_relation_size
-                row = await conn.fetchrow(
-                    """SELECT pg_total_relation_size('player_profiles')
-                            + pg_total_relation_size('static_data') AS total"""
-                )
-                stats["size_bytes"] = row["total"] or 0
-
-                # Profile age percentiles
-                ages = await conn.fetch(
-                    """SELECT EXTRACT(EPOCH FROM (NOW() - updated_at)) AS age
-                       FROM player_profiles
-                       ORDER BY updated_at DESC
-                       LIMIT 1000"""
-                )
-                if ages:
-                    age_list = sorted(float(r["age"]) for r in ages)
-                    n = len(age_list)
-                    stats["player_profile_age_p50"] = age_list[n // 2]
-                    p90_index = min(int(n * 0.9), n - 1)
-                    stats["player_profile_age_p90"] = age_list[p90_index]
-                    p99_index = min(int(n * 0.99), n - 1)
-                    stats["player_profile_age_p99"] = age_list[p99_index]
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to collect storage stats: {}", exc)
-
-        return stats

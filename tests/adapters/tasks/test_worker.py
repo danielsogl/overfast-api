@@ -2,7 +2,7 @@
 
 import contextlib
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -18,89 +18,16 @@ from app.adapters.tasks.worker import (
 )
 from app.domain.enums import HeroKey, Locale
 
-
-@pytest.fixture(autouse=True)
-def mock_worker_metrics():
-    """Patch all worker Prometheus metrics for every test in this module."""
-    with (
-        patch(
-            "app.adapters.tasks.worker.background_refresh_completed_total"
-        ) as mock_completed,
-        patch(
-            "app.adapters.tasks.worker.background_refresh_failed_total"
-        ) as mock_failed,
-        patch(
-            "app.adapters.tasks.worker.background_tasks_duration_seconds"
-        ) as mock_duration,
-    ):
-        mock_completed.labels.return_value = MagicMock()
-        mock_failed.labels.return_value = MagicMock()
-        mock_duration.labels.return_value = MagicMock()
-        yield mock_completed, mock_failed, mock_duration
-
-
 # ── _run_refresh_task ─────────────────────────────────────────────────────────
 
 
 class TestRunRefreshTask:
     @pytest.mark.asyncio
-    async def test_success_increments_completed_counter(self, mock_worker_metrics):
-        """On success, background_refresh_completed_total is incremented."""
-        mock_completed, mock_failed, _ = mock_worker_metrics
-        mock_queue = AsyncMock()
-
-        async with _run_refresh_task("heroes", "heroes:en-us", mock_queue):
-            pass
-
-        mock_completed.labels.assert_called_once_with(entity_type="heroes")
-        mock_completed.labels.return_value.inc.assert_called_once()
-        mock_failed.labels.return_value.inc.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_failure_increments_failed_counter_and_reraises(
-        self, mock_worker_metrics
-    ):
-        """On exception, background_refresh_failed_total is incremented and exception re-raised."""
-        mock_completed, mock_failed, _ = mock_worker_metrics
-        mock_queue = AsyncMock()
-
-        async def _fail():
-            async with _run_refresh_task("maps", "maps:all", mock_queue):
-                msg = "task failed"
-                raise RuntimeError(msg)
-
-        with pytest.raises(RuntimeError, match="task failed"):
-            await _fail()
-
-        mock_failed.labels.assert_called_once_with(entity_type="maps")
-        mock_failed.labels.return_value.inc.assert_called_once()
-        mock_completed.labels.return_value.inc.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_duration_always_recorded(self, mock_worker_metrics):
-        """Duration histogram is observed regardless of success or failure."""
-        _, _, mock_duration = mock_worker_metrics
-        mock_obs = MagicMock()
-        mock_duration.labels.return_value = mock_obs
-        mock_queue = AsyncMock()
-
-        async def _raise_in_context():
-            async with _run_refresh_task("roles", "roles:en-us", mock_queue):
-                msg = "oops"
-                raise ValueError(msg)
-
-        with contextlib.suppress(ValueError):
-            await _raise_in_context()
-
-        mock_duration.labels.assert_called_once_with(entity_type="roles")
-        mock_obs.observe.assert_called_once()
-
-    @pytest.mark.asyncio
     async def test_release_job_called_on_success(self):
         """release_job is called with entity_id after a successful refresh."""
         mock_queue = AsyncMock()
 
-        async with _run_refresh_task("player", "Player-1234", mock_queue):
+        async with _run_refresh_task("Player-1234", mock_queue):
             pass
 
         mock_queue.release_job.assert_awaited_once_with("Player-1234")
@@ -111,7 +38,7 @@ class TestRunRefreshTask:
         mock_queue = AsyncMock()
 
         async def _fail():
-            async with _run_refresh_task("hero", "hero:ana:en-us", mock_queue):
+            async with _run_refresh_task("hero:ana:en-us", mock_queue):
                 msg = "oops"
                 raise RuntimeError(msg)
 
@@ -119,6 +46,20 @@ class TestRunRefreshTask:
             await _fail()
 
         mock_queue.release_job.assert_awaited_once_with("hero:ana:en-us")
+
+    @pytest.mark.asyncio
+    async def test_exception_is_reraised(self):
+        """The context manager logs the failure but must not swallow it —
+        taskiq needs the exception to mark the job failed."""
+        mock_queue = AsyncMock()
+        msg = "task failed"
+
+        async def _fail():
+            async with _run_refresh_task("maps:all", mock_queue):
+                raise RuntimeError(msg)
+
+        with pytest.raises(RuntimeError, match=msg):
+            await _fail()
 
 
 # ── refresh tasks ─────────────────────────────────────────────────────────────

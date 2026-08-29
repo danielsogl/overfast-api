@@ -19,12 +19,10 @@ import time
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Annotated
 
-from prometheus_client import start_http_server
-
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-from taskiq import TaskiqDepends, TaskiqEvents
+from taskiq import TaskiqDepends
 from taskiq.schedule_sources import LabelScheduleSource
 from taskiq.scheduler.scheduler import TaskiqScheduler
 from taskiq_fastapi import init as taskiq_init
@@ -52,11 +50,6 @@ from app.domain.services import (
     RoleService,
 )
 from app.infrastructure.logger import logger
-from app.monitoring.metrics import (
-    background_refresh_completed_total,
-    background_refresh_failed_total,
-    background_tasks_duration_seconds,
-)
 
 # ─── Broker ───────────────────────────────────────────────────────────────────
 
@@ -69,17 +62,6 @@ broker = ValkeyListBroker(
 # Wire FastAPI DI into taskiq tasks.
 # In worker mode this also triggers the FastAPI lifespan (DB init, cache eviction…).
 taskiq_init(broker, "app.main:app")
-
-
-@broker.on_event(TaskiqEvents.WORKER_STARTUP)
-async def start_metrics_server(state: object) -> None:  # noqa: ARG001
-    """Expose a Prometheus /metrics endpoint from the worker process."""
-    if settings.prometheus_enabled:
-        start_http_server(settings.prometheus_worker_port)
-        logger.info(
-            "[Worker] Prometheus metrics server started on port {}",
-            settings.prometheus_worker_port,
-        )
 
 
 # ─── Scheduler (cron) ────────────────────────────────────────────────────────
@@ -101,37 +83,30 @@ StorageDep = Annotated[StoragePort, TaskiqDepends(get_storage)]
 TaskQueueDep = Annotated[TaskQueuePort, TaskiqDepends(get_task_queue)]
 
 
-# ─── Metrics helper ──────────────────────────────────────────────────────────
+# ─── Refresh helper ──────────────────────────────────────────────────────────
 
 
 @asynccontextmanager
 async def _run_refresh_task(
-    entity_type: str,
     entity_id: str,
     task_queue: TaskQueuePort,
 ) -> AsyncIterator[None]:
-    """Context manager that executes a refresh task end-to-end: records
-    duration and success/failure metrics, then releases the dedup key so
-    the job can be re-enqueued immediately after completion.
+    """Run a refresh task end-to-end: log the outcome and duration, then
+    release the dedup key so the job can be re-enqueued immediately.
     """
     start = time.monotonic()
     duration = 0.0
     try:
         yield
         duration = time.monotonic() - start
-        background_refresh_completed_total.labels(entity_type=entity_type).inc()
         logger.info("[Worker] Refresh completed: {} in {:.3f}s", entity_id, duration)
     except Exception as exc:
         duration = time.monotonic() - start
-        background_refresh_failed_total.labels(entity_type=entity_type).inc()
         logger.warning(
             "[Worker] Refresh failed: {} — {} ({:.3f}s)", entity_id, exc, duration
         )
         raise
     finally:
-        background_tasks_duration_seconds.labels(entity_type=entity_type).observe(
-            duration
-        )
         await task_queue.release_job(entity_id)
 
 
@@ -147,7 +122,7 @@ async def refresh_heroes(
     ``entity_id`` format: ``heroes:{locale}``  e.g. ``heroes:en-us``
     """
     _, locale_str = entity_id.split(":", 1)
-    async with _run_refresh_task("heroes", entity_id, task_queue):
+    async with _run_refresh_task(entity_id, task_queue):
         await service.refresh_list(Locale(locale_str))
 
 
@@ -160,7 +135,7 @@ async def refresh_hero(
     ``entity_id`` format: ``hero:{hero_key}:{locale}``  e.g. ``hero:ana:en-us``
     """
     _, hero_key, locale_str = entity_id.split(":", 2)
-    async with _run_refresh_task("hero", entity_id, task_queue):
+    async with _run_refresh_task(entity_id, task_queue):
         await service.refresh_single(hero_key, Locale(locale_str))
 
 
@@ -173,7 +148,7 @@ async def refresh_roles(
     ``entity_id`` format: ``roles:{locale}``  e.g. ``roles:en-us``
     """
     _, locale_str = entity_id.split(":", 1)
-    async with _run_refresh_task("roles", entity_id, task_queue):
+    async with _run_refresh_task(entity_id, task_queue):
         await service.refresh_list(Locale(locale_str))
 
 
@@ -184,7 +159,7 @@ async def refresh_maps(
     task_queue: TaskQueueDep,
 ) -> None:
     """Refresh all maps. ``entity_id`` is always ``maps:all``."""
-    async with _run_refresh_task("maps", entity_id, task_queue):
+    async with _run_refresh_task(entity_id, task_queue):
         await service.refresh_list()
 
 
@@ -195,7 +170,7 @@ async def refresh_gamemodes(
     task_queue: TaskQueueDep,
 ) -> None:
     """Refresh all game modes. ``entity_id`` is always ``gamemodes:all``."""
-    async with _run_refresh_task("gamemodes", entity_id, task_queue):
+    async with _run_refresh_task(entity_id, task_queue):
         await service.refresh_list()
 
 
@@ -210,7 +185,7 @@ async def refresh_player_profile(
     which bypasses the persistent-storage fast-path to guarantee a live
     Blizzard fetch regardless of how recently the profile was stored.
     """
-    async with _run_refresh_task("player", entity_id, task_queue):
+    async with _run_refresh_task(entity_id, task_queue):
         await service.refresh_player_profile(entity_id)
 
 

@@ -25,8 +25,8 @@ fail() {
 }
 
 # ── Step 1: .env from shipped defaults ───────────────────────────────────────
-# .env.dist ships POSTGRES_PASSWORD/GRAFANA_ADMIN_PASSWORD empty on purpose
-# (docker-compose.yml requires them via ${VAR:?}), so supply test values.
+# .env.dist ships POSTGRES_PASSWORD empty on purpose
+# (docker-compose.yml requires it via ${VAR:?}), so supply a test value.
 echo "=== Creating .env from defaults ==="
 # Keep a local developer .env recoverable — this script is runnable by hand.
 # Plain `[ -f .env ] && ...` would abort under `set -e` when no .env exists.
@@ -38,7 +38,6 @@ fi
 # suffix of "-e", which left a credential-carrying .env-e behind on every run.
 sed -e 's/^APP_PORT=.*/APP_PORT=8080/' \
     -e 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=ci-test-password/' \
-    -e 's/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=ci-test-password/' \
     .env.dist > .env
 
 # ── Step 2: Build and start ──────────────────────────────────────────────────

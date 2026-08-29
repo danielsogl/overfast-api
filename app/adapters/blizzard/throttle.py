@@ -27,12 +27,6 @@ from app.config import settings
 from app.domain.exceptions import RateLimitedError
 from app.infrastructure.logger import logger
 from app.infrastructure.metaclasses import Singleton
-from app.monitoring.metrics import (
-    blizzard_rate_limited_total,
-    throttle_403_total,
-    throttle_current_delay_seconds,
-    throttle_wait_seconds,
-)
 
 if TYPE_CHECKING:
     from app.domain.ports.cache import CachePort
@@ -110,8 +104,6 @@ class BlizzardThrottle(metaclass=Singleton):
             if raw_last:
                 wait = max(0.0, delay - (time.time() - float(raw_last)))
                 if wait > 0:
-                    if settings.prometheus_enabled:
-                        throttle_wait_seconds.observe(wait)
                     logger.debug(
                         "[Throttle] Waiting {:.2f}s before next Blizzard request", wait
                     )
@@ -162,11 +154,6 @@ class BlizzardThrottle(metaclass=Singleton):
         await self._cache.set(_STREAK_KEY, b"0")
         self._penalty_start = time.monotonic()
 
-        if settings.prometheus_enabled:
-            throttle_current_delay_seconds.set(new_delay)
-            throttle_403_total.inc()
-            blizzard_rate_limited_total.inc()
-
         logger.warning(
             "[Throttle] Blizzard 403 — delay {:.2f}s → {:.2f}s (penalty {}s)",
             current_delay,
@@ -202,9 +189,6 @@ class BlizzardThrottle(metaclass=Singleton):
                 min(new_delay, settings.throttle_max_delay),
             )
             await self._cache.set(_DELAY_KEY, str(new_delay).encode())
-
-            if settings.prometheus_enabled:
-                throttle_current_delay_seconds.set(new_delay)
 
             logger.debug(
                 "[Throttle] {}: {:.3f}s → {:.3f}s (streak reset)",

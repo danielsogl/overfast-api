@@ -3,7 +3,7 @@
 import asyncio
 import time
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi import HTTPException, status
@@ -160,42 +160,6 @@ class TestGetPlayerProfileCache:
         assert result is not None
         assert result["profile"] == _TEKROP_HTML
         assert result["summary"] == _PLAYER_SUMMARY
-
-    @pytest.mark.asyncio
-    async def test_miss_increments_prometheus(self):
-        svc = _make_service()
-        with (
-            patch("app.domain.services.player_service.settings") as s,
-            patch(
-                "app.domain.services.player_service.storage_cache_hit_total"
-            ) as m_hit,
-            patch("app.domain.services.player_service.storage_hits_total") as m_total,
-        ):
-            s.prometheus_enabled = True
-            m_hit.labels = MagicMock(return_value=MagicMock())
-            m_total.labels = MagicMock(return_value=MagicMock())
-            await svc.get_player_profile_cache("nobody-0000")
-        m_hit.labels.assert_called_with(table="player_profiles", result="miss")
-        m_total.labels.assert_called_with(result="miss")
-
-    @pytest.mark.asyncio
-    async def test_hit_increments_prometheus(self):
-        storage = FakeStorage()
-        await storage.set_player_profile("abc123", html=_TEKROP_HTML)
-        svc = _make_service(storage=storage)
-        with (
-            patch("app.domain.services.player_service.settings") as s,
-            patch(
-                "app.domain.services.player_service.storage_cache_hit_total"
-            ) as m_hit,
-            patch("app.domain.services.player_service.storage_hits_total") as m_total,
-        ):
-            s.prometheus_enabled = True
-            m_hit.labels = MagicMock(return_value=MagicMock())
-            m_total.labels = MagicMock(return_value=MagicMock())
-            await svc.get_player_profile_cache("abc123")
-        m_hit.labels.assert_called_with(table="player_profiles", result="hit")
-        m_total.labels.assert_called_with(result="hit")
 
 
 # ---------------------------------------------------------------------------
