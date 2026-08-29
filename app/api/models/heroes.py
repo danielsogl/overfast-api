@@ -405,6 +405,28 @@ class HeroStatsSummary(BaseModel):
         ge=0.0,
         le=100.0,
     )
+    role: Role = Field(
+        ...,
+        description="Role of the hero",
+        examples=["support"],
+    )
+    subrole: SubRole | None = Field(
+        None,
+        description=(
+            "Sub-Role of the hero. Null if Blizzard omits it for this hero, "
+            "which happens briefly around a release."
+        ),
+        examples=["medic"],
+    )
+    color: str | None = Field(
+        None,
+        description=(
+            "The hero's brand colour as CSS hex. Blizzard sends RGBA for most "
+            "heroes and RGB for at least one; the alpha is always opaque and is "
+            "dropped. Null if the value is missing or unparsable."
+        ),
+        examples=["#48699e"],
+    )
 
 
 class BadRequestErrorMessage(BaseModel):
