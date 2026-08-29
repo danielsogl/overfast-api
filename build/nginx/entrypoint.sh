@@ -10,7 +10,19 @@ set -o pipefail 2>/dev/null || true
 : "${NGINX_MULTI_ACCEPT:=true}"
 
 # Set defaults for rate limiting variables if not provided
-: "${TRUSTED_PROXY_CIDRS:=}"
+# Default to the RFC1918 ranges Docker allocates bridge networks from.
+# docker-compose.yml publishes nginx on 127.0.0.1 only, so the sole path in is
+# Caddy on the host, and every request therefore arrives from the bridge
+# gateway. Without this, $binary_remote_addr is that one gateway address for
+# every client and the limit_req/limit_conn zones collapse into a single global
+# bucket instead of being per IP.
+#
+# Safe because a public client can never originate from an RFC1918 address, and
+# Caddy appends the real peer to X-Forwarded-For — with real_ip_recursive on,
+# nginx walks from the right and takes the first untrusted entry, so a
+# client-supplied prefix is ignored. Override in .env if nginx is ever exposed
+# directly, where trusting nothing is the correct default.
+: "${TRUSTED_PROXY_CIDRS:=172.16.0.0/12,192.168.0.0/16,10.0.0.0/8}"
 : "${PROMETHEUS_ENABLED:=false}"
 : "${RETRY_AFTER_HEADER:=Retry-After}"
 : "${UNKNOWN_PLAYER_COOLDOWN_KEY_PREFIX:=unknown-player:cooldown}"
@@ -35,8 +47,9 @@ fi
 export NGINX_MULTI_ACCEPT_VALUE
 
 # Build real_ip config from the comma-separated list of trusted proxy CIDRs.
-# Without it, $remote_addr stays the TCP peer and X-Forwarded-For is ignored
-# for rate limiting (correct when nginx is exposed directly).
+# Set TRUSTED_PROXY_CIDRS= (empty) in .env to disable: $remote_addr then stays
+# the TCP peer and X-Forwarded-For is ignored, which is correct only when nginx
+# is exposed directly rather than behind the host's Caddy.
 if [ -n "$TRUSTED_PROXY_CIDRS" ]; then
   REAL_IP_CONFIG=$(printf '%s\n' "$TRUSTED_PROXY_CIDRS" | tr ',' '\n' | while read -r cidr; do
     if [ -n "$cidr" ]; then
