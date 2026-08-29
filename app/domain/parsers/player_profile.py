@@ -132,6 +132,12 @@ def parse_player_profile_html(
 
     Raises:
         ParserBlizzardError: If player not found (profile section missing)
+
+    Note:
+        ``PlayerService.parse_stored_profile`` memoises this result across the
+        five player endpoints, so **consumers must treat the returned structure
+        as read-only** — several of them hand nested parts of it straight to the
+        response layer.  Build new containers instead of mutating in place.
     """
     root_tag = parse_html_root(html)
 

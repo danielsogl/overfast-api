@@ -62,6 +62,13 @@ storage_hits_total = Counter(
     ["result"],  # "hit", "miss"
 )
 
+# Reuse of an already-parsed player profile across the five player endpoints
+parsed_profile_cache_total = Counter(
+    "parsed_profile_cache_total",
+    "In-process parsed player profile cache lookups",
+    ["result"],  # "hit", "miss"
+)
+
 # Stale responses served from persistent storage
 stale_responses_total = Counter(
     "stale_responses_total",

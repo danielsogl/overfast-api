@@ -2,9 +2,9 @@
 
 from app.domain.enums import PlayerGamemode, PlayerPlatform
 from app.domain.parsers.player_career_stats import (
-    _process_career_stats,
     extract_career_stats_from_profile,
     parse_player_career_stats_from_html,
+    process_career_stats,
 )
 from tests.helpers import read_html_file
 
@@ -91,14 +91,14 @@ class TestExtractCareerStatsFromProfile:
 
 class TestProcessCareerStats:
     def test_empty_profile_returns_empty(self):
-        """_process_career_stats with empty profile returns {}."""
-        result = _process_career_stats({}, gamemode=PlayerGamemode.QUICKPLAY)
+        """process_career_stats with empty profile returns {}."""
+        result = process_career_stats({}, gamemode=PlayerGamemode.QUICKPLAY)
 
         assert result == {}
 
     def test_no_filters_returns_quickplay_stats(self):
         """Without filters, returns the only quickplay stats."""
-        result = _process_career_stats(
+        result = process_career_stats(
             _PROFILE_WITH_STATS, gamemode=PlayerGamemode.QUICKPLAY
         )
 
@@ -107,7 +107,7 @@ class TestProcessCareerStats:
 
     def test_platform_filter_applied(self):
         """With platform filter, delegates to filter_stats_by_query."""
-        result = _process_career_stats(
+        result = process_career_stats(
             _PROFILE_WITH_STATS,
             platform=PlayerPlatform.PC,
             gamemode=PlayerGamemode.QUICKPLAY,
@@ -118,7 +118,7 @@ class TestProcessCareerStats:
 
     def test_hero_filter_applied(self):
         """With hero filter, returns only that hero's stats."""
-        result = _process_career_stats(
+        result = process_career_stats(
             _PROFILE_WITH_STATS,
             platform=PlayerPlatform.PC,
             gamemode=PlayerGamemode.QUICKPLAY,
@@ -130,7 +130,7 @@ class TestProcessCareerStats:
 
     def test_hero_filter_no_match_returns_empty(self):
         """Hero filter with no matching hero returns {}."""
-        result = _process_career_stats(
+        result = process_career_stats(
             _PROFILE_WITH_STATS,
             platform=PlayerPlatform.PC,
             gamemode=PlayerGamemode.QUICKPLAY,
