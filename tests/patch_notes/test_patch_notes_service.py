@@ -9,13 +9,12 @@ from app.domain.exceptions import ParserInternalError, ParserParsingError
 from app.domain.services.patch_notes_service import PatchNotesService
 
 
-def _make_patch_notes_service() -> PatchNotesService:
+def _make_patch_notes_service(storage: AsyncMock | None = None) -> PatchNotesService:
     cache = AsyncMock()
-    storage = AsyncMock()
     blizzard_client = AsyncMock()
     task_queue = AsyncMock()
     task_queue.is_job_pending_or_running.return_value = False
-    return PatchNotesService(cache, storage, blizzard_client, task_queue)
+    return PatchNotesService(cache, storage or AsyncMock(), blizzard_client, task_queue)
 
 
 class TestPatchNotesServiceConfig:
@@ -59,6 +58,56 @@ class TestPatchNotesServiceConfig:
             parser("<bad-html>")
 
         assert str(Locale.ENGLISH_US) in exc_info.value.blizzard_url
+
+
+class TestPatchNotesServiceLocalizedHeroKeys:
+    @pytest.mark.asyncio
+    async def test_english_locale_needs_no_index(self):
+        storage = AsyncMock()
+        svc = _make_patch_notes_service(storage)
+
+        hero_keys = await svc._localized_hero_keys(Locale.ENGLISH_US)
+
+        assert hero_keys is None
+        storage.get_static_data.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_index_is_built_from_the_stored_localised_heroes_list(
+        self, heroes_fr_html_data: str
+    ):
+        storage = AsyncMock()
+        storage.get_static_data.return_value = {
+            "data": heroes_fr_html_data,
+            "updated_at": 0,
+        }
+        svc = _make_patch_notes_service(storage)
+
+        hero_keys = await svc._localized_hero_keys(Locale.FRENCH)
+
+        assert storage.get_static_data.await_args[0][0] == "heroes:fr-fr"
+        assert hero_keys is not None
+        assert hero_keys["echo"] == "echo"
+        assert hero_keys["chacal"] == "junkrat"
+
+    @pytest.mark.asyncio
+    async def test_missing_heroes_list_degrades_to_english_matching(self):
+        storage = AsyncMock()
+        storage.get_static_data.return_value = None
+        svc = _make_patch_notes_service(storage)
+
+        hero_keys = await svc._localized_hero_keys(Locale.FRENCH)
+
+        assert hero_keys is None
+
+    @pytest.mark.asyncio
+    async def test_storage_error_degrades_to_english_matching(self):
+        storage = AsyncMock()
+        storage.get_static_data.side_effect = RuntimeError("storage is down")
+        svc = _make_patch_notes_service(storage)
+
+        hero_keys = await svc._localized_hero_keys(Locale.FRENCH)
+
+        assert hero_keys is None
 
 
 class TestPatchNotesServiceListPatchNotes:

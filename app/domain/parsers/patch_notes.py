@@ -13,6 +13,11 @@ Two deliberate choices:
 - Section titles are Blizzard's own ("Hero Updates", "Bug Fixes", "Busan -
   Control"). We do not map them onto a taxonomy of our own — they change with
   every patch and any mapping would rot silently.
+
+Hero names are localised too ("Écho", "Chacal"), and heroes.csv is English-only.
+The caller may therefore hand in ``hero_keys``: a normalised name → hero key
+index built from Blizzard's own localised heroes list. This module stays
+stateless — building that index needs storage, which is the service's job.
 """
 
 from typing import TYPE_CHECKING
@@ -25,9 +30,11 @@ from app.domain.parsers.utils import (
     safe_get_text,
     validate_response_status,
 )
-from app.domain.utils.helpers import get_hero_key
+from app.domain.utils.helpers import get_hero_key, normalize_hero_name
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from selectolax.lexbor import LexborNode
 
     from app.domain.ports import BlizzardClientPort
@@ -84,16 +91,31 @@ def _section_kind(section: LexborNode) -> str:
     )
 
 
-def _parse_hero_entry(hero_update: LexborNode) -> dict:
+def _resolve_hero_key(name: str, hero_keys: Mapping[str, str] | None) -> str | None:
+    """Resolve a patch-note hero name to its key.
+
+    With a locale index, that index is the only source: the English heroes.csv
+    is not consulted as a second chance, because a localised name may well be
+    another hero's English name and a wrong mapping is worse than ``None``.
+    """
+    if hero_keys is None:
+        return get_hero_key(name)
+
+    return hero_keys.get(normalize_hero_name(name))
+
+
+def _parse_hero_entry(
+    hero_update: LexborNode, hero_keys: Mapping[str, str] | None
+) -> dict:
     """Parse one ``.PatchNotesHeroUpdate`` block."""
     name = safe_get_text(hero_update.css_first(".PatchNotesHeroUpdate-name"))
 
     return {
         "title": name,
-        # A hero Blizzard just shipped is not in heroes.csv on patch day. Keep
-        # the entry with its raw name rather than dropping it — a silently
+        # A hero Blizzard just shipped is not in any heroes list on patch day.
+        # Keep the entry with its raw name rather than dropping it — a silently
         # missing hero is exactly the rot this repo keeps getting bitten by.
-        "hero": get_hero_key(name),
+        "hero": _resolve_hero_key(name, hero_keys),
         "details": _text_lines(
             hero_update.css_first(".PatchNotesHeroUpdate-generalUpdates")
         ),
@@ -111,7 +133,9 @@ def _parse_hero_entry(hero_update: LexborNode) -> dict:
     }
 
 
-def _parse_generic_entry(generic_update: LexborNode) -> dict:
+def _parse_generic_entry(
+    generic_update: LexborNode, _hero_keys: Mapping[str, str] | None
+) -> dict:
     """Parse one ``.PatchNotesGeneralUpdate`` block."""
     return {
         "title": safe_get_text(
@@ -125,7 +149,9 @@ def _parse_generic_entry(generic_update: LexborNode) -> dict:
     }
 
 
-def _parse_map_entry(map_update: LexborNode) -> dict:
+def _parse_map_entry(
+    map_update: LexborNode, _hero_keys: Mapping[str, str] | None
+) -> dict:
     """Parse one ``.PatchNotesMapUpdate`` block.
 
     A map update is a named area plus a before/after image slider, and nothing
@@ -150,7 +176,7 @@ _ENTRY_PARSERS = {
 _ENTRY_SELECTOR = ", ".join(f".{class_name}" for class_name in _ENTRY_PARSERS)
 
 
-def _parse_entry(entry: LexborNode) -> dict:
+def _parse_entry(entry: LexborNode, hero_keys: Mapping[str, str] | None) -> dict:
     """Dispatch one update block to the parser for its kind."""
     classes = (entry.attributes.get("class") or "").split()
     parser = next(
@@ -158,12 +184,12 @@ def _parse_entry(entry: LexborNode) -> dict:
         for class_name in classes
         if class_name in _ENTRY_PARSERS
     )
-    return parser(entry)
+    return parser(entry, hero_keys)
 
 
-def _parse_section(section: LexborNode) -> dict:
+def _parse_section(section: LexborNode, hero_keys: Mapping[str, str] | None) -> dict:
     """Parse one ``.PatchNotes-section`` block."""
-    entries = [_parse_entry(entry) for entry in section.css(_ENTRY_SELECTOR)]
+    entries = [_parse_entry(entry, hero_keys) for entry in section.css(_ENTRY_SELECTOR)]
 
     return {
         "title": safe_get_text(section.css_first(".PatchNotes-sectionTitle")) or None,
@@ -196,12 +222,17 @@ def _patch_date(patch: LexborNode) -> str:
     return date
 
 
-def parse_patch_notes_html(html: str) -> list[dict]:
+def parse_patch_notes_html(
+    html: str, hero_keys: Mapping[str, str] | None = None
+) -> list[dict]:
     """
     Parse the live patch notes page into structured data
 
     Args:
         html: Raw HTML content from the Blizzard patch notes page
+        hero_keys: Normalised hero name → key index for the page's locale, as
+            built by ``build_hero_key_index``. ``None`` (the default, and what
+            ``en-us`` uses) matches against the English heroes.csv instead.
 
     Returns:
         List of patch dicts (newest first, the order Blizzard renders) with keys:
@@ -218,7 +249,7 @@ def parse_patch_notes_html(html: str) -> list[dict]:
                 "date": _patch_date(patch),
                 "title": safe_get_text(patch.css_first(".PatchNotes-patchTitle")),
                 "sections": [
-                    _parse_section(section)
+                    _parse_section(section, hero_keys)
                     for section in patch.css(".PatchNotes-section")
                 ],
             }

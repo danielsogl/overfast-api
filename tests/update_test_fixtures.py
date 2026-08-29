@@ -66,18 +66,20 @@ def parse_parameters() -> argparse.Namespace:  # pragma: no cover
     return args
 
 
-def list_routes_to_update(args: argparse.Namespace) -> dict[str, str]:
+def list_routes_to_update(args: argparse.Namespace) -> dict[tuple[Locale, str], str]:
     """Method used to construct the dict of routes to update. The result
-    is dictionnary, mapping the blizzard route path to the local filepath."""
-    route_file_mapping = {}
+    is a dictionnary, mapping a (locale, blizzard route path) pair to the
+    local filepath."""
+    english = Locale.ENGLISH_US
+    route_file_mapping: dict[tuple[Locale, str], str] = {}
 
     if args.heroes:
         logger.info("Adding heroes routes...")
 
         route_file_mapping |= {
-            f"{settings.heroes_path}": "/heroes.html",
+            (english, f"{settings.heroes_path}"): "/heroes.html",
             **{
-                f"{settings.heroes_path}{hero}/": f"/heroes/{hero}.html"
+                (english, f"{settings.heroes_path}{hero}/"): f"/heroes/{hero}.html"
                 for hero in HeroKey
             },
         }
@@ -86,21 +88,29 @@ def list_routes_to_update(args: argparse.Namespace) -> dict[str, str]:
         logger.info("Adding player careers routes...")
         # career_path already includes the "/en-us" locale prefix, which main()
         # also prepends to every route, so strip it here to avoid duplication.
-        career_path = settings.career_path.removeprefix(f"/{Locale.ENGLISH_US}")
-        route_file_mapping.update(
-            **{
-                f"{career_path}/{player_id}/": f"/players/{player_id}.html"
-                for player_id in [*players_ids, unknown_player_id]
-            },
-        )
+        career_path = settings.career_path.removeprefix(f"/{english}")
+        route_file_mapping |= {
+            (english, f"{career_path}/{player_id}/"): f"/players/{player_id}.html"
+            for player_id in [*players_ids, unknown_player_id]
+        }
 
     if args.home:
         logger.info("Adding home routes...")
-        route_file_mapping[settings.home_path] = "/home.html"
+        route_file_mapping[(english, settings.home_path)] = "/home.html"
 
     if args.patch_notes:
         logger.info("Adding patch notes route...")
-        route_file_mapping[settings.patch_notes_path] = "/patch-notes.html"
+        route_file_mapping[(english, settings.patch_notes_path)] = "/patch-notes.html"
+
+        # Hero names in the patch notes are localised and heroes.csv is not, so
+        # the localised heroes list is what resolves them. The two fr-fr pages
+        # only make sense as a pair — refresh them together or the locale tests
+        # compare a new patch note against an old hero roster.
+        logger.info("Adding localised patch notes routes...")
+        route_file_mapping |= {
+            (Locale.FRENCH, settings.patch_notes_path): "/patch-notes-fr-fr.html",
+            (Locale.FRENCH, settings.heroes_path): "/heroes-fr-fr.html",
+        }
 
     return route_file_mapping
 
@@ -122,12 +132,11 @@ async def main():
 
     # Initialize data
     route_file_mapping = list_routes_to_update(args)
-    locale = Locale.ENGLISH_US
 
     # Do the job
     test_data_path = f"{settings.test_fixtures_root_path}/html"
     async with httpx2.AsyncClient() as client:
-        for route, filepath in route_file_mapping.items():
+        for (locale, route), filepath in route_file_mapping.items():
             logger.info("Updating {}{}...", test_data_path, filepath)
             logger.info("GET {}/{}{}...", settings.blizzard_host, locale, route)
             response = await client.get(

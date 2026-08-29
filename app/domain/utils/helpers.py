@@ -1,5 +1,6 @@
 """Domain helper utilities"""
 
+import unicodedata
 from functools import cache
 
 from app.domain.utils.csv_reader import read_csv_file
@@ -37,6 +38,34 @@ def get_hero_key(hero_name: str) -> str | None:
         ),
         None,
     )
+
+
+@cache
+def normalize_hero_name(hero_name: str) -> str:
+    """Normalise a hero display name so two spellings of it compare equal.
+
+    Casefold, drop combining accents and collapse whitespace — enough to survive
+    the casing and accent differences between Blizzard's own pages ("Écho" and
+    "ECHO" both become "echo"). Deliberately no further cleverness: punctuation
+    stays, so "Soldat : 76" never collapses onto another name. A wrong hero
+    mapping is worse than no mapping at all.
+    """
+    decomposed = unicodedata.normalize("NFKD", hero_name)
+    unaccented = "".join(char for char in decomposed if not unicodedata.combining(char))
+    return " ".join(unaccented.casefold().split())
+
+
+def build_hero_key_index(heroes: list[dict]) -> dict[str, str]:
+    """Build a normalised display-name → hero key index from a heroes list.
+
+    The heroes list is Blizzard's own, scraped per locale, so the index resolves
+    localised names ("Chacal") that the English-only heroes.csv cannot.
+    """
+    return {
+        normalize_hero_name(hero["name"]): hero["key"]
+        for hero in heroes
+        if hero.get("name") and hero.get("key")
+    }
 
 
 @cache
