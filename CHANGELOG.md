@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v4.12.1 (2026-08-29)
+
+### Bug Fixes
+
+- **assets**: Serve static files from the repo, add Serenza, point URLs at this deployment
+  ([`211f758`](https://github.com/danielsogl/overfast-api/commit/211f758ce1a28fab70f78d970de9501c06e20e99))
+
+- **deploy**: Reconcile nginx against the compose definition, not just its image
+  ([`d1aa9e6`](https://github.com/danielsogl/overfast-api/commit/d1aa9e6418d8901c0b848b592f8788e1dba25f5c))
+
+### Build System
+
+- Point APP_BASE_URL at this deployment in the env template
+  ([`4294e53`](https://github.com/danielsogl/overfast-api/commit/4294e5376abd6dcd20679c60555597cbbdcb04de))
+
+
 ## v4.12.0 (2026-08-29)
 
 ### Features
