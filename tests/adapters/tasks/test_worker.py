@@ -13,6 +13,7 @@ from app.adapters.tasks.worker import (
     refresh_hero,
     refresh_heroes,
     refresh_maps,
+    refresh_patch_notes,
     refresh_player_profile,
     refresh_roles,
 )
@@ -131,6 +132,19 @@ class TestRefreshGamemodes:
         )
 
         mock_service.refresh_list.assert_awaited_once()
+
+
+class TestRefreshPatchNotes:
+    @pytest.mark.asyncio
+    async def test_calls_service_refresh_list(self):
+        mock_service = AsyncMock()
+        mock_queue = AsyncMock()
+
+        await cast("Any", refresh_patch_notes).__wrapped__(
+            "patch_notes:en-us", mock_service, mock_queue
+        )
+
+        mock_service.refresh_list.assert_awaited_once_with(Locale.ENGLISH_US)
 
 
 class TestRefreshPlayerProfile:

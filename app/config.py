@@ -179,6 +179,11 @@ class Settings(BaseSettings):
     # Cache TTL for hero stats data (seconds)
     hero_stats_cache_timeout: int = 3600
 
+    # Cache TTL for patch notes (seconds). Patch notes ship a few times a month,
+    # but a hotfix lands on the day it is published — a 24h TTL like the other
+    # static data would serve yesterday's news, so this follows hero stats at 1h.
+    patch_notes_cache_timeout: int = 3600
+
     ############
     # SWR STALENESS THRESHOLDS
     ############
@@ -189,6 +194,8 @@ class Settings(BaseSettings):
     maps_staleness_threshold: int = 86400
     gamemodes_staleness_threshold: int = 86400
     roles_staleness_threshold: int = 86400
+    # Same reasoning as patch_notes_cache_timeout: news goes stale in hours.
+    patch_notes_staleness_threshold: int = 3600  # 1 hour
 
     # Age (seconds) after which a player profile is considered stale.
     player_staleness_threshold: int = 3600  # 1 hour
@@ -246,6 +253,9 @@ class Settings(BaseSettings):
 
     # Route for retrieving usage statistics about Overwatch heroes
     hero_stats_path: str = "/en-us/rates/data/"
+
+    # Route for the live patch notes page (locale can be specified by API users)
+    patch_notes_path: str = "/news/patch-notes/live"
 
     ############
     # ERROR REPORTING
