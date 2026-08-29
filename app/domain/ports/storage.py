@@ -1,7 +1,10 @@
 """Storage port protocol for persistent data storage"""
 
 from enum import StrEnum
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from datetime import date
 
 
 class StaticDataCategory(StrEnum):
@@ -107,6 +110,38 @@ class StoragePort(Protocol):
         """
         ...
 
+    async def add_hero_stats_snapshot(
+        self,
+        taken_on: date,
+        platform: str,
+        gamemode: str,
+        region: str,
+        data: list[dict],
+    ) -> None:
+        """Record one day's hero stats reading for one filter combination.
+
+        Idempotent: ``(taken_on, platform, gamemode, region)`` is the primary
+        key, so running the daily job twice stores nothing the second time.
+        """
+        ...
+
+    async def get_hero_stats_snapshots(
+        self,
+        platform: str,
+        gamemode: str,
+        region: str,
+        since: int | None = None,
+        limit: int = 30,
+    ) -> list[dict]:
+        """Return recorded hero stats readings, newest first.
+
+        ``since`` is an optional Unix timestamp; only readings taken on or after
+        that day are returned.
+
+        Each item is ``{'taken_on' (datetime.date), 'data' (list[dict])}``.
+        """
+        ...
+
     async def delete_old_player_profiles(self, max_age_seconds: int) -> int:
         """
         Delete player profiles not updated within max_age_seconds.
@@ -119,6 +154,15 @@ class StoragePort(Protocol):
     async def delete_old_player_snapshots(self, max_age_seconds: int) -> int:
         """
         Delete snapshots taken longer than max_age_seconds ago.
+
+        Returns:
+            Number of deleted rows
+        """
+        ...
+
+    async def delete_old_hero_stats_snapshots(self, max_age_seconds: int) -> int:
+        """
+        Delete hero stats readings taken longer than max_age_seconds ago.
 
         Returns:
             Number of deleted rows

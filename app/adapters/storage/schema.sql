@@ -88,3 +88,32 @@ CREATE TABLE IF NOT EXISTS player_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_player_snapshots_player_taken
     ON player_snapshots (player_id, taken_at DESC);
+
+-- Hero stats history: one row per day per recorded filter combination.
+--
+-- Like player_snapshots, this is data Blizzard cannot hand back — the rates
+-- page reports the current moment and nothing else, so a deleted row is gone.
+-- Unlike player_snapshots it is not a by-product of serving a request: a daily
+-- cron pays for it, which is why only ONE slice of the /heroes/stats cross
+-- product is recorded (see HERO_STATS_SNAPSHOT_SLICES in the hero service).
+--
+-- The primary key leads with a DATE, not a timestamp, and that is the whole
+-- point: a second run on the same day hits ON CONFLICT DO NOTHING instead of
+-- writing a near-duplicate row a few minutes apart. Daily granularity is also
+-- all the series is for — hero winrates move with patches, not with hours.
+--
+-- platform/gamemode/region are plain TEXT rather than enums: they are written
+-- from domain enums the API already validates, and a new Blizzard region must
+-- not need an ALTER TYPE migration to be recordable.
+--
+-- Deliberately NO foreign key anywhere. Hero keys come from heroes.csv, which
+-- has no table, and rows must survive a hero being renamed or removed — the
+-- history of a retired hero is exactly the part worth keeping.
+CREATE TABLE IF NOT EXISTS hero_stats_snapshots (
+    taken_on  DATE  NOT NULL,
+    platform  TEXT  NOT NULL,
+    gamemode  TEXT  NOT NULL,
+    region    TEXT  NOT NULL,
+    data      JSONB NOT NULL,
+    PRIMARY KEY (taken_on, platform, gamemode, region)
+);

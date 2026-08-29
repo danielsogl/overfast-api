@@ -1,5 +1,6 @@
 """Set of pydantic models used for Heroes API routes"""
 
+from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, Field, HttpUrl
@@ -9,6 +10,7 @@ from app.domain.enums import (
     HeroGamemode,
     HeroKey,
     MediaType,
+    PlayerRegion,
     Role,
     SubRole,
 )
@@ -426,6 +428,55 @@ class HeroStatsSummary(BaseModel):
             "dropped. Null if the value is missing or unparsable."
         ),
         examples=["#48699e"],
+    )
+
+
+class HeroStatsPoint(BaseModel):
+    hero: HeroKey = Field(
+        ..., description="Hero key used to identify Overwatch heroes in general"
+    )
+    pickrate: float = Field(..., description="Pickrate (in percent)", ge=0.0, le=100.0)
+    winrate: float = Field(..., description="Winrate (in percent)", ge=0.0, le=100.0)
+    banrate: float | None = Field(
+        None,
+        description=(
+            "Banrate (in percent). Null when Blizzard didn't expose ban data on "
+            "the day this reading was taken."
+        ),
+        examples=[12.7],
+        ge=0.0,
+        le=100.0,
+    )
+
+
+class HeroStatsSnapshot(BaseModel):
+    taken_on: date = Field(
+        ...,
+        description="Day the reading was taken (UTC). One reading per day.",
+        examples=["2026-08-29"],
+    )
+    stats: list[HeroStatsPoint] = Field(
+        ...,
+        description=(
+            "Rates measured that day, one entry per hero. Reduced to a single "
+            "hero when the `hero` filter is used."
+        ),
+    )
+
+
+class HeroStatsHistory(BaseModel):
+    region: PlayerRegion = Field(
+        ...,
+        description="Region the series was recorded for",
+        examples=["europe"],
+    )
+    snapshots: list[HeroStatsSnapshot] = Field(
+        ...,
+        description=(
+            "Daily readings, newest first. Empty when nothing has been recorded "
+            "yet for this region — the series starts the day this API began "
+            "recording, as Blizzard publishes no history of its own."
+        ),
     )
 
 

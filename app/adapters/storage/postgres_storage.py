@@ -16,6 +16,8 @@ from app.infrastructure.logger import logger
 from app.infrastructure.metaclasses import Singleton
 
 if TYPE_CHECKING:
+    from datetime import date
+
     from app.domain.ports.storage import StaticDataCategory
 
 _SCHEMA_SQL = (Path(__file__).parent / "schema.sql").read_text()
@@ -296,6 +298,60 @@ class PostgresStorage(metaclass=Singleton):
         ]
 
     # ------------------------------------------------------------------ #
+    # Hero stats snapshots
+    # ------------------------------------------------------------------ #
+
+    async def add_hero_stats_snapshot(
+        self,
+        taken_on: date,
+        platform: str,
+        gamemode: str,
+        region: str,
+        data: list[dict],
+    ) -> None:
+        """Record one day's reading, ignoring a day already recorded."""
+        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+            await conn.execute(
+                """INSERT INTO hero_stats_snapshots
+                       (taken_on, platform, gamemode, region, data)
+                   VALUES ($1, $2, $3, $4, $5::jsonb)
+                   ON CONFLICT (taken_on, platform, gamemode, region)
+                   DO NOTHING""",
+                taken_on,
+                platform,
+                gamemode,
+                region,
+                data,
+            )
+
+    async def get_hero_stats_snapshots(
+        self,
+        platform: str,
+        gamemode: str,
+        region: str,
+        since: int | None = None,
+        limit: int = 30,
+    ) -> list[dict]:
+        """Return recorded hero stats readings, newest first."""
+        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+            rows = await conn.fetch(
+                """SELECT taken_on, data
+                   FROM hero_stats_snapshots
+                   WHERE platform = $1 AND gamemode = $2 AND region = $3
+                     AND ($4::double precision IS NULL
+                          OR taken_on >= TO_TIMESTAMP($4)::date)
+                   ORDER BY taken_on DESC
+                   LIMIT $5""",
+                platform,
+                gamemode,
+                region,
+                None if since is None else float(since),
+                limit,
+            )
+
+        return [{"taken_on": row["taken_on"], "data": row["data"]} for row in rows]
+
+    # ------------------------------------------------------------------ #
     # Maintenance
     # ------------------------------------------------------------------ #
 
@@ -335,9 +391,30 @@ class PostgresStorage(metaclass=Singleton):
         )
         return deleted
 
+    async def delete_old_hero_stats_snapshots(self, max_age_seconds: int) -> int:
+        """Delete hero stats readings taken longer than max_age_seconds ago.
+
+        Returns:
+            Number of deleted rows.
+        """
+        cutoff = time.time() - max_age_seconds
+        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+            result = await conn.execute(
+                "DELETE FROM hero_stats_snapshots WHERE taken_on < TO_TIMESTAMP($1)::date",
+                cutoff,
+            )
+        deleted = int(result.split()[-1])
+        logger.info(
+            "Deleted {} old hero stats snapshots (max_age={}s)",
+            deleted,
+            max_age_seconds,
+        )
+        return deleted
+
     async def clear_all_data(self) -> None:
         """Truncate all tables (for testing)."""
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             await conn.execute(
-                "TRUNCATE static_data, player_profiles, player_snapshots"
+                "TRUNCATE static_data, player_profiles, player_snapshots, "
+                "hero_stats_snapshots"
             )
