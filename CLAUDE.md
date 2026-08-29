@@ -68,7 +68,22 @@ Both run in CI on every PR. Running the suite outside Docker needs `POSTGRES_PAS
   content, so losing them costs refetch time, not data. The volume must stay mounted at the PGDATA
   path itself — `postgres:17` declares `VOLUME /var/lib/postgresql/data` and will shadow a mount on
   the parent with a throwaway anonymous volume.
-- **Hitpoint columns in `heroes.csv` are hand-maintained.** Blizzard publishes them nowhere, so they
-  rot silently after balance patches and nothing in the test suite can catch it.
+- **Hitpoint columns in `heroes.csv` are hand-maintained.** Blizzard publishes them nowhere — grep a
+  live hero page for health/armor/shield markup and there is nothing — so they cannot be scraped.
+  Use this order of evidence, and never skip a rung:
+
+  1. **Blizzard patch notes** are authoritative and current, but only publish *changes*
+     ("Health reduced from 300 to 275"). `scripts/check_blizzard_drift.py` checks these daily and
+     fails when a row still holds the pre-patch value. This is the only automated guard.
+  2. **The Overwatch wiki infobox** (`overwatch.weirdgloop.org/api.php?action=parse&page=<Hero>`,
+     needs a real User-Agent) is the fallback where Blizzard is silent — a new hero's launch values.
+     Tanks store the *base* value there; our CSV holds base + 150 for the role-queue passive.
+  3. Nothing else. Do not sync from the wiki automatically: it was measurably **stale** (still 250
+     for Junkrat two months after Blizzard published 200) and its infoboxes are **incomplete**
+     (Sigma, Zarya and Zenyatta carry no `shields` field at all). An auto-sync would have reverted
+     a correct value and zeroed three real shield pools.
+
+  A value that was never right *and* never changed in a patch is invisible to every gate — D.Mon
+  shipped with D.Va's numbers because the row was copy-pasted. Check a new hero against rung 2.
 - The **domain layer must stay framework-agnostic** — `fastapi` is a banned import there, enforced
   by ruff's `TID251`.
