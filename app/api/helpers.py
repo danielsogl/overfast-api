@@ -2,6 +2,7 @@
 
 from functools import cache
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlencode
 
 from fastapi import status
 
@@ -130,14 +131,47 @@ def get_human_readable_duration(duration: int) -> str:
 
 
 def build_cache_key(request: Request) -> str:
-    """Build a canonical cache key from the request URL path + query string.
+    """Build a canonical cache key from the request path and its *declared*
+    query parameters.
 
-    Uses the raw query string (``request.url.query``) to preserve the original
-    percent-encoding, so the key matches what nginx stores in
-    ``api-cache:<request_uri>`` exactly.
+    Only the parameters the route actually declares take part. FastAPI ignores
+    every other one when producing the response, so including them in the key
+    meant ``?zzz=1``, ``?zzz=2``, … each stored a separate copy of the identical
+    payload for 24h. Valkey runs ``volatile-lru``, so that evicts legitimate
+    entries: cache pollution costing one request per entry, from anyone.
+
+    Sorting keeps ``?a=1&b=2`` and ``?b=2&a=1`` on one entry.
+
+    The path is taken raw (percent-encoded) because nginx reads this same cache
+    under ``api-cache:<ngx.var.request_uri>``, and its path is never decoded.
+    Using the decoded path made every Blizzard-ID request — they contain ``%7C``
+    by design — a permanent nginx miss against a key only the app could read.
+    nginx never writes, so a key it cannot reconstruct costs the fast path, not
+    correctness.
     """
-    qs = request.url.query
-    return f"{request.url.path}?{qs}" if qs else request.url.path
+    raw_path = request.scope.get("raw_path")
+    # Per the ASGI spec raw_path excludes the query string, but not every server
+    # honours that; splitting is cheap and correct either way.
+    path = raw_path.decode("ascii").split("?", 1)[0] if raw_path else request.url.path
+
+    route = request.scope.get("route")
+    declared = (
+        {field.alias for field in route.dependant.query_params}
+        if route is not None and hasattr(route, "dependant")
+        else None
+    )
+    if declared is None:
+        # No route in scope (shouldn't happen inside a handler). Fall back to
+        # the previous behaviour rather than silently dropping real parameters.
+        return f"{path}?{request.url.query}" if request.url.query else path
+
+    params = sorted(
+        (key, value)
+        for key, value in request.query_params.multi_items()
+        if key in declared
+    )
+    query = urlencode(params)
+    return f"{path}?{query}" if query else path
 
 
 def apply_swr_headers(
