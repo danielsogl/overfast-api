@@ -13,11 +13,13 @@ pull requests: Blizzard being slow or down must never block a merge.
 Exits non-zero when it finds drift, which turns the scheduled workflow red.
 
 Run locally with:
-    POSTGRES_PASSWORD=x uv run python scripts/check_blizzard_drift.py
+    PYTHONPATH=. POSTGRES_PASSWORD=x uv run python scripts/check_blizzard_drift.py
 """
 
 import csv
+import re
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx2
@@ -185,6 +187,156 @@ def check_hero_detail(hero_key: str) -> None:
             fail(f"hero {hero_key!r} has abilities missing a name or description")
 
 
+# ── Hitpoints ────────────────────────────────────────────────────────────────
+#
+# Hitpoints appear nowhere on overwatch.blizzard.com — grep a hero page for
+# health/armor/shield markup and there is nothing — so heroes.csv is
+# hand-maintained and rots silently after balance patches. Two rows were stale
+# for months before anyone noticed.
+#
+# But while the *values* are unpublished, the *changes* are: patch notes carry
+# them as explicit deltas in a stable phrasing, e.g.
+#
+#     "Health reduced from 300 to 275."
+#     "Shield health reduced from 275 to 250."
+#
+# which is enough. The "from" value is exactly what a stale row still says.
+
+PATCH_NOTES_PATH = "/news/patch-notes/live"
+PATCH_NOTE_MONTHS = 3
+
+# Only these three map onto columns we store. Anything else in the notes —
+# barrier health, a summoned turret, an ability's temporary shields — is a
+# different number and must not be matched.
+_HITPOINT_FIELDS = {
+    "health": "health",
+    "armor": "armor",
+    "armor health": "armor",
+    "shields": "shields",
+    "shield health": "shields",
+}
+_DELTA_PATTERN = re.compile(
+    r"\b(?P<field>Shield health|Armor health|Health|Armor|Shields)\s+"
+    r"(?:was\s+)?(?:reduced|increased|lowered|raised)\s+from\s+"
+    r"(?P<before>\d+)\s+to\s+(?P<after>\d+)",
+    re.IGNORECASE,
+)
+
+
+def _fetch_patch_notes(months: int) -> str:
+    """Return the flattened text of the last *months* patch-note pages."""
+    now = datetime.now(UTC)
+    pages = []
+    for offset in range(months):
+        year, month = divmod((now.year * 12 + now.month - 1) - offset, 12)
+        path = f"{PATCH_NOTES_PATH}/{year}/{month + 1:02d}/"
+        try:
+            pages.append(fetch(path))
+        except httpx2.HTTPError:
+            # A month with no notes 404s; that is not drift.
+            continue
+    text = re.sub(r"<[^>]+>", " ", "\n".join(pages))
+    return re.sub(r"\s+", " ", text)
+
+
+def hitpoint_findings(
+    text: str, rows: dict[str, dict[str, str]]
+) -> list[tuple[str, str]]:
+    """Classify every published hitpoint delta against heroes.csv.
+
+    Returns ``(level, message)`` pairs so this stays pure and testable; the
+    caller dispatches them to fail()/warn().
+
+    Deltas are attributed to the most recent hero name preceding them: Blizzard
+    lays the notes out as "<Hero> <rationale> <change>", so the nearest
+    preceding name is the subject.
+    """
+    findings: list[tuple[str, str]] = []
+
+    name_positions = sorted(
+        (m.start(), name)
+        for name in rows
+        for m in re.finditer(rf"\b{re.escape(name)}\b", text)
+    )
+    if not name_positions:
+        return [("warn", "no hero names found in the patch notes")]
+
+    # Self-calibrating plausibility bound. "Health reduced from 1500 to 1100" is
+    # Reinhardt's barrier, not Reinhardt; "from 25 to 15" is some ability's
+    # temporary shields. Neither is a number we store, so they are noise.
+    # Deriving the range from our own columns avoids magic numbers, and it
+    # cannot weaken detection: a mismatch requires our value to equal the
+    # "from" value, which is in range by construction.
+    plausible = {
+        column: {
+            int(row[column])
+            for row in rows.values()
+            if row[column] and int(row[column]) > 0
+        }
+        for column in ("health", "armor", "shields")
+    }
+
+    for match in _DELTA_PATTERN.finditer(text):
+        column = _HITPOINT_FIELDS[match["field"].lower()]
+        before, after = match["before"], match["after"]
+
+        known = plausible[column]
+        if known and not (min(known) <= int(before) <= max(known)):
+            continue
+
+        preceding = [name for pos, name in name_positions if pos < match.start()]
+        if not preceding:
+            continue
+        hero = preceding[-1]
+        ours = rows[hero][column]
+
+        if ours == after:
+            continue
+        if ours == before:
+            # Unambiguous: we still hold the pre-patch value.
+            findings.append(
+                (
+                    "fail",
+                    (
+                        f"{hero} {column} is {ours}, but Blizzard changed it to "
+                        f"{after} (patch note: {column} from {before} to {after})"
+                    ),
+                )
+            )
+        else:
+            # Either the delta belongs to something else on the page, or the
+            # value was wrong before the patch too. Worth a look, not a red run.
+            findings.append(
+                (
+                    "warn",
+                    (
+                        f"{hero} {column} is {ours}; a patch note says {before} "
+                        f"-> {after}. Check whether the note refers to this "
+                        f"hero's own hitpoints."
+                    ),
+                )
+            )
+
+    return findings
+
+
+def check_hitpoints_against_patch_notes() -> None:
+    """Compare heroes.csv hitpoints against the deltas Blizzard published."""
+    print("=== hitpoints vs patch notes ===")
+
+    rows = {row["name"]: row for row in read_csv_file("heroes")}
+    text = _fetch_patch_notes(PATCH_NOTE_MONTHS)
+    if not text.strip():
+        warn("no patch notes could be fetched — hitpoints not verified")
+        return
+
+    findings = hitpoint_findings(text, rows)
+    for level, message in findings:
+        (fail if level == "fail" else warn)(message)
+
+    print(f"  checked {len(_DELTA_PATTERN.findall(text))} published change(s)")
+
+
 def check_roles() -> None:
     """Parse the roles block off the home page."""
     print("=== roles ===")
@@ -211,6 +363,7 @@ def main() -> int:
         if heroes:
             check_hero_detail(min(h["key"] for h in heroes))
         check_roles()
+        check_hitpoints_against_patch_notes()
     except httpx2.HTTPError as exc:
         # Network trouble is not drift; say so rather than reporting a false
         # positive, but still exit non-zero so the run is not silently green.
