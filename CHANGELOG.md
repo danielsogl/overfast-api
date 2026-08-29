@@ -2,6 +2,28 @@
 
 <!-- version list -->
 
+## v4.15.0 (2026-08-29)
+
+### Bug Fixes
+
+- **cache**: Evict the keys a Blizzard-ID refresh actually wrote
+  ([`74043ee`](https://github.com/danielsogl/overfast-api/commit/74043eed3b7f237545b936230766a5dfbf973c5f))
+
+### Features
+
+- **heroes**: Record a daily hero stats reading and serve it at /heroes/stats/history
+  ([`267c75f`](https://github.com/danielsogl/overfast-api/commit/267c75f74be3fec8090cfba3909e2e4ea05fe490))
+
+- **patch-notes**: Expose Blizzard patch notes at GET /patch-notes
+  ([`a4cc956`](https://github.com/danielsogl/overfast-api/commit/a4cc956288ae189f149377b4bbf19a0c49ed94d1))
+
+- **players**: Add GET /players/summaries batch endpoint
+  ([`75d33db`](https://github.com/danielsogl/overfast-api/commit/75d33db5c8c8503bdb9541de2032bf3ae93f8bd4))
+
+- **players**: Record profile snapshots and expose history and diff
+  ([`ffd997f`](https://github.com/danielsogl/overfast-api/commit/ffd997f10e273555c7814b26643a17bc75b1ebc1))
+
+
 ## v4.14.0 (2026-08-29)
 
 ### Bug Fixes
