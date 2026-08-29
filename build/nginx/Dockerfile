@@ -11,9 +11,20 @@ ENV OPENRESTY_VERSION=${OPENRESTY_VERSION}
 # For envsubst command in entrypoint
 RUN apk add --no-cache gettext git zstd-dev
 
-# Install lua-zstd and lua-resty-prometheus
-RUN luarocks install lua-zstd && \
-    luarocks install nginx-lua-prometheus
+# Install lua-zstd and lua-resty-prometheus.
+# Retried: every deploy rebuilds this layer and fetches both rocks from
+# luarocks.org, so a hiccup there fails the deploy outright. That happened
+# once already — `fetch.lua:144: attempt to concatenate local 'name' (a nil
+# value)` while resolving the download URL — and the identical build had
+# succeeded in CI minutes before and on a plain rerun after.
+RUN for attempt in 1 2 3; do \
+        if luarocks install lua-zstd && luarocks install nginx-lua-prometheus; then \
+            break; \
+        fi; \
+        [ "$attempt" -lt 3 ] || exit 1; \
+        echo ">>> luarocks attempt ${attempt}/3 failed, retrying in $((attempt * 5))s..." >&2; \
+        sleep $((attempt * 5)); \
+    done
 
 # Copy main Nginx configuration template
 COPY nginx.conf.template /etc/nginx/nginx.conf.template

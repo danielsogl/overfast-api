@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 from fastapi import status
@@ -6,7 +6,7 @@ from fastapi import status
 from app.adapters.blizzard import BlizzardClient
 from app.domain.enums import Role
 from app.domain.exceptions import ParserParsingError
-from app.domain.parsers.roles import fetch_roles_html, parse_roles, parse_roles_html
+from app.domain.parsers.roles import fetch_roles_html, parse_roles_html
 
 
 def _wrap_in_main(inner_html: str) -> str:
@@ -81,28 +81,3 @@ def test_parse_roles_html_missing_role_header_raises():
     """)
     with pytest.raises(ParserParsingError):
         parse_roles_html(html)
-
-
-# ── parse_roles high-level ────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_parse_roles_calls_fetch_and_parse(home_html_data: str):
-    """parse_roles() calls fetch_roles_html then parse_roles_html."""
-    mock_client = AsyncMock()
-    with (
-        patch(
-            "app.domain.parsers.roles.fetch_roles_html",
-            return_value=home_html_data,
-        ) as mock_fetch,
-        patch(
-            "app.domain.parsers.roles.parse_roles_html",
-            return_value=[{"key": "tank"}],
-        ) as mock_parse,
-    ):
-        result = await parse_roles(mock_client)
-
-    mock_fetch.assert_awaited_once()
-    mock_parse.assert_called_once_with(home_html_data)
-
-    assert result == [{"key": "tank"}]

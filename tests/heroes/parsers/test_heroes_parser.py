@@ -9,7 +9,6 @@ from app.domain.exceptions import ParserParsingError
 from app.domain.parsers.heroes import (
     fetch_heroes_html,
     filter_heroes,
-    parse_heroes,
     parse_heroes_html,
 )
 
@@ -105,31 +104,3 @@ def test_parse_heroes_html_dom_error_raises():
         pytest.raises(ParserParsingError),
     ):
         parse_heroes_html("<html></html>")
-
-
-@pytest.mark.asyncio
-async def test_parse_heroes_high_level(heroes_html_data: str):
-    """parse_heroes() fetches HTML then parses and filters it."""
-    with patch(
-        "httpx2.AsyncClient.get",
-        return_value=Mock(status_code=status.HTTP_200_OK, text=heroes_html_data),
-    ):
-        client = BlizzardClient()
-        heroes = await parse_heroes(client)
-
-    assert isinstance(heroes, list)
-    assert len(heroes) > 0
-    assert all("key" in h for h in heroes)
-
-
-@pytest.mark.asyncio
-async def test_parse_heroes_with_role_filter(heroes_html_data: str):
-    """parse_heroes() with role filter returns only matching heroes."""
-    with patch(
-        "httpx2.AsyncClient.get",
-        return_value=Mock(status_code=status.HTTP_200_OK, text=heroes_html_data),
-    ):
-        client = BlizzardClient()
-        heroes = await parse_heroes(client, role=Role.TANK)
-
-    assert all(h["role"] == Role.TANK for h in heroes)

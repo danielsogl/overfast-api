@@ -87,20 +87,3 @@ def parse_roles_html(html: str) -> list[dict]:
         raise ParserParsingError(msg) from error
     else:
         return roles
-
-
-async def parse_roles(
-    client: BlizzardClientPort,
-    locale: Locale = Locale.ENGLISH_US,
-) -> list[dict]:
-    """
-    High-level function to fetch and parse roles
-
-    Returns:
-        List of role dicts
-
-    Raises:
-        ParserParsingError: If HTML structure is unexpected
-    """
-    html = await fetch_roles_html(client, locale)
-    return parse_roles_html(html)
