@@ -358,6 +358,14 @@ class PlayerService(BaseService):
                         parsed = parse_player_profile_html(
                             html, identity.player_summary
                         )
+                        # The data is now as fresh as it gets. _get_fresh_stored
+                        # _profile reports the *stored* age even when it hands
+                        # back None, so leaving it meant _check_player_staleness
+                        # still saw the pre-fetch age, marked this response
+                        # stale, and had the caller enqueue a background refresh
+                        # that fetched the very page just fetched — two Blizzard
+                        # round-trips behind the throttle instead of one.
+                        age = 0
 
             data = data_factory(parsed)
 
