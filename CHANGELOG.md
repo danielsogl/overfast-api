@@ -2,6 +2,18 @@
 
 <!-- version list -->
 
+## v4.7.3 (2026-08-29)
+
+### Build System
+
+- **deps**: Bump astral-sh/setup-uv from 9.0.0 to 10.0.1
+  ([#452](https://github.com/danielsogl/overfast-api/pull/452),
+  [`82247e7`](https://github.com/danielsogl/overfast-api/commit/82247e767d6c518b4fac7e68a068dcac78162f6d))
+
+- **deps**: Bump python-semantic-release/python-semantic-release
+  ([`ffe30bd`](https://github.com/danielsogl/overfast-api/commit/ffe30bd06c47675c2b8a4dc45c12815e145c26d5))
+
+
 ## v4.7.2 (2026-08-16)
 
 ### Bug Fixes
