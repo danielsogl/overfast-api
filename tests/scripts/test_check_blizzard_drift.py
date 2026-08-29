@@ -4,7 +4,7 @@ the logic that reads them. Every sample below is real patch-note wording.
 """
 
 import pytest
-from scripts.check_blizzard_drift import hitpoint_findings
+from scripts.check_blizzard_drift import hitpoint_findings, parse_rotation_maps
 
 _ROWS = {
     "Reaper": {"health": "275", "armor": "0", "shields": "0"},
@@ -111,3 +111,44 @@ class TestAttribution:
         findings = hitpoint_findings("Health reduced from 300 to 275.", _ROWS)
 
         assert _levels(findings) == ["warn"]
+
+
+class TestRotationMapParsing:
+    """The rates page is the only structured map list Blizzard publishes, and it
+    is served only when query parameters are present — the bare URL is a shell.
+    """
+
+    # Trimmed from the live page; the class attribute before `label` is real and
+    # broke my first regex.
+    _SELECT = (
+        '<select class="blz-dropdown" data-label="map" id="filter-map-select">'
+        '<option data-rqs="1,0" data-title="all_maps" value="all-maps">All Maps</option>'
+        '<optgroup class="blz-subheading-text-lg" label="Control">'
+        '<option data-rqs="1,0" data-title="Busan" value="busan">Busan</option>'
+        '<option data-rqs="1,0" data-title="Ilios" value="ilios">Ilios</option>'
+        "</optgroup>"
+        '<optgroup class="blz-subheading-text-lg" label="Hybrid">'
+        '<option data-rqs="1,0" data-title="King\'s Row" value="kings-row">'
+        "King's Row</option>"
+        "</optgroup></select>"
+    )
+
+    def test_maps_are_grouped_by_gamemode(self):
+        result = parse_rotation_maps(self._SELECT)
+
+        assert result["busan"] == ("Busan", "control")
+        assert result["ilios"] == ("Ilios", "control")
+        assert result["kings-row"] == ("King's Row", "hybrid")
+
+    def test_the_all_maps_sentinel_is_not_a_map(self):
+        """It sits outside every optgroup, so it must not be collected."""
+        result = parse_rotation_maps(self._SELECT)
+
+        assert "all-maps" not in result
+
+    def test_shell_page_yields_nothing_rather_than_guessing(self):
+        """Without query parameters Blizzard serves a page with no dropdown at
+        all. That must warn, not report every map as missing."""
+        result = parse_rotation_maps("<html><body>no dropdown here</body></html>")
+
+        assert result == {}

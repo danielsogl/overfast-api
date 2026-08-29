@@ -14,8 +14,8 @@ echo,Echo,damage,150,0,75
 emre,Emre,damage,250,0,0
 freja,Freja,damage,225,0,0
 genji,Genji,damage,250,0,0
-hazard,Hazard,tank,425,225,0
 hanzo,Hanzo,damage,250,0,0
+hazard,Hazard,tank,425,225,0
 illari,Illari,support,250,0,0
 jetpack-cat,Jetpack Cat,support,225,0,0
 junker-queen,Junker Queen,tank,525,0,0
@@ -36,8 +36,8 @@ reaper,Reaper,damage,275,0,0
 reinhardt,Reinhardt,tank,400,300,0
 roadhog,Roadhog,tank,750,0,0
 shion,Shion,damage,250,0,0
-sigma,Sigma,tank,350,0,250
 sierra,Sierra,damage,250,0,0
+sigma,Sigma,tank,350,0,250
 sojourn,Sojourn,damage,225,0,0
 soldier-76,Soldier: 76,damage,250,0,0
 sombra,Sombra,damage,225,0,0

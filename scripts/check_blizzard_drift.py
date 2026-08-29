@@ -337,6 +337,82 @@ def check_hitpoints_against_patch_notes() -> None:
     print(f"  checked {len(_DELTA_PATTERN.findall(text))} published change(s)")
 
 
+# ── Maps ─────────────────────────────────────────────────────────────────────
+#
+# Blizzard publishes no map list: /en-us/maps/ is an 8KB shell with zero map
+# names, /en-us/maps/data/ 404s, and the rates JSON only echoes the map you
+# asked for. Patch notes announce new maps, but in twelve different phrasings
+# across three years — and four maps (Arena Victoriae, Gogadoro, Place Lacroix,
+# Redwood Dam) were never named in any patch note at all, so a regex over them
+# would miss a third of releases while inventing false positives from lines like
+# "New Holiday decorations have been added to the following maps".
+#
+# The one structured source is the map dropdown on the hero-rates page, which is
+# server-rendered *only when query parameters are present* — the bare URL serves
+# the shell. Its option values are byte-identical to our key column and the
+# enclosing optgroup gives the gamemode.
+#
+# It covers the live rotation only (30 of our 58): no arcade, retired, workshop
+# or Stadium-exclusive maps. That is a real limit, not an oversight — those have
+# no Blizzard-published source and stay manual.
+
+RATES_PATH = "/rates/?input=PC&map=all-maps&role=All&region=europe&tier=All"
+_MAP_SELECT = re.compile(r'<select[^>]*id="filter-map-select".*?</select>', re.DOTALL)
+_OPTGROUP = re.compile(
+    r'<optgroup[^>]*label="([^"]+)"(.*?)(?=<optgroup|</select>)', re.DOTALL
+)
+_OPTION = re.compile(r'<option[^>]*data-title="([^"]*)"[^>]*value="([a-z0-9-]+)"')
+
+
+def _normalise(name: str) -> str:
+    """Blizzard writes King's Row with an ASCII apostrophe, we use a typographic
+    one. That is a typography choice, not drift."""
+    return name.replace("\u2019", "'").casefold().strip()
+
+
+def parse_rotation_maps(html: str) -> dict[str, tuple[str, str]]:
+    """Return ``{key: (name, gamemode)}`` from the rates page map dropdown."""
+    select = _MAP_SELECT.search(html)
+    if not select:
+        return {}
+
+    maps = {}
+    for group in _OPTGROUP.finditer(select.group(0)):
+        gamemode = group.group(1).strip().casefold().replace(" ", "-")
+        for option in _OPTION.finditer(group.group(2)):
+            maps[option.group(2)] = (option.group(1), gamemode)
+    return maps
+
+
+def check_maps_in_rotation() -> None:
+    """Every map Blizzard currently rotates must exist in maps.csv."""
+    print("=== maps in live rotation ===")
+
+    live = parse_rotation_maps(fetch(RATES_PATH))
+    if not live:
+        warn("could not read the map dropdown — the rates page layout may have changed")
+        return
+
+    ours = {row["key"]: row for row in read_csv_file("maps")}
+
+    for key, (name, gamemode) in sorted(live.items()):
+        row = ours.get(key)
+        if row is None:
+            fail(
+                f"map {key!r} ({name}, {gamemode}) is in rotation but missing from maps.csv"
+            )
+            continue
+        if gamemode not in row["gamemodes"].split(","):
+            fail(
+                f"map {key!r} is {gamemode} on Blizzard but "
+                f"{row['gamemodes']!r} in maps.csv"
+            )
+        elif _normalise(name) != _normalise(row["name"]):
+            warn(f"map {key!r} is named {name!r} on Blizzard, {row['name']!r} here")
+
+    print(f"  checked {len(live)} maps in rotation against {len(ours)} known")
+
+
 def check_roles() -> None:
     """Parse the roles block off the home page."""
     print("=== roles ===")
@@ -364,6 +440,7 @@ def main() -> int:
             check_hero_detail(min(h["key"] for h in heroes))
         check_roles()
         check_hitpoints_against_patch_notes()
+        check_maps_in_rotation()
     except httpx2.HTTPError as exc:
         # Network trouble is not drift; say so rather than reporting a false
         # positive, but still exit non-zero so the run is not silently green.
