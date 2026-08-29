@@ -26,7 +26,9 @@ if TYPE_CHECKING:
 
 from app.domain.enums import (
     CareerHeroesComparisonsCategory,
+    CareerStatCategory,
     CompetitiveRole,
+    HeroKey,
     PlayerGamemode,
     PlayerPlatform,
 )
@@ -274,7 +276,16 @@ def _get_platform_competitive_ranks(
 
     for role_wrapper in role_wrappers:
         role_icon = _get_role_icon(role_wrapper)
-        role_key = get_role_key_from_icon(role_icon).value
+        role = get_role_key_from_icon(role_icon)
+        if role is None:
+            # A competitive role we cannot name yet. Dropping this one role
+            # still returns the player's other ranks.
+            logger.warning(
+                "[Player] Unknown competitive role in icon {} — skipping the role",
+                role_icon,
+            )
+            continue
+        role_key = role.value
 
         rank_tier_icons = role_wrapper.css("img.Profile-playerSummary--rank")
         rank_icon, tier_icon = (
@@ -298,9 +309,23 @@ def _get_platform_competitive_ranks(
             )
             continue
 
+        tier = get_tier_from_icon(tier_icon)
+        if tier == 0:
+            # get_tier_from_icon yields 0 for any icon without a "_", but the
+            # response model declares tier as ge=1 — so a rename of
+            # TierDivision_N.<hash>.png would 500 every ranked player rather
+            # than costing one field. Report the role as unranked instead.
+            logger.warning(
+                "[Player] Could not read a tier from icon {} — "
+                "reporting role {} as unranked",
+                tier_icon,
+                role_key,
+            )
+            continue
+
         competitive_ranks[role_key] = {
             "division": division,
-            "tier": get_tier_from_icon(tier_icon),
+            "tier": tier,
             "role_icon": role_icon,
             "rank_icon": rank_icon,
             "tier_icon": tier_icon,
@@ -396,6 +421,53 @@ def _parse_gamemode_stats(
     }
 
 
+def _hero_comparison_entry(container: LexborNode) -> dict | None:
+    """Build one ``{hero, value}`` row, or None if it cannot be represented.
+
+    Both fields can carry something ``HeroStat`` rejects, and a rejected field
+    is a 500 for the whole request rather than one missing row:
+
+    - ``hero`` is typed ``HeroKey``, generated from heroes.csv. When Blizzard
+      omits ``data-hero-id`` — which the fallback below exists for, "a hero
+      newly available for testing" — the fallback yields a display name like
+      "wrecking ball", and a display name is *never* a valid key. So the
+      mitigation for a new hero was itself the crash trigger.
+    - ``value`` is typed ``StrictInt | StrictFloat``, but
+      ``get_computed_stat_value`` returns the raw string for any format it does
+      not recognise ("1.2K", a non-breaking space inside a number, "∞").
+
+    Dropping the row loses one hero from one category. Raising loses the whole
+    profile, and every other profile that has played that hero.
+    """
+    name_node = container.first_child
+    value_node = container.last_child
+    if name_node is None or value_node is None:
+        return None
+    title_node, amount_node = value_node.first_child, value_node.last_child
+    if title_node is None or amount_node is None:
+        return None
+
+    hero = name_node.attributes.get("data-hero-id") or title_node.text().lower()
+    if hero not in HeroKey:
+        logger.warning(
+            "[Player] Unknown hero {!r} in heroes comparisons — skipping the row",
+            hero,
+        )
+        return None
+
+    value = get_computed_stat_value(amount_node.text())
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        logger.warning(
+            "[Player] Unreadable value {!r} for hero {} in heroes comparisons — "
+            "skipping the row",
+            value,
+            hero,
+        )
+        return None
+
+    return {"hero": hero, "value": value}
+
+
 def _parse_heroes_comparisons(top_heroes_section: LexborNode) -> dict:
     """Parse heroes comparisons (top heroes by category)"""
     categories = _get_heroes_options(top_heroes_section)
@@ -408,28 +480,12 @@ def _parse_heroes_comparisons(top_heroes_section: LexborNode) -> dict:
                 categories[category.attributes["data-category-id"]],
             ),
             "values": [
-                {
-                    # Normally, a valid data-hero-id is present. However, in some
-                    # cases — such as when a hero is newly available for testing —
-                    # stats may lack an associated ID. In these instances, we fall
-                    # back to using the hero's title in lowercase.
-                    "hero": (
-                        progress_bar_container.first_child.attributes.get(
-                            "data-hero-id"
-                        )
-                        or progress_bar_container.last_child.first_child.text().lower()
-                    ),
-                    "value": get_computed_stat_value(
-                        progress_bar_container.last_child.last_child.text()
-                    ),
-                }
+                entry
                 for progress_bar in category.iter()
                 for progress_bar_container in progress_bar.iter()
                 if progress_bar_container.tag == "div"
-                and progress_bar_container.first_child is not None
-                and progress_bar_container.last_child is not None
-                and progress_bar_container.last_child.first_child is not None
-                and progress_bar_container.last_child.last_child is not None
+                and (entry := _hero_comparison_entry(progress_bar_container))
+                is not None
             ],
         }
         for category in top_heroes_section.iter()
@@ -459,10 +515,22 @@ def _parse_stat_row(stat_row: LexborNode) -> dict | None:
         return None
 
     stat_name = stat_row.first_child.text()
+    value = get_computed_stat_value(stat_row.last_child.text())
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        # SingleCareerStat.value is StrictInt | StrictFloat, and
+        # get_computed_stat_value hands back the raw string for any format it
+        # does not recognise. One unreadable number would 500 the whole profile.
+        logger.warning(
+            "Unreadable value {!r} for stat {!r}, skipping the row",
+            value,
+            stat_name,
+        )
+        return None
+
     return {
         "key": get_plural_stat_key(string_to_snakecase(stat_name)),
         "label": stat_name,
-        "value": get_computed_stat_value(stat_row.last_child.text()),
+        "value": value,
     }
 
 
@@ -479,6 +547,62 @@ def _parse_category_stats(content_div: LexborNode) -> list[dict]:
             stats.append(stat)
 
     return stats
+
+
+def _career_stat_category(
+    content_div: LexborNode, hero_key: str
+) -> tuple[str, str] | None:
+    """Return ``(category_key, english_label)`` for a stat card, or None to skip it.
+
+    Every branch here is a shape Blizzard has actually served at some point;
+    the last one is the only one that is about our own types rather than theirs.
+    """
+    # Label should be the first div within content ("header" class)
+    header = content_div.first_child
+    if header is None or header.first_child is None:
+        logger.warning("Missing category header for hero {}, skipping", hero_key)
+        return None
+
+    category_label = header.first_child.text()
+    if not category_label or not category_label.strip():
+        logger.warning("Empty category label for hero {}, skipping", hero_key)
+        return None
+
+    # Normalize localized category names to English
+    normalized = normalize_career_stat_category_name(category_label)
+    if not normalized or not normalized.strip():
+        logger.warning(
+            "Category label normalized to empty for hero {} (original: {!r}), skipping",
+            hero_key,
+            category_label,
+        )
+        return None
+
+    category_key = string_to_snakecase(normalized)
+    if not category_key:
+        logger.warning(
+            "Category key is empty after snake_case conversion for hero {}"
+            " (normalized label: {!r}, original: {!r}), skipping",
+            hero_key,
+            normalized,
+            category_label,
+        )
+        return None
+
+    if category_key not in CareerStatCategory:
+        # HeroCareerStats.category is typed CareerStatCategory, so a category
+        # Blizzard adds 500s /players/{id} and /players/{id}/stats. The
+        # /stats/career route already drops it silently (its model is built per
+        # known key), so the same input produced two different failures. Drop it
+        # consistently.
+        logger.warning(
+            "Unknown career stat category {!r} for hero {}, skipping",
+            category_key,
+            hero_key,
+        )
+        return None
+
+    return category_key, normalized
 
 
 def _parse_career_stats(career_stats_section: LexborNode) -> dict:
@@ -517,41 +641,10 @@ def _parse_career_stats(career_stats_section: LexborNode) -> dict:
                 logger.warning("Missing content div for hero {}", hero_key)
                 continue
 
-            # Label should be the first div within content ("header" class)
-            category_label = content_div.first_child.first_child.text()
-
-            # Skip empty category labels (malformed HTML)
-            if not category_label or not category_label.strip():
-                logger.warning("Empty category label for hero {}, skipping", hero_key)
+            category = _career_stat_category(content_div, hero_key)
+            if category is None:
                 continue
-
-            # Normalize localized category names to English
-            normalized_category_label = normalize_career_stat_category_name(
-                category_label
-            )
-
-            # Skip if normalization resulted in empty string
-            if not normalized_category_label or not normalized_category_label.strip():
-                logger.warning(
-                    "Category label normalized to empty for hero {} (original: {!r}), skipping",
-                    hero_key,
-                    category_label,
-                )
-                continue
-
-            # Convert to snake_case for category key
-            category_key = string_to_snakecase(normalized_category_label)
-
-            # Skip if snake_case conversion resulted in empty string
-            if not category_key:
-                logger.warning(
-                    "Category key is empty after snake_case conversion for hero {}"
-                    " (normalized label: {!r}, original: {!r}), skipping",
-                    hero_key,
-                    normalized_category_label,
-                    category_label,
-                )
-                continue
+            category_key, category_label = category
 
             # Parse all stats for this category
             stats = _parse_category_stats(content_div)
@@ -559,7 +652,7 @@ def _parse_career_stats(career_stats_section: LexborNode) -> dict:
             career_stats[hero_key].append(
                 {
                     "category": category_key,
-                    "label": normalized_category_label,
+                    "label": category_label,
                     "stats": stats,
                 },
             )
