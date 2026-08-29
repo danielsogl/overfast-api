@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 import valkey.asyncio as valkey
 
 from app.config import settings
+from app.infrastructure.helpers import compute_etag
 from app.infrastructure.logger import logger
 from app.infrastructure.metaclasses import Singleton
 
@@ -148,9 +149,15 @@ class ValkeyCache(metaclass=Singleton):
         ``data_json`` is the pre-serialized JSON string (key order preserved by
         Python's ``json.dumps``), so nginx/Lua can print it verbatim without
         re-encoding through cjson (which does not guarantee key ordering).
+
+        ``etag`` is computed here, once per write, over exactly the bytes nginx
+        will print. The alternative — hashing in Lua on every cache hit — would
+        put the cost on the hot path this whole layer exists to keep cheap.
         """
+        data_json = json.dumps(value, separators=(",", ":"))
         envelope: dict = {
-            "data_json": json.dumps(value, separators=(",", ":")),
+            "data_json": data_json,
+            "etag": compute_etag(data_json.encode("utf-8")),
             "stored_at": stored_at if stored_at is not None else int(time.time()),
             "staleness_threshold": (
                 staleness_threshold if staleness_threshold is not None else expire

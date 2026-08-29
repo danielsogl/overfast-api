@@ -113,6 +113,29 @@ local function handle_valkey_request()
     -- X-Cache-TTL: remaining Valkey TTL (non-standard, kept for backward compat)
     ngx.header["${CACHE_TTL_HEADER}"] = cache_ttl
 
+    -- Conditional request (RFC 9110 §13.1.2). The tag is a weak validator the
+    -- app computed once, at write time, over exactly the bytes printed below —
+    -- so a hit compares two short strings instead of hashing a payload that can
+    -- run to hundreds of KB. Envelopes written before this field existed simply
+    -- carry no tag, and the response then behaves as it always did.
+    --
+    -- Set after the cache metadata headers on purpose: ngx.exit keeps whatever
+    -- is already in ngx.header, so the 304 still carries Age, Cache-Control,
+    -- X-Cache-Status and the TTL header. A 304 that dropped those would make a
+    -- client's caching worse than no ETag at all.
+    local etag = envelope.etag
+    if etag ~= nil and etag ~= ngx.null then
+        ngx.header["ETag"] = etag
+        local if_none_match = ngx.var.http_if_none_match
+        -- Plain (non-pattern) find: the client echoes the tag back verbatim,
+        -- possibly in a comma-separated list of several.
+        if if_none_match and string.find(if_none_match, etag, 1, true) then
+            release(valk)
+            ngx.status = ngx.HTTP_NOT_MODIFIED
+            return ngx.exit(ngx.HTTP_NOT_MODIFIED)
+        end
+    end
+
     ngx.print(envelope.data_json)
     release(valk)
 end

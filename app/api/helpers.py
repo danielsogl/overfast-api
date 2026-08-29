@@ -65,7 +65,24 @@ success_responses: dict[int | str, dict[str, Any]] = {
                     "example": "hit",
                 },
             },
+            "ETag": {
+                "description": (
+                    "Weak validator for this payload. Send it back in "
+                    "``If-None-Match`` to get a ``304 Not Modified`` with no "
+                    "body while the data is unchanged."
+                ),
+                "schema": {
+                    "type": "string",
+                    "example": 'W/"6c1f9ab0f0d1d6ff2b8a1a2c3d4e5f60"',
+                },
+            },
         },
+    },
+    status.HTTP_304_NOT_MODIFIED: {
+        "description": (
+            "The payload still matches the ``ETag`` sent in ``If-None-Match``. "
+            "The body is empty; the cache metadata headers are unchanged."
+        ),
     },
 }
 
