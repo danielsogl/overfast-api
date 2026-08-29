@@ -58,7 +58,7 @@ app/
 │   ├── ports/                     # typing.Protocol interfaces (structural typing)
 │   ├── services/                  # SWR orchestration via get_or_fetch()
 │   └── utils/
-│       ├── csv_reader.py          # CSVReader class
+│       ├── csv_reader.py          # read_csv_file(), @cache'd — treat results as read-only
 │       └── data/                  # heroes.csv, maps.csv, gamemodes.csv
 ├── adapters/
 │   ├── blizzard/
@@ -80,8 +80,7 @@ app/
 │   ├── models/                    # Pydantic response models
 │   └── routers/
 ├── infrastructure/
-│   ├── decorators.py              # @rate_limited
-│   ├── helpers.py                 # overfast_internal_error, send_discord_webhook_message
+│   ├── helpers.py                 # overfast_internal_error
 │   ├── logger.py                  # loguru logger
 │   └── metaclasses.py             # Singleton with clear_all()
 └── monitoring/                    # Prometheus metrics + middleware
@@ -143,7 +142,7 @@ Router → get_* dependency (api/dependencies.py)
 - Assign `msg = "literal string"` before `raise` to satisfy ruff `EM` rule — no inline string literals in `raise`.
 - Use `raise SomeException(msg) from exc` for exception chaining.
 - Infrastructure errors (Valkey, DB) are caught with `except Exception:  # noqa: BLE001` and logged as warnings — never let them crash a request.
-- `logger.critical(...)` + `overfast_internal_error(url, exc)` for unexpected parsing failures (sends Discord webhook, returns HTTP 500).
+- `logger.critical(...)` + `overfast_internal_error(url, exc)` for unexpected parsing failures (logs the full traceback, returns HTTP 500). There is no outbound alerting — Prometheus/Grafana under the `monitoring` profile is the place for it.
 
 ### Logging
 
@@ -161,6 +160,22 @@ Router → get_* dependency (api/dependencies.py)
 - Adapters do **not** inherit from ports — compliance is verified by `ty` at injection points.
 - Port protocol methods have `...` as body.
 
+**Do not "simplify" the ports away.** They look like ~350 lines of protocols with
+one implementation each, and a line count alone makes them read as ceremony. They
+are not: nine files under `app/domain/` import a port, and `app/domain/` imports
+`app/adapters/` **nowhere**. The ports are precisely what keeps that true. Delete
+them and the domain layer has to import adapters directly, inverting the
+dependency direction the table above defines. Verify before believing otherwise:
+
+```bash
+grep -rn "from app.adapters" app/domain/   # must stay empty
+```
+
+Two known, accepted leaks: `BlizzardClientPort.get()` returns `httpx2.Response`,
+and `CachePort` exposes Valkey-shaped operations (`bgsave`, `scan_keys`). Defining
+parallel protocols to hide a well-known HTTP response type would add code to
+remove coupling that costs nothing here.
+
 ### Singleton adapters
 
 - `BlizzardClient`, `ValkeyCache`, `PostgresStorage`, `BlizzardThrottle` use `metaclass=Singleton`.
@@ -171,7 +186,8 @@ Router → get_* dependency (api/dependencies.py)
 ## Testing
 
 - pytest with `fakeredis.FakeAsyncRedis` in-memory Valkey and a `FakeStorage` in-memory DB.
-- `tests/conftest.py` autouse fixture: clears storage, calls `Singleton.clear_all()`, patches Valkey, overrides `get_storage` DI, disables Discord webhook + profiler.
+- `tests/conftest.py` autouse fixture: clears storage, calls `Singleton.clear_all()`, patches Valkey, overrides `get_storage` DI, disables the profiler, and zeroes the
+  Blizzard throttle delay.
 - Test structure mirrors `app/` DDD layout (`tests/domain/`, `tests/adapters/`, etc.).
 - HTML/JSON fixtures for parser tests: `tests/fixtures/`.
 - Refresh test fixtures from live pages: `just exec "python -m tests.update_test_fixtures"`.

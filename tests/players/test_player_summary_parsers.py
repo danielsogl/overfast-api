@@ -1,6 +1,6 @@
 """Tests for parse_player_summary_json"""
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 from fastapi import status
@@ -9,7 +9,6 @@ from app.adapters.blizzard import BlizzardClient
 from app.domain.exceptions import ParserParsingError
 from app.domain.parsers.player_summary import (
     fetch_player_summary_json,
-    parse_player_summary,
     parse_player_summary_json,
 )
 
@@ -293,44 +292,3 @@ class TestFetchPlayerSummaryJson:
             client = BlizzardClient()
             result = await fetch_player_summary_json(client, "TeKrop-2217")
         assert result == json_payload
-
-
-class TestParsePlayerSummaryHighLevel:
-    """Tests for parse_player_summary() high-level async function (lines 134-141)."""
-
-    @pytest.mark.asyncio
-    async def test_blizzard_id_returns_empty_without_fetch(self):
-        """parse_player_summary skips the search when given a Blizzard ID."""
-        mock_client = AsyncMock()
-        # If a Blizzard ID is passed, no HTTP call should be made
-        result = await parse_player_summary(
-            mock_client, "abc123%7Cdef456", blizzard_id=None
-        )
-        assert result == {}
-        mock_client.get.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_battletag_triggers_fetch_and_parse(self):
-        """parse_player_summary fetches and parses for a normal BattleTag."""
-        json_payload = [
-            {
-                "name": "TeKrop",
-                "isPublic": True,
-                "lastUpdated": 1700000000,
-                "avatar": "https://example.com/avatar.png",
-                "namecard": None,
-                "title": None,
-                "url": "abc123%7Cdef456",
-            }
-        ]
-        mock_response = Mock(
-            status_code=status.HTTP_200_OK,
-            json=lambda: json_payload,
-        )
-        with patch("httpx2.AsyncClient.get", return_value=mock_response):
-            client = BlizzardClient()
-            result = await parse_player_summary(
-                client, "TeKrop-2217", blizzard_id="abc123%7Cdef456"
-            )
-        assert result != {}
-        assert result["url"] == "abc123%7Cdef456"

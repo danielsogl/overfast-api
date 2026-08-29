@@ -6,7 +6,6 @@ from app.config import settings
 from app.domain.exceptions import ParserParsingError
 from app.domain.parsers.utils import (
     build_blizzard_url,
-    is_blizzard_id,
     match_player_by_blizzard_id,
     validate_response_status,
 )
@@ -110,33 +109,3 @@ def parse_player_summary_json(
         raise ParserParsingError(msg) from error
     else:
         return player_data
-
-
-async def parse_player_summary(
-    client: BlizzardClientPort, player_id: str, blizzard_id: str | None = None
-) -> dict:
-    """
-    High-level function to fetch and parse player summary
-
-    Args:
-        client: Blizzard HTTP client
-        player_id: Player ID (BattleTag format or Blizzard ID)
-        blizzard_id: Optional Blizzard ID from profile redirect to resolve ambiguity
-
-    Returns:
-        Player summary dict with url, lastUpdated, avatar, etc.
-        Empty dict if player not found, multiple matches without Blizzard ID,
-        or if player_id is a Blizzard ID (search doesn't work with IDs)
-
-    Raises:
-        ParserParsingError: If unexpected payload structure
-    """
-    # If player_id is a Blizzard ID, skip search (won't find anything useful)
-    if is_blizzard_id(player_id):
-        logger.info(
-            "Player ID {} is a Blizzard ID, skipping search (not supported)", player_id
-        )
-        return {}
-
-    json_data = await fetch_player_summary_json(client, player_id)
-    return parse_player_summary_json(json_data, player_id, blizzard_id)

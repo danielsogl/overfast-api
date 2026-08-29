@@ -94,25 +94,3 @@ def filter_heroes(
         heroes = [hero for hero in heroes if gamemode in hero["gamemodes"]]
 
     return heroes
-
-
-async def parse_heroes(
-    client: BlizzardClientPort,
-    locale: Locale = Locale.ENGLISH_US,
-    role: str | None = None,
-    gamemode: HeroGamemode | None = None,
-) -> list[dict]:
-    """
-    High-level function to fetch and parse heroes list
-
-    Args:
-        client: Blizzard HTTP client
-        locale: Blizzard page locale
-        role: Optional role filter
-
-    Returns:
-        List of hero dicts, optionally filtered by role
-    """
-    html = await fetch_heroes_html(client, locale)
-    heroes = parse_heroes_html(html)
-    return filter_heroes(heroes, role, gamemode)
