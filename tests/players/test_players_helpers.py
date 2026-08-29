@@ -16,6 +16,12 @@ from app.domain.parsers.player_helpers import CAREER_COMPARISON_CATEGORY_IDS
         # Time format in hour:min:sec => seconds
         ("1,448:50:56", 5_215_856),
         ("205:08:38", 738_518),
+        # Percentages. The float cases fell through both patterns and returned
+        # the raw string, which the response model types as a number.
+        ("33%", 33),
+        ("10.5%", 10.5),
+        ("0.01%", 0.01),
+        ("-3.25%", -3.25),
         ("12:03:52", 43_432),
         ("5:42:42", 20_562),
         ("-0:00:00", 0),

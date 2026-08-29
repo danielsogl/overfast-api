@@ -15,7 +15,10 @@ from app.domain.utils.helpers import key_to_label
 DURATION_HOURS_PATTERN = re.compile(r"^(-?\d+(?:,\d+)?):(\d+):(\d+)$")
 DURATION_MINUTES_PATTERN = re.compile(r"^(-?\d+):(\d+)$")
 INT_PATTERN = re.compile(r"^-?\d+(,\d+)*%?$")
-FLOAT_PATTERN = re.compile(r"^-?\d+(,\d+)*\.\d+$")
+# The trailing "%?" mirrors INT_PATTERN. Without it "10.5%" matched neither
+# pattern and fell through to the raw string, which the response model types as
+# a number — a 500 on any stat Blizzard prints with a fractional percentage.
+FLOAT_PATTERN = re.compile(r"^-?\d+(,\d+)*\.\d+%?$")
 
 
 def get_player_title(title: dict | str | None) -> str | None:
@@ -62,7 +65,7 @@ def get_computed_stat_value(input_str: str) -> str | float | int:
 
     # Float format
     if FLOAT_PATTERN.match(input_str):
-        return float(input_str.replace(",", ""))
+        return float(input_str.replace("%", "").replace(",", ""))
 
     # Return 0 value if :
     # - Zero time fought with a character ("--")
