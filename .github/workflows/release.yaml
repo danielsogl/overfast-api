@@ -62,7 +62,14 @@ jobs:
       && needs.release.result == 'success'
       && needs.smoke-test.result == 'success'
     runs-on: ubuntu-latest
-    environment: production
+    # No environment gate on purpose: a manual approval here added a click,
+    # not a check. What actually protects production is automated and still
+    # in place — this job only runs after semantic-release and the full-stack
+    # smoke test both succeed, scripts/deploy.sh rolls the app container and
+    # keeps the old one serving if the new one never turns healthy, and the
+    # post-deploy health check below verifies the live API afterwards.
+    # The VPS secrets are repo-scoped, so dropping the environment does not
+    # cut off access to them.
 
     steps:
       - name: Deploy via SSH
