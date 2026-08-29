@@ -13,7 +13,12 @@ from app.domain.exceptions import (
     ParserParsingError,
 )
 from app.domain.models.player import PlayerIdentity
-from app.domain.services.player_service import PlayerService
+from app.domain.services.player_service import (
+    _PARSED_PROFILE_CACHE,
+    _PARSED_PROFILE_CACHE_MAXSIZE,
+    PlayerService,
+    parse_stored_profile,
+)
 from tests.fake_storage import FakeStorage
 from tests.helpers import read_html_file
 
@@ -489,7 +494,7 @@ class TestExecutePlayerRequest:
             s.career_path = "/career"
             s.unknown_players_cache_enabled = False
             result, _is_stale, _age = await svc._execute_player_request(
-                "TeKrop-2217", "test-key", lambda _html, _summary: {"from": "blizzard"}
+                "TeKrop-2217", "test-key", lambda _profile: {"from": "blizzard"}
             )
 
         assert result == {"from": "blizzard"}
@@ -534,7 +539,7 @@ class TestExecutePlayerRequest:
             s.prometheus_enabled = False
             s.career_path_cache_timeout = 300
             result, _is_stale, _age = await svc._execute_player_request(
-                "abc123|def456", "test-key", lambda _html, _summary: {}
+                "abc123|def456", "test-key", lambda _profile: {}
             )
         # Profile is stale (age > threshold), slow path → fresh fetch → age=0 → not stale
         assert result == {}
@@ -564,7 +569,7 @@ class TestExecutePlayerRequest:
             s.career_path_cache_timeout = 300
             s.stale_cache_timeout = 60
             await svc._execute_player_request(
-                "abc123|def456", "test-key", lambda _html, _summary: {}
+                "abc123|def456", "test-key", lambda _profile: {}
             )
 
         call_kwargs = cache.update_api_cache.call_args.kwargs
@@ -598,7 +603,7 @@ class TestExecutePlayerRequest:
             s.career_path_cache_timeout = 300
             s.stale_cache_timeout = 60
             _data, is_stale, _age = await svc._execute_player_request(
-                "abc123|def456", "test-key", lambda _html, _summary: {}
+                "abc123|def456", "test-key", lambda _profile: {}
             )
 
         assert is_stale is True
@@ -641,7 +646,7 @@ class TestExecutePlayerRequest:
             s.career_path = "/career"
             s.unknown_players_cache_enabled = False
             await svc._execute_player_request(
-                "TeKrop-2217", "test-key", lambda _html, _summary: {}
+                "TeKrop-2217", "test-key", lambda _profile: {}
             )
 
         call_kwargs = cache.update_api_cache.call_args.kwargs
@@ -742,3 +747,97 @@ class TestRefreshPlayerProfile:
                 await svc.refresh_player_profile("TeKrop-2217")
 
         assert exc_info.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+
+# ---------------------------------------------------------------------------
+# parse_stored_profile — memoisation across the five player endpoints
+# ---------------------------------------------------------------------------
+
+
+class TestParseStoredProfileCache:
+    """The parsed-profile cache is what stops all five player endpoints from
+    re-running the same 10-20ms parse on the same stored HTML."""
+
+    def test_second_call_reuses_the_parse(self):
+        with patch(
+            "app.domain.services.player_service.parse_player_profile_html",
+            return_value={"summary": {}, "stats": {}},
+        ) as parse:
+            first = parse_stored_profile("p", 100, _TEKROP_HTML, _PLAYER_SUMMARY)
+            second = parse_stored_profile("p", 100, _TEKROP_HTML, _PLAYER_SUMMARY)
+
+        assert parse.call_count == 1
+        assert first is second
+
+    def test_new_updated_at_reparses(self):
+        """A background refresh writes a new updated_at — it must not serve the
+        stale parse."""
+        with patch(
+            "app.domain.services.player_service.parse_player_profile_html",
+            side_effect=[{"v": 1}, {"v": 2}],
+        ):
+            first = parse_stored_profile("p", 100, _TEKROP_HTML, _PLAYER_SUMMARY)
+            second = parse_stored_profile("p", 200, _TEKROP_HTML, _PLAYER_SUMMARY)
+
+        # Distinct values can only come out if the parser ran twice.
+        assert (first, second) == ({"v": 1}, {"v": 2})
+
+    def test_players_do_not_share_an_entry(self):
+        with patch(
+            "app.domain.services.player_service.parse_player_profile_html",
+            side_effect=[{"who": "a"}, {"who": "b"}],
+        ):
+            first = parse_stored_profile("a", 100, _TEKROP_HTML, _PLAYER_SUMMARY)
+            second = parse_stored_profile("b", 100, _TEKROP_HTML, _PLAYER_SUMMARY)
+
+        assert (first, second) == ({"who": "a"}, {"who": "b"})
+
+    def test_evicts_least_recently_used_beyond_maxsize(self):
+        """Bounded so a burst of distinct players cannot grow the process
+        without limit — each parsed profile is a few hundred KB."""
+        with patch(
+            "app.domain.services.player_service.parse_player_profile_html",
+            side_effect=lambda *_: {},
+        ):
+            for i in range(_PARSED_PROFILE_CACHE_MAXSIZE + 5):
+                parse_stored_profile(f"p{i}", 1, _TEKROP_HTML, _PLAYER_SUMMARY)
+
+        assert len(_PARSED_PROFILE_CACHE) == _PARSED_PROFILE_CACHE_MAXSIZE
+        assert ("p0", 1) not in _PARSED_PROFILE_CACHE
+        assert ("p20", 1) in _PARSED_PROFILE_CACHE
+
+    @pytest.mark.asyncio
+    async def test_endpoints_share_one_parse_of_the_same_profile(self):
+        """The real payoff: two endpoints hitting the same stored profile parse
+        it once between them."""
+        storage = FakeStorage()
+        await storage.initialize()
+        await storage.set_player_profile(
+            player_id="abc123|def456",
+            html=_TEKROP_HTML,
+            summary=_PLAYER_SUMMARY,
+            battletag="TeKrop-2217",
+            name="TeKrop",
+        )
+        svc = _make_service(storage=storage)
+
+        with (
+            patch(
+                "app.domain.services.player_service.parse_player_profile_html",
+                return_value={"summary": {"username": "TeKrop"}, "stats": {}},
+            ) as parse,
+            patch("app.domain.services.player_service.settings") as s,
+        ):
+            s.player_staleness_threshold = 99999
+            s.prometheus_enabled = False
+            s.career_path_cache_timeout = 300
+            summary, _, _ = await svc.get_player_summary("abc123|def456", "k1")
+            career, _, _ = await svc.get_player_career(
+                "abc123|def456", None, None, "k2"
+            )
+
+        assert parse.call_count == 1
+        assert summary == {"username": "TeKrop"}
+        assert career["summary"] == {"username": "TeKrop"}
+
+        await storage.close()

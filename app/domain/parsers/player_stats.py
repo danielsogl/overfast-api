@@ -336,7 +336,7 @@ def _calculate_averages(stat: dict) -> dict:
     }
 
 
-def _process_player_stats_summary(
+def process_player_stats_summary(
     profile_data: dict,
     gamemode: PlayerGamemode | None = None,
     platform: PlayerPlatform | None = None,
@@ -394,4 +394,4 @@ def parse_player_stats_summary_from_html(
         Dict with "general", "roles", and "heroes" stats
     """
     profile_data = parse_player_profile_html(html, player_summary)
-    return _process_player_stats_summary(profile_data, gamemode, platform)
+    return process_player_stats_summary(profile_data, gamemode, platform)

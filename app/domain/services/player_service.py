@@ -1,6 +1,7 @@
 """Player domain service — career, stats, summary, and search"""
 
 import time
+from collections import OrderedDict
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Never, cast
 
@@ -15,9 +16,7 @@ from app.domain.exceptions import (
     ParserParsingError,
 )
 from app.domain.models.player import PlayerIdentity
-from app.domain.parsers.player_career_stats import (
-    parse_player_career_stats_from_html,
-)
+from app.domain.parsers.player_career_stats import process_career_stats
 from app.domain.parsers.player_profile import (
     extract_name_from_profile_html,
     fetch_player_html,
@@ -26,9 +25,7 @@ from app.domain.parsers.player_profile import (
     parse_player_profile_html,
 )
 from app.domain.parsers.player_search import parse_player_search
-from app.domain.parsers.player_stats import (
-    parse_player_stats_summary_from_html,
-)
+from app.domain.parsers.player_stats import process_player_stats_summary
 from app.domain.parsers.player_summary import (
     fetch_player_summary_json,
     parse_player_summary_json,
@@ -37,10 +34,62 @@ from app.domain.parsers.utils import is_blizzard_id
 from app.domain.services.base_service import BaseService
 from app.infrastructure.logger import logger
 from app.monitoring.metrics import (
+    parsed_profile_cache_total,
     storage_battletag_lookup_total,
     storage_cache_hit_total,
     storage_hits_total,
 )
+
+# Parsing one stored profile costs 10-20ms of blocking CPU (roughly half lexbor
+# DOM build, half tree walk), and all five player endpoints funnel through the
+# same parse of the same HTML. The API cache in Valkey expires after
+# ``career_path_cache_timeout`` (600s) while the stored profile stays valid for
+# ``player_staleness_threshold`` (3600s), so without this every endpoint reparses
+# the identical blob roughly six times per stored profile.
+#
+# Keying on ``updated_at`` is what makes it safe: a background refresh writes a
+# new timestamp and misses the cache, and a restart starts empty so parser
+# changes take effect immediately — the same property ``_serve_from_storage``
+# relies on for static data.
+#
+# ponytail: process-local OrderedDict, not Valkey. There is one app process and
+# no `await` in the lookup, so it needs no lock. Move it to Valkey only if the
+# app is ever scaled past one process AND the hit rate proves worth a round-trip.
+_PARSED_PROFILE_CACHE: OrderedDict[tuple[str, int], dict] = OrderedDict()
+_PARSED_PROFILE_CACHE_MAXSIZE = 16
+
+
+def parse_stored_profile(
+    player_id: str,
+    updated_at: int,
+    html: str,
+    player_summary: dict,
+) -> dict:
+    """Parse a stored profile, reusing the result across endpoints.
+
+    The returned dict is **shared between callers — treat it as read-only.**
+    Three consumers pass nested parts of it straight through to the response
+    (``summary``, per-platform stats, per-hero career stat lists), so mutating
+    it in place would corrupt every later cache hit.
+    """
+    key = (player_id, updated_at)
+    if (cached := _PARSED_PROFILE_CACHE.get(key)) is not None:
+        _PARSED_PROFILE_CACHE.move_to_end(key)
+        parsed_profile_cache_total.labels(result="hit").inc()
+        return cached
+
+    parsed = parse_player_profile_html(html, player_summary)
+    parsed_profile_cache_total.labels(result="miss").inc()
+
+    _PARSED_PROFILE_CACHE[key] = parsed
+    if len(_PARSED_PROFILE_CACHE) > _PARSED_PROFILE_CACHE_MAXSIZE:
+        _PARSED_PROFILE_CACHE.popitem(last=False)
+    return parsed
+
+
+def clear_parsed_profile_cache() -> None:
+    """Drop all memoised profiles (tests)."""
+    _PARSED_PROFILE_CACHE.clear()
 
 
 class PlayerService(BaseService):
@@ -94,8 +143,8 @@ class PlayerService(BaseService):
     ) -> tuple[dict, bool, int]:
         """Return player summary (name, avatar, competitive ranks, …)."""
 
-        def extract(html: str, player_summary: dict) -> dict:
-            return parse_player_profile_html(html, player_summary).get("summary") or {}
+        def extract(profile: dict) -> dict:
+            return profile.get("summary") or {}
 
         return await self._execute_player_request(player_id, cache_key, extract)
 
@@ -112,8 +161,7 @@ class PlayerService(BaseService):
     ) -> tuple[dict, bool, int]:
         """Return full player data: summary + stats."""
 
-        def extract(html: str, player_summary: dict) -> dict:
-            profile = parse_player_profile_html(html, player_summary)
+        def extract(profile: dict) -> dict:
             return {
                 "summary": profile.get("summary") or {},
                 "stats": filter_all_stats_data(
@@ -183,8 +231,7 @@ class PlayerService(BaseService):
     ) -> tuple[dict, bool, int]:
         """Return player stats with category labels."""
 
-        def extract(html: str, player_summary: dict) -> dict:
-            profile = parse_player_profile_html(html, player_summary)
+        def extract(profile: dict) -> dict:
             return filter_stats_by_query(
                 profile.get("stats") or {}, gamemode, platform, hero
             )
@@ -204,10 +251,8 @@ class PlayerService(BaseService):
     ) -> tuple[dict, bool, int]:
         """Return player statistics summary (winrate, kda, …)."""
 
-        def extract(html: str, player_summary: dict) -> dict:
-            return parse_player_stats_summary_from_html(
-                html, player_summary, gamemode, platform
-            )
+        def extract(profile: dict) -> dict:
+            return process_player_stats_summary(profile, gamemode, platform)
 
         return await self._execute_player_request(player_id, cache_key, extract)
 
@@ -225,10 +270,8 @@ class PlayerService(BaseService):
     ) -> tuple[dict, bool, int]:
         """Return player career stats (no labels)."""
 
-        def extract(html: str, player_summary: dict) -> dict:
-            return parse_player_career_stats_from_html(
-                html, gamemode, player_summary, platform, hero
-            )
+        def extract(profile: dict) -> dict:
+            return process_career_stats(profile, gamemode, platform, hero)
 
         return await self._execute_player_request(player_id, cache_key, extract)
 
@@ -240,9 +283,9 @@ class PlayerService(BaseService):
         self,
         player_id: str,
         cache_key: str,
-        data_factory: Callable[[str, dict], dict],
+        data_factory: Callable[[dict], dict],
     ) -> tuple[dict, bool, int]:
-        """Resolve identity → get HTML → compute data → update cache → return.
+        """Resolve identity → get HTML → parse → compute data → update cache → return.
 
         Fast path: if persistent storage has a profile fresher than
         ``player_staleness_threshold``, all Blizzard calls are skipped and
@@ -262,12 +305,22 @@ class PlayerService(BaseService):
                 logger.info(
                     "Serving player data from persistent storage (within staleness threshold)"
                 )
-                data = data_factory(profile["profile"], profile["summary"])
+                parsed = parse_stored_profile(
+                    player_id,
+                    profile["updated_at"],
+                    profile["profile"],
+                    profile["summary"],
+                )
             else:
                 identity = await self._resolve_player_identity(player_id)
                 effective_id = identity.blizzard_id or player_id
                 html = await self._get_player_html(effective_id, identity)
-                data = data_factory(html, identity.player_summary)
+                # ponytail: not memoised — a cold fetch parses once anyway, and
+                # the next endpoint reads the profile back from storage and
+                # populates the cache with the authoritative ``updated_at``.
+                parsed = parse_player_profile_html(html, identity.player_summary)
+
+            data = data_factory(parsed)
 
         except Exception as exc:  # noqa: BLE001
             await self._handle_player_exceptions(exc, player_id, identity)

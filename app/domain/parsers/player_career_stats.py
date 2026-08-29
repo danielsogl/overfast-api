@@ -58,7 +58,7 @@ def extract_career_stats_from_profile(profile_data: dict) -> dict:
     }
 
 
-def _process_career_stats(
+def process_career_stats(
     profile_data: dict,
     gamemode: PlayerGamemode | str,
     platform: PlayerPlatform | str | None = None,
@@ -109,4 +109,4 @@ def parse_player_career_stats_from_html(
         Career stats dict, filtered by query parameters
     """
     profile_data = parse_player_profile_html(html, player_summary)
-    return _process_career_stats(profile_data, gamemode, platform, hero)
+    return process_career_stats(profile_data, gamemode, platform, hero)
