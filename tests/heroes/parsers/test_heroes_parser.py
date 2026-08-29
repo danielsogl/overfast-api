@@ -115,3 +115,22 @@ def test_parse_heroes_html_dom_error_raises():
         pytest.raises(ParserParsingError),
     ):
         parse_heroes_html("<html></html>")
+
+
+class TestUnknownHeroDoesNotBreakTheEndpoint:
+    """HeroShort.key is typed HeroKey, so a hero Blizzard ships before we add
+    the CSV row failed response validation and 500ed the whole endpoint. One
+    unknown key must cost that hero, not all of them."""
+
+    def test_unknown_key_is_skipped_and_the_rest_survive(self, heroes_html_data: str):
+        mutated = heroes_html_data.replace(
+            'href="/heroes/ana"', 'href="/heroes/brandnew"'
+        )
+
+        result = parse_heroes_html(mutated)
+        keys = [hero["key"] for hero in result]
+
+        assert "brandnew" not in keys
+        assert "ana" not in keys
+        assert len(keys) == len(parse_heroes_html(heroes_html_data)) - 1
+        assert all(key in iter(HeroKey) for key in keys)

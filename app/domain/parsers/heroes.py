@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING
 
 from app.config import settings
-from app.domain.enums import HeroGamemode, Locale
+from app.domain.enums import HeroGamemode, HeroKey, Locale
 from app.domain.exceptions import ParserParsingError
 from app.domain.parsers.utils import (
     parse_html_root,
@@ -11,6 +11,7 @@ from app.domain.parsers.utils import (
     safe_get_text,
     validate_response_status,
 )
+from app.infrastructure.logger import logger
 
 if TYPE_CHECKING:
     from app.domain.ports import BlizzardClientPort
@@ -63,9 +64,26 @@ def parse_heroes_html(html: str) -> list[dict]:
             if hero_element.css_matches("blz-card blz-badge.stadium-badge"):
                 gamemodes.append(HeroGamemode.STADIUM)
 
+            hero_key = hero_url.split("/")[-1]
+            if hero_key not in HeroKey:
+                # HeroShort.key is typed HeroKey, so one hero Blizzard ships
+                # before we add the row failed response validation and took the
+                # WHOLE endpoint down with it — /heroes 500ing entirely because
+                # of a single unknown key.
+                #
+                # Serving the other 53 is strictly better, and this does not go
+                # unnoticed: scripts/check_blizzard_drift.py compares the live
+                # index against the enum daily and fails on exactly this.
+                logger.warning(
+                    "Unknown hero {!r} on the Blizzard index — not in heroes.csv "
+                    "yet, skipping it rather than failing /heroes",
+                    hero_key,
+                )
+                continue
+
             heroes.append(
                 {
-                    "key": hero_url.split("/")[-1],
+                    "key": hero_key,
                     "name": safe_get_text(name_element),
                     "portrait": safe_get_attribute(portrait_element, "src"),
                     "role": safe_get_attribute(hero_element, "data-role"),

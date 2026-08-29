@@ -1,3 +1,4 @@
+from copy import deepcopy
 from unittest.mock import Mock, patch
 
 import pytest
@@ -5,6 +6,7 @@ import pytest
 from app.adapters.blizzard import BlizzardClient
 from app.domain.enums import (
     CompetitiveDivision,
+    HeroKey,
     PlayerGamemode,
     PlayerPlatform,
     PlayerRegion,
@@ -271,3 +273,22 @@ class TestOrderingWithNullBanrate:
         result = self._parse(payload, "banrate:asc")
 
         assert [stat["hero"] for stat in result] == ["genji", "ana"]
+
+
+def test_unknown_hero_is_skipped_not_fatal(hero_stats_json_data: dict):
+    """HeroStatsSummary.hero is typed HeroKey, so one hero Blizzard ranks before
+    we add the CSV row used to 500 the whole endpoint."""
+    payload = deepcopy(hero_stats_json_data)
+    payload["rates"]["rates"][0]["id"] = "brandnew"
+
+    result = parse_hero_stats_json(
+        payload,
+        map_filter="all-maps",
+        gamemode=PlayerGamemode.COMPETITIVE,
+        gamemode_filter=payload["rates"]["selected"]["rq"],
+    )
+    keys = [row["hero"] for row in result]
+
+    assert "brandnew" not in keys
+    assert len(keys) == len(payload["rates"]["rates"]) - 1
+    assert all(key in iter(HeroKey) for key in keys)

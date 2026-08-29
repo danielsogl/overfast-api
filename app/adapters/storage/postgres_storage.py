@@ -64,6 +64,12 @@ class PostgresStorage(metaclass=Singleton):
                         dsn=settings.postgres_dsn,
                         min_size=settings.postgres_pool_min_size,
                         max_size=settings.postgres_pool_max_size,
+                        # Without this a query that never returns holds its
+                        # connection forever. The pool caps at 10, so ten such
+                        # queries exhaust it and every later request waits on
+                        # acquire() — the API stops answering while postgres
+                        # itself looks perfectly healthy to the container check.
+                        command_timeout=settings.postgres_command_timeout,
                         init=self._init_connection,
                     )
                     break

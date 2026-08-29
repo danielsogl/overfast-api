@@ -4,13 +4,19 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 from app.config import settings
-from app.domain.enums import PlayerGamemode, PlayerPlatform, PlayerRegion
+from app.domain.enums import (
+    HeroKey,
+    PlayerGamemode,
+    PlayerPlatform,
+    PlayerRegion,
+)
 from app.domain.exceptions import (
     InvalidGamemodeFilterError,
     ParserBlizzardError,
     ParserParsingError,
 )
 from app.domain.parsers.utils import validate_response_status
+from app.infrastructure.logger import logger
 
 if TYPE_CHECKING:
     from app.domain.ports import BlizzardClientPort
@@ -134,6 +140,12 @@ def parse_hero_stats_json(
                 (rate["hero"].get("subrole") or "").lower(),
             )
         ]
+        # Same reason as parse_heroes_html: HeroStatsSummary.hero is typed
+        # HeroKey, so one hero Blizzard ranks before we add the row failed
+        # response validation and 500ed the entire endpoint. The daily drift
+        # check reports the missing key within 24h either way.
+        hero_stats = [rate for rate in hero_stats if _is_known_hero(rate["id"])]
+
         hero_stats = [
             {
                 "hero": rate["id"],
@@ -160,6 +172,19 @@ def parse_hero_stats_json(
     sortable.sort(key=lambda pair: pair[0], reverse=(order_arrangement == "desc"))
 
     return [stat for _, stat in sortable] + unrated
+
+
+def _is_known_hero(hero_key: str) -> bool:
+    """Whether the key exists in HeroKey, warning once per unknown hero."""
+    if hero_key in HeroKey:
+        return True
+
+    logger.warning(
+        "Unknown hero {!r} in Blizzard rates — not in heroes.csv yet, "
+        "skipping it rather than failing /heroes/stats",
+        hero_key,
+    )
+    return False
 
 
 def _is_column_available(json_data: dict, column_id: str) -> bool:
