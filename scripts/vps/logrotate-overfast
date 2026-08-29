@@ -1,0 +1,18 @@
+# Installed at /etc/logrotate.d/overfast
+#
+# The health log was missing here and had grown to 2.5 MB / 60k lines since
+# February, untrimmed. Nothing on this box trims it otherwise, and a full disk
+# takes postgres and valkey down together — the same reason docker-compose.yml
+# caps the json-file driver.
+/var/log/overfast-deploy.log
+/var/log/overfast-health.log
+/var/log/overfast-backup.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    create 0644 root root
+}
