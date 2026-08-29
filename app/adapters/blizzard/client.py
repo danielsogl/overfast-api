@@ -1,6 +1,5 @@
 """Blizzard HTTP client adapter implementing BlizzardClientPort"""
 
-import time
 from typing import TYPE_CHECKING
 
 import httpx2
@@ -11,11 +10,6 @@ from app.config import settings
 from app.domain.exceptions import RateLimitedError
 from app.infrastructure.logger import logger
 from app.infrastructure.metaclasses import Singleton
-from app.monitoring.helpers import normalize_blizzard_url
-from app.monitoring.metrics import (
-    blizzard_request_duration_seconds,
-    blizzard_requests_total,
-)
 
 if TYPE_CHECKING:
     from app.domain.ports import ThrottlePort
@@ -63,8 +57,7 @@ class BlizzardClient(metaclass=Singleton):
         if params:
             kwargs["params"] = params
 
-        normalized_endpoint = normalize_blizzard_url(url)
-        response = await self._execute_request(url, normalized_endpoint, kwargs)
+        response = await self._execute_request(url, kwargs)
 
         if self.throttle:
             await self.throttle.adjust_delay(response.status_code)
@@ -93,42 +86,20 @@ class BlizzardClient(metaclass=Singleton):
                 headers={settings.retry_after_header: str(exc.retry_after)},
             ) from exc
 
-    async def _execute_request(
-        self,
-        url: str,
-        normalized_endpoint: str,
-        kwargs: dict,
-    ) -> httpx2.Response:
-        """Execute the HTTP GET and record metrics."""
-        start_time = time.perf_counter()
+    async def _execute_request(self, url: str, kwargs: dict) -> httpx2.Response:
+        """Execute the HTTP GET, translating transport failures."""
         try:
-            response = await self.client.get(url, **kwargs)
+            return await self.client.get(url, **kwargs)
         except httpx2.TimeoutException as error:
-            duration = time.perf_counter() - start_time
-            self._record_metrics(normalized_endpoint, "timeout", duration)
             raise self._blizzard_response_error(
                 status_code=0,
                 error="Blizzard took more than 10 seconds to respond, resulting in a timeout",
             ) from error
         except httpx2.RemoteProtocolError as error:
-            duration = time.perf_counter() - start_time
-            self._record_metrics(normalized_endpoint, "error", duration)
             raise self._blizzard_response_error(
                 status_code=0,
                 error="Blizzard closed the connection, no data could be retrieved",
             ) from error
-
-        duration = time.perf_counter() - start_time
-        self._record_metrics(normalized_endpoint, str(response.status_code), duration)
-        return response
-
-    @staticmethod
-    def _record_metrics(endpoint: str, status_label: str, duration: float) -> None:
-        if settings.prometheus_enabled:
-            blizzard_requests_total.labels(endpoint=endpoint, status=status_label).inc()
-            blizzard_request_duration_seconds.labels(endpoint=endpoint).observe(
-                duration
-            )
 
     async def close(self) -> None:
         """Properly close HTTPX Async Client"""

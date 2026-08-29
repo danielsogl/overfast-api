@@ -83,7 +83,6 @@ app/
 │   ├── helpers.py                 # overfast_internal_error
 │   ├── logger.py                  # loguru logger
 │   └── metaclasses.py             # Singleton with clear_all()
-└── monitoring/                    # Prometheus metrics + middleware
 ```
 
 ### Request flow
@@ -142,7 +141,7 @@ Router → get_* dependency (api/dependencies.py)
 - Assign `msg = "literal string"` before `raise` to satisfy ruff `EM` rule — no inline string literals in `raise`.
 - Use `raise SomeException(msg) from exc` for exception chaining.
 - Infrastructure errors (Valkey, DB) are caught with `except Exception:  # noqa: BLE001` and logged as warnings — never let them crash a request.
-- `logger.critical(...)` + `overfast_internal_error(url, exc)` for unexpected parsing failures (logs the full traceback, returns HTTP 500). There is no outbound alerting — Prometheus/Grafana under the `monitoring` profile is the place for it.
+- `logger.critical(...)` + `overfast_internal_error(url, exc)` for unexpected parsing failures (logs the full traceback, returns HTTP 500). There is no outbound alerting and no metrics stack — logs are the only signal. Do not reintroduce Prometheus instrumentation without being asked: it was removed deliberately, having never been scraped in production.
 
 ### Logging
 

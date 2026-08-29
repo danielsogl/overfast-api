@@ -23,7 +23,6 @@ set -o pipefail 2>/dev/null || true
 # client-supplied prefix is ignored. Override in .env if nginx is ever exposed
 # directly, where trusting nothing is the correct default.
 : "${TRUSTED_PROXY_CIDRS:=172.16.0.0/12,192.168.0.0/16,10.0.0.0/8}"
-: "${PROMETHEUS_ENABLED:=false}"
 : "${RETRY_AFTER_HEADER:=Retry-After}"
 : "${UNKNOWN_PLAYER_COOLDOWN_KEY_PREFIX:=unknown-player:cooldown}"
 : "${UNKNOWN_PLAYERS_CACHE_ENABLED:=true}"
@@ -65,29 +64,11 @@ fi
 
 export REAL_IP_CONFIG
 
-# Build Prometheus config conditionally by reading template files
-if [ "$PROMETHEUS_ENABLED" = "true" ]; then
-  PROMETHEUS_LUA_SHARED_DICT=$(cat /etc/nginx/prometheus-templates/prometheus_shared_dict.conf)
-  PROMETHEUS_INIT_WORKER=$(cat /etc/nginx/prometheus-templates/prometheus_init_worker.conf)
-  PROMETHEUS_LOG_BY_LUA=$(cat /etc/nginx/prometheus-templates/prometheus_log.conf)
-  PROMETHEUS_METRICS_SERVER=$(cat /etc/nginx/prometheus-templates/prometheus_metrics_server.conf)
-else
-  PROMETHEUS_LUA_SHARED_DICT=''
-  PROMETHEUS_INIT_WORKER=''
-  PROMETHEUS_LOG_BY_LUA=''
-  PROMETHEUS_METRICS_SERVER=''
-fi
-
-export PROMETHEUS_LUA_SHARED_DICT
-export PROMETHEUS_INIT_WORKER
-export PROMETHEUS_LOG_BY_LUA
-export PROMETHEUS_METRICS_SERVER
-
 # Generate main nginx.conf from template
 envsubst '${NGINX_WORKER_PROCESSES_VALUE} ${NGINX_WORKER_CONNECTIONS} ${NGINX_MULTI_ACCEPT_VALUE}' < /etc/nginx/nginx.conf.template > /usr/local/openresty/nginx/conf/nginx.conf
 
 # Replace placeholders and generate config and lua script from templates
-envsubst '${REAL_IP_CONFIG} ${RATE_LIMIT_PER_SECOND_PER_IP} ${RATE_LIMIT_PER_IP_BURST} ${MAX_CONNECTIONS_PER_IP} ${RETRY_AFTER_HEADER} ${PROMETHEUS_LUA_SHARED_DICT} ${PROMETHEUS_INIT_WORKER} ${PROMETHEUS_LOG_BY_LUA} ${PROMETHEUS_METRICS_SERVER}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf
+envsubst '${REAL_IP_CONFIG} ${RATE_LIMIT_PER_SECOND_PER_IP} ${RATE_LIMIT_PER_IP_BURST} ${MAX_CONNECTIONS_PER_IP} ${RETRY_AFTER_HEADER}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf
 envsubst '${VALKEY_HOST} ${VALKEY_PORT} ${CACHE_TTL_HEADER} ${RETRY_AFTER_HEADER} ${UNKNOWN_PLAYER_COOLDOWN_KEY_PREFIX} ${UNKNOWN_PLAYERS_CACHE_ENABLED}' < /usr/local/openresty/lualib/valkey_handler.lua.template > /usr/local/openresty/lualib/valkey_handler.lua
 
 # Check OpenResty config before starting

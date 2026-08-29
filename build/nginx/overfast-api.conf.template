@@ -23,9 +23,6 @@ limit_req_status 429;
 resolver 127.0.0.11 valid=1s ipv6=off;
 resolver_timeout 2s;
 
-# Prometheus metrics initialization (conditional on PROMETHEUS_ENABLED)
-${PROMETHEUS_LUA_SHARED_DICT}
-${PROMETHEUS_INIT_WORKER}
 
 server {
   listen 80;
@@ -92,8 +89,6 @@ server {
     error_page 404 502 504 = @fallback;
   }
 
-  # Prometheus logging (conditional on PROMETHEUS_ENABLED)
-  ${PROMETHEUS_LOG_BY_LUA}
 
   # FastAPI app fallback
   location @fallback {
@@ -142,5 +137,3 @@ server {
   }
 }
 
-# Prometheus metrics server (conditional on PROMETHEUS_ENABLED)
-${PROMETHEUS_METRICS_SERVER}

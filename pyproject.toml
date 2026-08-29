@@ -13,7 +13,6 @@ dependencies = [
     "fastapi[standard-no-fastapi-cloud-cli]==0.141.*",
     "httpx2[http2]==2.12.*",
     "loguru==0.7.*",
-    "prometheus-client==0.26.*",
     "pydantic==2.13.*",
     "pydantic-settings==2.15.*",
     "selectolax==0.4.*",
@@ -150,7 +149,6 @@ allowed-confusables = ["（", "）", "："]
 "app/api/**" = ["TID251"]           # API layer owns FastAPI
 "app/adapters/**" = ["TID251"]      # BlizzardClient raises HTTPException for transport errors
 "app/infrastructure/**" = ["TID251"]  # Shared HTTPException helpers (Discord alerts, etc.)
-"app/monitoring/**" = ["TID251"]    # Prometheus/FastAPI router glue
 "app/main.py" = ["TID251"]          # App assembly
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]

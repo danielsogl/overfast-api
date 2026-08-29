@@ -17,8 +17,6 @@ from app.api.routers.players import router as players
 from app.api.routers.roles import router as roles
 from app.config import settings
 from app.infrastructure.logger import logger
-from app.monitoring import router as monitoring_router
-from app.monitoring.middleware import register_prometheus_middleware
 
 description = f"""OverFast API provides comprehensive data on Overwatch heroes,
 game modes, maps, and player statistics by scraping Blizzard pages. Built with
@@ -115,12 +113,6 @@ register_exception_handlers(app)
 # Add supported profiler as middleware
 if settings.profiler:  # pragma: no cover
     register_profiler(app, settings.profiler)
-
-
-# Add Prometheus middleware and /metrics endpoint if enabled
-if settings.prometheus_enabled:
-    register_prometheus_middleware(app)
-    app.include_router(monitoring_router.router)
 
 
 # Add application routers
