@@ -141,9 +141,7 @@ def check_heroes() -> list[dict]:
     # until a human fills them in, so an unfinished row cannot sit in main
     # quietly serving wrong data.
     if unfilled := sorted(
-        row["key"]
-        for row in read_csv_file("heroes")
-        if int(row["health"] or 0) == 0  # ty: ignore[invalid-argument-type]
+        row["key"] for row in read_csv_file("heroes") if int(row["health"] or 0) == 0
     ):
         fail(
             f"hero(es) in heroes.csv with health=0: {', '.join(unfilled)}. "
