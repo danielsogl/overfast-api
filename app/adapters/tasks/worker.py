@@ -194,16 +194,27 @@ async def refresh_player_profile(
 
 @broker.task(schedule=[{"cron": "0 3 * * *"}])
 async def cleanup_stale_players(storage: StorageDep) -> None:
-    """Delete player profiles older than ``player_profile_max_age`` (runs daily at 03:00 UTC)."""
-    if settings.player_profile_max_age <= 0:
+    """Apply the player retention windows (runs daily at 03:00 UTC).
+
+    Profiles and snapshots age out on separate clocks — a profile is a cache of
+    something Blizzard will hand back, a snapshot is not — but they are pruned in
+    one job so the cleanup stays one schedule and one log line. Either window can
+    be disabled on its own with ``<= 0``.
+    """
+    prune_profiles = settings.player_profile_max_age > 0
+    prune_snapshots = settings.player_snapshot_max_age > 0
+    if not prune_profiles and not prune_snapshots:
         logger.debug(
             "[Worker] cleanup_stale_players: disabled (max_age <= 0), skipping."
         )
         return
 
-    logger.info("[Worker] cleanup_stale_players: Deleting stale player profiles...")
+    logger.info("[Worker] cleanup_stale_players: Deleting stale player data...")
     try:
-        await storage.delete_old_player_profiles(settings.player_profile_max_age)
+        if prune_profiles:
+            await storage.delete_old_player_profiles(settings.player_profile_max_age)
+        if prune_snapshots:
+            await storage.delete_old_player_snapshots(settings.player_snapshot_max_age)
     except Exception:  # noqa: BLE001
         logger.exception("[Worker] cleanup_stale_players: Failed.")
         return

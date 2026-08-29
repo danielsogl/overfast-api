@@ -2,12 +2,14 @@
 
 import asyncio
 import time
+from fnmatch import fnmatch
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi import HTTPException, status
 
+from app.config import settings
 from app.domain.exceptions import (
     ParserBlizzardError,
     ParserInternalError,
@@ -888,3 +890,264 @@ class TestSingleFlightColdMiss:
         await asyncio.gather(_work("slow", 0.05), _work("fast", 0.0))
 
         assert order == ["fast", "slow"]
+
+
+# ---------------------------------------------------------------------------
+# Snapshot history
+# ---------------------------------------------------------------------------
+
+
+_BLIZZARD_ID = "abc123|def456"
+_BATTLETAG = "TeKrop-2217"
+
+
+async def _seed_stored_profile(storage: FakeStorage) -> None:
+    """Store a fresh profile reachable by both its BattleTag and its Blizzard ID."""
+    await storage.set_player_profile(
+        _BLIZZARD_ID,
+        html=_TEKROP_HTML,
+        summary=_PLAYER_SUMMARY,
+        battletag=_BATTLETAG,
+    )
+
+
+class TestStoreSnapshot:
+    @pytest.mark.asyncio
+    async def test_snapshot_recorded_on_the_storage_fast_path(self):
+        storage = FakeStorage()
+        await _seed_stored_profile(storage)
+        svc = _make_service(storage=storage)
+
+        await svc.get_player_summary(_BLIZZARD_ID, "key")
+
+        snapshots = await storage.get_player_snapshots(_BLIZZARD_ID)
+        assert len(snapshots) == 1
+        assert snapshots[0]["last_updated_blizzard"] == _PLAYER_SUMMARY["lastUpdated"]
+        assert snapshots[0]["data"]["heroes"]
+
+    @pytest.mark.asyncio
+    async def test_battletag_and_blizzard_id_share_one_series(self):
+        """The storage fast path never resolves a BattleTag, so without the
+        canonical lookup each spelling would grow its own half of the history."""
+        storage = FakeStorage()
+        await _seed_stored_profile(storage)
+        svc = _make_service(storage=storage)
+
+        await svc.get_player_summary(_BATTLETAG, "key-battletag")
+        await svc.get_player_summary(_BLIZZARD_ID, "key-blizzard-id")
+
+        assert len(await storage.get_player_snapshots(_BLIZZARD_ID)) == 1
+        assert await storage.get_player_snapshots(_BATTLETAG) == []
+
+    @pytest.mark.asyncio
+    async def test_repeated_requests_do_not_duplicate_a_row(self):
+        storage = FakeStorage()
+        await _seed_stored_profile(storage)
+        svc = _make_service(storage=storage)
+
+        await svc.get_player_summary(_BLIZZARD_ID, "key-1")
+        await svc.get_player_career(_BLIZZARD_ID, None, None, "key-2")
+
+        assert len(await storage.get_player_snapshots(_BLIZZARD_ID)) == 1
+
+    @pytest.mark.asyncio
+    async def test_storage_failure_does_not_break_the_request(self):
+        storage = FakeStorage()
+        await _seed_stored_profile(storage)
+        svc = _make_service(storage=storage)
+        storage.add_player_snapshot = AsyncMock(side_effect=Exception("DB gone"))
+
+        data, _is_stale, _age = await svc.get_player_summary(_BLIZZARD_ID, "key")
+
+        assert data["username"] == "TeKrop"
+
+    @pytest.mark.asyncio
+    async def test_nothing_is_recorded_without_a_blizzard_version_stamp(self):
+        storage = FakeStorage()
+        await _seed_stored_profile(storage)
+        svc = _make_service(storage=storage)
+        parsed = {
+            "summary": {
+                "competitive": {"pc": {"tank": {"division": "gold", "tier": 1}}}
+            },
+            "stats": None,
+        }
+
+        await svc._store_snapshot(_BLIZZARD_ID, parsed)
+
+        assert await storage.get_player_snapshots(_BLIZZARD_ID) == []
+
+    @pytest.mark.asyncio
+    async def test_private_profile_records_nothing(self):
+        storage = FakeStorage()
+        await _seed_stored_profile(storage)
+        svc = _make_service(storage=storage)
+        parsed = {"summary": {"last_updated_at": 1700000000}, "stats": None}
+
+        await svc._store_snapshot(_BLIZZARD_ID, parsed)
+
+        assert await storage.get_player_snapshots(_BLIZZARD_ID) == []
+
+    @pytest.mark.asyncio
+    async def test_refresh_records_a_snapshot(self):
+        storage = FakeStorage()
+        svc = _make_service(storage=storage)
+
+        with (
+            patch(
+                "app.domain.services.player_service.is_blizzard_id", return_value=True
+            ),
+            patch(
+                "app.domain.services.player_service.fetch_player_html",
+                new_callable=AsyncMock,
+                return_value=(_TEKROP_HTML, _BLIZZARD_ID),
+            ),
+            patch(
+                "app.domain.services.player_service.fetch_player_summary_json",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.domain.services.player_service.parse_player_summary_json",
+                return_value=_PLAYER_SUMMARY,
+            ),
+        ):
+            await svc.refresh_player_profile(_BLIZZARD_ID)
+
+        assert len(await storage.get_player_snapshots(_BLIZZARD_ID)) == 1
+
+    @pytest.mark.asyncio
+    async def test_refresh_survives_an_unparseable_profile(self):
+        storage = FakeStorage()
+        svc = _make_service(storage=storage)
+
+        with (
+            patch(
+                "app.domain.services.player_service.is_blizzard_id", return_value=True
+            ),
+            patch(
+                "app.domain.services.player_service.fetch_player_html",
+                new_callable=AsyncMock,
+                return_value=(_TEKROP_HTML, _BLIZZARD_ID),
+            ),
+            patch(
+                "app.domain.services.player_service.fetch_player_summary_json",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.domain.services.player_service.parse_player_summary_json",
+                return_value=_PLAYER_SUMMARY,
+            ),
+            patch(
+                "app.domain.services.player_service.parse_player_profile_html",
+                side_effect=Exception("markup changed"),
+            ),
+        ):
+            await svc.refresh_player_profile(_BLIZZARD_ID)
+
+        assert await storage.get_player_snapshots(_BLIZZARD_ID) == []
+
+
+class TestEvictionCoversTheHistoryEndpoints:
+    @pytest.mark.asyncio
+    async def test_glob_matches_history_and_diff_cache_keys(self):
+        """The existing per-player glob already covers the two new routes —
+        this asserts it rather than adding a second eviction pattern."""
+        cache = AsyncMock()
+        cache.scan_keys = AsyncMock(return_value=[])
+        svc = _make_service(cache=cache)
+
+        await svc._evict_player_cache_keys(_BATTLETAG)
+
+        pattern = cache.scan_keys.call_args[0][0]
+        prefix = f"{settings.api_cache_key_prefix}:"
+        assert fnmatch(f"{prefix}/players/{_BATTLETAG}/history", pattern)
+        assert fnmatch(f"{prefix}/players/{_BATTLETAG}/history?limit=50", pattern)
+        assert fnmatch(f"{prefix}/players/{_BATTLETAG}/stats/diff", pattern)
+        assert fnmatch(f"{prefix}/players/{_BATTLETAG}/stats/diff?since=1", pattern)
+
+
+class TestGetPlayerHistory:
+    @pytest.mark.asyncio
+    async def test_returns_the_series_newest_first(self):
+        storage = FakeStorage()
+        await _seed_stored_profile(storage)
+        await storage.add_player_snapshot(_BLIZZARD_ID, 1_600_000_000, {"old": True})
+        svc = _make_service(storage=storage)
+
+        data, _is_stale, _age = await svc.get_player_history(_BATTLETAG, "key")
+
+        versions = [row["last_updated_blizzard"] for row in data["snapshots"]]
+        assert versions == [_PLAYER_SUMMARY["lastUpdated"], 1_600_000_000]
+
+    @pytest.mark.asyncio
+    async def test_the_current_state_is_part_of_the_series(self):
+        storage = FakeStorage()
+        await _seed_stored_profile(storage)
+        svc = _make_service(storage=storage)
+
+        data, _is_stale, _age = await svc.get_player_history(_BLIZZARD_ID, "key")
+
+        assert len(data["snapshots"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_limit_is_honoured(self):
+        storage = FakeStorage()
+        await _seed_stored_profile(storage)
+        await storage.add_player_snapshot(_BLIZZARD_ID, 1_600_000_000, {"old": True})
+        svc = _make_service(storage=storage)
+
+        data, _is_stale, _age = await svc.get_player_history(
+            _BLIZZARD_ID, "key", limit=1
+        )
+
+        assert len(data["snapshots"]) == 1
+
+
+class TestGetPlayerStatsDiff:
+    @pytest.mark.asyncio
+    async def test_no_history_is_not_an_error(self):
+        storage = FakeStorage()
+        await _seed_stored_profile(storage)
+        svc = _make_service(storage=storage)
+
+        data, _is_stale, _age = await svc.get_player_stats_diff(_BLIZZARD_ID, "key")
+
+        # The warm-up request itself records the first point of the series.
+        assert data["snapshots_compared"] == 1
+        assert data["heroes"] == []
+        assert data["ranks"] == []
+
+    @pytest.mark.asyncio
+    async def test_since_defaults_to_the_last_day(self):
+        storage = FakeStorage()
+        await _seed_stored_profile(storage)
+        svc = _make_service(storage=storage)
+
+        data, _is_stale, _age = await svc.get_player_stats_diff(_BLIZZARD_ID, "key")
+
+        assert int(time.time()) - data["since"] == 86400  # noqa: PLR2004
+
+    @pytest.mark.asyncio
+    async def test_compares_the_ends_of_the_window(self):
+        storage = FakeStorage()
+        await _seed_stored_profile(storage)
+        older = {
+            "endorsement": 3,
+            "competitive": {},
+            "heroes": {
+                "pc": {
+                    "quickplay": {
+                        "ana": {"time_played": 0, "games_won": 0, "win_percentage": 0}
+                    }
+                }
+            },
+        }
+        await storage.add_player_snapshot(_BLIZZARD_ID, 1_600_000_000, older)
+        svc = _make_service(storage=storage)
+
+        data, _is_stale, _age = await svc.get_player_stats_diff(_BLIZZARD_ID, "key")
+
+        assert data["snapshots_compared"] == 2  # noqa: PLR2004
+        assert data["totals"]["time_played"] > 0

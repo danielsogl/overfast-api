@@ -353,6 +353,80 @@ class TestDeleteOldPlayerProfiles:
 
 
 # ---------------------------------------------------------------------------
+# player snapshots
+# ---------------------------------------------------------------------------
+
+
+class TestPlayerSnapshots:
+    @pytest.mark.asyncio
+    async def test_insert_ignores_a_known_version(self):
+        pool, conn = _make_pool()
+        storage = _make_storage(pool=pool)
+
+        await storage.add_player_snapshot("abc123", 1700000000, {"v": 1})
+
+        sql, *args = conn.execute.call_args[0]
+        assert "ON CONFLICT (player_id, last_updated_blizzard) DO NOTHING" in sql
+        assert args == ["abc123", 1700000000, {"v": 1}]
+
+    @pytest.mark.asyncio
+    async def test_get_maps_rows_and_converts_taken_at(self):
+        taken_at = datetime.datetime(2026, 8, 29, 12, 0, tzinfo=datetime.UTC)
+        pool, conn = _make_pool()
+        conn.fetch = AsyncMock(
+            return_value=[
+                {
+                    "taken_at": taken_at,
+                    "last_updated_blizzard": 1700000000,
+                    "data": {"v": 1},
+                }
+            ]
+        )
+        storage = _make_storage(pool=pool)
+
+        result = await storage.get_player_snapshots("abc123")
+
+        assert result == [
+            {
+                "taken_at": int(taken_at.timestamp()),
+                "last_updated_blizzard": 1700000000,
+                "data": {"v": 1},
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_get_passes_since_as_a_nullable_timestamp(self):
+        pool, conn = _make_pool()
+        storage = _make_storage(pool=pool)
+
+        await storage.get_player_snapshots("abc123", since=1700000000, limit=5)
+
+        sql, *args = conn.fetch.call_args[0]
+        assert "ORDER BY taken_at DESC" in sql
+        assert args == ["abc123", 1700000000.0, 5]
+
+    @pytest.mark.asyncio
+    async def test_get_without_since_passes_null(self):
+        pool, conn = _make_pool()
+        storage = _make_storage(pool=pool)
+
+        await storage.get_player_snapshots("abc123")
+
+        args = conn.fetch.call_args[0]
+        assert args[2] is None
+
+    @pytest.mark.asyncio
+    async def test_delete_old_returns_deleted_count(self):
+        pool, conn = _make_pool()
+        conn.execute = AsyncMock(return_value="DELETE 7")
+        storage = _make_storage(pool=pool)
+
+        result = await storage.delete_old_player_snapshots(31536000)
+
+        assert result == 7  # noqa: PLR2004
+
+
+# ---------------------------------------------------------------------------
 # clear_all_data
 # ---------------------------------------------------------------------------
 

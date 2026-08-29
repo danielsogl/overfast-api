@@ -16,8 +16,10 @@ from app.api.models.players import (
     CareerStats,
     Player,
     PlayerCareerStats,
+    PlayerHistory,
     PlayerNotFoundError,
     PlayerSearchResult,
+    PlayerStatsDiff,
     PlayerStatsSummary,
     PlayerSummary,
 )
@@ -287,6 +289,107 @@ async def get_player_stats(
         platform=commons.get("platform"),
         hero=commons.get("hero"),
         cache_key=cache_key,
+    )
+    apply_swr_headers(response, settings.career_path_cache_timeout, is_stale, age)
+    return data
+
+
+@router.get(
+    "/{player_id}/history",
+    responses=career_routes_responses,
+    tags=[RouteTag.PLAYERS],
+    summary="Get player snapshot history",
+    description=(
+        "Get the recorded history of a player profile, newest first. Blizzard "
+        "publishes no history of its own : each snapshot is a small record kept "
+        "every time this API served a new version of the profile, so the series "
+        "starts the first time the player was requested here."
+        "<br />Requesting this endpoint also refreshes the profile, so the "
+        "current state is always part of the series."
+        f"<br />**Cache TTL : {get_human_readable_duration(settings.career_path_cache_timeout)}.**"
+    ),
+    operation_id="get_player_history",
+    response_model=PlayerHistory,
+)
+async def get_player_history(
+    request: Request,
+    response: Response,
+    service: PlayerServiceDep,
+    commons: CommonsPlayerDep,
+    since: Annotated[
+        int | None,
+        Query(
+            title="Since",
+            description=(
+                "Only return snapshots recorded at or after this Unix timestamp. "
+                "All available snapshots are returned by default."
+            ),
+            examples=[1739547600],
+            gt=0,
+        ),
+    ] = None,
+    limit: Annotated[
+        int,
+        Query(
+            title="Limit",
+            description="Maximum number of snapshots to return",
+            examples=[100],
+            ge=1,
+            le=500,
+        ),
+    ] = 100,
+) -> Any:
+    cache_key = build_cache_key(request)
+    data, is_stale, age = await service.get_player_history(
+        player_id=commons["player_id"],
+        cache_key=cache_key,
+        since=since,
+        limit=limit,
+    )
+    apply_swr_headers(response, settings.career_path_cache_timeout, is_stale, age)
+    return data
+
+
+@router.get(
+    "/{player_id}/stats/diff",
+    responses=career_routes_responses,
+    tags=[RouteTag.PLAYERS],
+    summary="Get player progress over a period",
+    description=(
+        "Compare the oldest recorded snapshot in the requested window against "
+        "the most recent one : rank movements, per-hero playtime and wins gained, "
+        "and the totals across heroes."
+        "<br />A player with fewer than two snapshots in the window gets "
+        "`snapshots_compared` below 2 and empty deltas — that is a normal "
+        '"nothing recorded yet" state, not an error.'
+        f"<br />**Cache TTL : {get_human_readable_duration(settings.career_path_cache_timeout)}.**"
+    ),
+    operation_id="get_player_stats_diff",
+    response_model=PlayerStatsDiff,
+)
+async def get_player_stats_diff(
+    request: Request,
+    response: Response,
+    service: PlayerServiceDep,
+    commons: CommonsPlayerDep,
+    since: Annotated[
+        int | None,
+        Query(
+            title="Since",
+            description=(
+                "Unix timestamp the comparison window starts at. "
+                "Defaults to 24 hours before the request."
+            ),
+            examples=[1739547600],
+            gt=0,
+        ),
+    ] = None,
+) -> Any:
+    cache_key = build_cache_key(request)
+    data, is_stale, age = await service.get_player_stats_diff(
+        player_id=commons["player_id"],
+        cache_key=cache_key,
+        since=since,
     )
     apply_swr_headers(response, settings.career_path_cache_timeout, is_stale, age)
     return data

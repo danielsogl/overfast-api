@@ -27,6 +27,10 @@ from app.domain.parsers.player_profile import (
     parse_player_profile_html,
 )
 from app.domain.parsers.player_search import parse_player_search
+from app.domain.parsers.player_snapshot import (
+    build_player_snapshot,
+    diff_player_snapshots,
+)
 from app.domain.parsers.player_stats import process_player_stats_summary
 from app.domain.parsers.player_summary import (
     fetch_player_summary_json,
@@ -117,6 +121,18 @@ def clear_inflight_locks() -> None:
     """Drop all in-flight locks (tests)."""
     _INFLIGHT_LOCKS.clear()
     _INFLIGHT_WAITERS.clear()
+
+
+# Default lookback for /stats/diff: "what changed since yesterday" is the
+# question the endpoint exists to answer.
+_DEFAULT_DIFF_WINDOW = 86400
+
+# A window's worth of snapshots is read to find its oldest entry, but only the
+# two ends are compared. 500 versions inside one window would mean Blizzard
+# republished the profile every few minutes for the whole period; capping here
+# keeps one query bounded instead of adding an ascending-order variant to the
+# port for a case that does not occur.
+_DIFF_SNAPSHOT_LIMIT = 500
 
 
 class PlayerService(BaseService):
@@ -221,7 +237,23 @@ class PlayerService(BaseService):
         try:
             identity = await self._resolve_player_identity(player_id)
             effective_id = identity.blizzard_id or player_id
-            await self._get_player_html(effective_id, identity, force_update=True)
+            html = await self._get_player_html(
+                effective_id, identity, force_update=True
+            )
+            # The worker is the only writer for a player nobody is requesting
+            # right now, so without parsing here their series would simply stop.
+            # The parse is guarded separately: a markup break must cost the
+            # snapshot, not the refresh that already succeeded.
+            try:
+                parsed = parse_player_profile_html(html, identity.player_summary)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "[history] Could not parse profile of {} for a snapshot: {}",
+                    player_id,
+                    exc,
+                )
+            else:
+                await self._store_snapshot(effective_id, parsed)
             await self._evict_player_cache_keys(player_id)
         except Exception as exc:  # noqa: BLE001
             await self._handle_player_exceptions(exc, player_id, identity)
@@ -303,13 +335,124 @@ class PlayerService(BaseService):
         return await self._execute_player_request(player_id, cache_key, extract)
 
     # ------------------------------------------------------------------
+    # Snapshot history  (GET /players/{player_id}/history)
+    # ------------------------------------------------------------------
+
+    async def get_player_history(
+        self,
+        player_id: str,
+        cache_key: str,
+        since: int | None = None,
+        limit: int = 100,
+    ) -> tuple[dict, bool, int]:
+        """Return the player's stored snapshot series, newest first.
+
+        The live profile is requested first so that "now" is always the head of
+        the series and the profile stays warm — otherwise a client polling only
+        this endpoint would watch its own history go stale.
+        """
+        is_stale, age = await self._warm_player_profile(player_id)
+        snapshots = await self.storage.get_player_snapshots(
+            await self._canonical_player_id(player_id), since=since, limit=limit
+        )
+
+        data = {"snapshots": snapshots}
+        await self._update_api_cache(
+            cache_key, data, settings.career_path_cache_timeout
+        )
+        return data, is_stale, age
+
+    # ------------------------------------------------------------------
+    # Snapshot diff  (GET /players/{player_id}/stats/diff)
+    # ------------------------------------------------------------------
+
+    async def get_player_stats_diff(
+        self,
+        player_id: str,
+        cache_key: str,
+        since: int | None = None,
+    ) -> tuple[dict, bool, int]:
+        """Compare the oldest snapshot at/after *since* against the newest.
+
+        ``since`` defaults to 24 hours ago. A player with no history yet gets an
+        empty diff rather than a 404 — "nothing recorded" is a state to render,
+        not an error.
+        """
+        is_stale, age = await self._warm_player_profile(player_id)
+        if since is None:
+            since = int(time.time()) - _DEFAULT_DIFF_WINDOW
+        snapshots = await self.storage.get_player_snapshots(
+            await self._canonical_player_id(player_id),
+            since=since,
+            limit=_DIFF_SNAPSHOT_LIMIT,
+        )
+
+        data = {"since": since, **diff_player_snapshots(snapshots)}
+        await self._update_api_cache(
+            cache_key, data, settings.career_path_cache_timeout
+        )
+        return data, is_stale, age
+
+    async def _warm_player_profile(self, player_id: str) -> tuple[bool, int]:
+        """Run the normal player request for its side effects only.
+
+        Returns the SWR ``(is_stale, age)`` pair so the history endpoints report
+        the same freshness as their siblings. ``cache_key=None`` keeps the
+        scaffold from writing this discarded payload over the caller's key.
+        """
+        _, is_stale, age = await self._execute_player_request(
+            player_id, None, lambda _parsed: {}
+        )
+        return is_stale, age
+
+    async def _canonical_player_id(self, player_id: str) -> str:
+        """Resolve *player_id* to the id the snapshot series is keyed on.
+
+        A player can be requested as a BattleTag or as a Blizzard ID, and on the
+        storage fast path the BattleTag is never resolved — so without this both
+        spellings would grow their own half of the same history. The Blizzard ID
+        wins because it is the only stable one: a BattleTag can be changed.
+        """
+        if is_blizzard_id(player_id):
+            return player_id
+        return await self.storage.get_player_id_by_battletag(player_id) or player_id
+
+    async def _store_snapshot(self, player_id: str, parsed: dict) -> None:
+        """Record one point of the player's history, if it is a new version.
+
+        Never raises. History is a by-product of serving a profile we fetched
+        anyway; a storage hiccup must cost the row, not the response.
+        """
+        try:
+            snapshot = build_player_snapshot(parsed)
+            if snapshot is None:
+                return
+
+            summary = parsed.get("summary") or {}
+            # Blizzard's own version stamp — the series key, and what makes the
+            # insert idempotent across the many endpoints serving one profile.
+            last_updated = summary.get("last_updated_at")
+            if not last_updated:
+                return
+
+            await self.storage.add_player_snapshot(
+                await self._canonical_player_id(player_id),
+                int(last_updated),
+                snapshot,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[history] Failed to store snapshot for {}: {}", player_id, exc
+            )
+
+    # ------------------------------------------------------------------
     # Core request execution — universal scaffold
     # ------------------------------------------------------------------
 
     async def _execute_player_request(
         self,
         player_id: str,
-        cache_key: str,
+        cache_key: str | None,
         data_factory: Callable[[dict], dict],
     ) -> tuple[dict, bool, int]:
         """Resolve identity → get HTML → parse → compute data → update cache → return.
@@ -367,20 +510,26 @@ class PlayerService(BaseService):
                         # round-trips behind the throttle instead of one.
                         age = 0
 
+            # Both branches above converge here, and the insert is keyed on the
+            # profile version, so a storage hit re-records nothing while a fresh
+            # fetch appends exactly one row.
+            await self._store_snapshot(player_id, parsed)
+
             data = data_factory(parsed)
 
         except Exception as exc:  # noqa: BLE001
             await self._handle_player_exceptions(exc, player_id, identity)
 
         is_stale = self._check_player_staleness(age)
-        await self._update_api_cache(
-            cache_key,
-            data,
-            settings.career_path_cache_timeout,
-            stored_at=stored_at,
-            staleness_threshold=settings.player_staleness_threshold,
-            stale_while_revalidate=settings.stale_cache_timeout if is_stale else 0,
-        )
+        if cache_key is not None:
+            await self._update_api_cache(
+                cache_key,
+                data,
+                settings.career_path_cache_timeout,
+                stored_at=stored_at,
+                staleness_threshold=settings.player_staleness_threshold,
+                stale_while_revalidate=settings.stale_cache_timeout if is_stale else 0,
+            )
         if is_stale:
             await self._enqueue_refresh("player_profile", player_id)
         return data, is_stale, age
