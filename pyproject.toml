@@ -141,6 +141,7 @@ ignore = [
 allowed-confusables = ["（", "）", "："]
 
 [tool.ruff.lint.per-file-ignores]
+"scripts/**" = ["T201", "INP001"]  # CLI entry points: print is the output, and they are not a package
 "tests/**" = ["SLF001", "TID251"]  # Ignore private member access + fastapi.TestClient in tests
 "app/api/models/**" = ["TC001"]  # Ignore type-checking block (Pydantic models definition)
 "app/api/routers/**" = ["TC001"]  # Enums used in FastAPI path/query parameters need runtime import

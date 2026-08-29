@@ -1,0 +1,50 @@
+name: "Blizzard drift check"
+
+# The test suite parses captured fixtures, so it stays green when Blizzard
+# changes its markup or ships a new hero. This runs the repo's own parsers
+# against the live site once a day to catch both.
+#
+# Deliberately not on pull_request: Blizzard being slow or down must never
+# block a merge. A failure here means the live data drifted, not that the
+# change under review is bad.
+on:
+  schedule:
+    # 05:00 UTC — after Blizzard's usual patch window, before European daytime.
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: blizzard-drift
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    name: Parsers vs live Blizzard
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version: "0.12.7"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        run: uv python install 3.14
+
+      - name: Install the project
+        run: uv sync --frozen
+
+      - name: Check for drift
+        # app/config.py builds Settings at import time and postgres_password is
+        # the one field without a default; nothing here touches the database.
+        env:
+          POSTGRES_PASSWORD: unused-by-this-check
+          PYTHONPATH: .
+        run: uv run python scripts/check_blizzard_drift.py
