@@ -4,8 +4,10 @@ from fastapi.responses import Response
 
 from app.api import helpers as api_helpers
 from app.api.helpers import apply_swr_headers
+from app.api.middlewares import _if_none_match
 from app.config import settings
 from app.infrastructure.helpers import (
+    compute_etag,
     overfast_internal_error,
 )
 
@@ -119,3 +121,55 @@ class TestApplySWRHeaders:
         )
 
         assert "max-age=1800" in resp.headers["Cache-Control"]
+
+
+# ── compute_etag ─────────────────────────────────────────────────────────────
+
+
+class TestComputeETag:
+    def test_tag_is_weak_and_quoted(self):
+        payload = b'{"key":"ana"}'
+
+        etag = compute_etag(payload)
+
+        assert etag.startswith('W/"')
+        assert etag.endswith('"')
+
+    def test_same_payload_gives_the_same_tag(self):
+        payload = b'{"key":"ana"}'
+
+        first, second = compute_etag(payload), compute_etag(payload)
+
+        assert first == second
+
+    def test_one_changed_byte_changes_the_tag(self):
+        original = compute_etag(b'{"key":"ana"}')
+
+        changed = compute_etag(b'{"key":"anb"}')
+
+        assert changed != original
+
+
+# ── _if_none_match ───────────────────────────────────────────────────────────
+
+
+class TestIfNoneMatch:
+    @pytest.mark.parametrize(
+        ("header", "expected"),
+        [
+            (None, False),
+            ("", False),
+            ('W/"abc"', True),
+            ('"abc"', True),
+            ('W/"other"', False),
+            ('W/"other", W/"abc"', True),
+            ('"other","abc"', True),
+            ('W/"abcd"', False),
+        ],
+    )
+    def test_weak_comparison(self, header: str | None, expected: bool):
+        etag = 'W/"abc"'
+
+        result = _if_none_match(header, etag)
+
+        assert result is expected

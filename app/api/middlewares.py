@@ -4,12 +4,15 @@ import tempfile
 import tracemalloc
 from abc import ABC, abstractmethod
 from contextlib import suppress
+from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from anyio import to_thread
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import HTMLResponse, JSONResponse
+from starlette.responses import HTMLResponse, JSONResponse, Response
+
+from app.infrastructure.helpers import compute_etag
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -21,6 +24,67 @@ with suppress(ModuleNotFoundError):
     import memray
     import objgraph
     import pyinstrument
+
+
+def _if_none_match(header: str | None, etag: str) -> bool:
+    """Whether *header* lists *etag*, using weak comparison (RFC 9110 §8.8.3.2).
+
+    Weak comparison ignores the ``W/`` prefix, which is what a GET with
+    ``If-None-Match`` calls for. Clients may send several tags, comma-separated.
+    """
+    if not header:
+        return False
+
+    wanted = etag.removeprefix("W/")
+    return any(
+        value.strip().removeprefix("W/") == wanted for value in header.split(",")
+    )
+
+
+class ETagMiddleware(BaseHTTPMiddleware):
+    """Tag cacheable responses with a weak ETag and answer ``If-None-Match`` with 304.
+
+    Only responses carrying ``X-Cache-Status`` are tagged. That header comes from
+    ``apply_swr_headers`` and from nowhere else, so it marks exactly the cacheable
+    payload routes — players, heroes, maps, gamemodes, roles, patch notes — and
+    never an error body, the docs page or ``/openapi.json``.
+
+    This covers the cache-*miss* path only, because a cache hit never reaches
+    FastAPI: nginx serves it straight from Valkey and reads the ETag out of the
+    cache envelope (``build/nginx/lua/valkey_handler.lua.template``), where the
+    Valkey adapter put one computed by ``compute_etag`` over the bytes it stored.
+
+    Those two bytestreams are not always identical. FastAPI renders through the
+    ``response_model``, which reorders and completes fields; the cache holds the
+    service's own JSON. So the two paths can hand out different tags for the same
+    resource — correct rather than unfortunate, since each tag describes the body
+    actually sent. It costs one extra full transfer when a client's polling
+    crosses from the miss path to the hit path; every poll after that is a 304.
+    """
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        response = await call_next(request)
+        if (
+            response.status_code != HTTPStatus.OK
+            or "X-Cache-Status" not in response.headers
+        ):
+            return response
+
+        # BaseHTTPMiddleware hands back a streaming response; the body has to be
+        # drained before it can be hashed. Cheap here: these payloads are already
+        # fully buffered by JSONResponse, and this path is the rare cache miss.
+        body = b"".join([chunk async for chunk in response.body_iterator])
+        etag = compute_etag(body)
+        response.headers["ETag"] = etag
+        headers = dict(response.headers)
+
+        if _if_none_match(request.headers.get("if-none-match"), etag):
+            # A 304 has no body, so the 200's Content-Length would be a lie that
+            # leaves some clients waiting for octets that never arrive.
+            headers.pop("content-length", None)
+            return Response(status_code=HTTPStatus.NOT_MODIFIED, headers=headers)
+
+        return Response(content=body, status_code=response.status_code, headers=headers)
 
 
 class OverFastMiddleware(BaseHTTPMiddleware, ABC):  # pragma: no cover

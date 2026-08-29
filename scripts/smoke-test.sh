@@ -204,6 +204,63 @@ DIRECT_COUNT=$(fetch "/heroes?role=damage" | jq 'length')
     || fail "redirect changed the result: $REDIRECTED_COUNT vs $DIRECT_COUNT heroes"
 echo "  $DIRECT_COUNT heroes, filter survives the redirect"
 
+# ── Conditional requests (ETag / If-None-Match) ──────────────────────────────
+#
+# Two different pieces of software answer a request here, and only one of them
+# is FastAPI, so both need their own assertion:
+#
+#   cache hit  → nginx answers from Valkey inside lua/valkey_handler.lua and
+#                reads the ETag out of the cache envelope. FastAPI is never
+#                reached, which is precisely why pytest cannot cover it.
+#   cache miss → nginx falls through to @fallback and FastAPI's ETagMiddleware
+#                hashes the body it just rendered.
+#
+# /heroes was fetched further up this script, so its api-cache key exists and
+# the Lua handler cannot fall through: that request is served from Valkey.
+#
+# For the miss, undeclared query parameters are deliberately excluded from the
+# cache key (app/api/helpers.py::build_cache_key), so nginx looks up a key the
+# app never writes. /heroes?etag-smoke=1 is therefore a *repeatable* cache miss,
+# which is the only way to send a conditional request to FastAPI twice.
+echo "=== ETag / If-None-Match ==="
+CACHE_TTL_HEADER=$(awk -F= '/^CACHE_TTL_HEADER=/ { print $2 }' .env)
+CACHE_TTL_HEADER="${CACHE_TTL_HEADER:-X-Cache-TTL}"
+
+check_conditional_request() {
+    LABEL="$1"
+    URI="$2"
+    HDR_FILE=$(mktemp)
+    BODY_FILE=$(mktemp)
+
+    ETAG=$(curl -s -D - -o /dev/null "$BASE_URL$URI" \
+        | tr -d '\r' | awk 'tolower($1) == "etag:" { print $2 }' || true)
+    if [ -z "$ETAG" ]; then
+        fail "$LABEL: no ETag on $URI"
+        rm -f "$HDR_FILE" "$BODY_FILE"
+        return
+    fi
+
+    CODE=$(curl -s -D "$HDR_FILE" -o "$BODY_FILE" -w "%{http_code}" \
+        -H "If-None-Match: $ETAG" "$BASE_URL$URI")
+    [ "$CODE" = "304" ] || fail "$LABEL: expected 304 for $URI, got $CODE"
+    # An empty body is the entire point: a 304 costs no payload.
+    [ ! -s "$BODY_FILE" ] || fail "$LABEL: 304 carried a body"
+    # A 304 that dropped these would leave the client worse off than with no
+    # ETag at all — it would have nothing left to compute freshness from.
+    for HEADER in Cache-Control X-Cache-Status "$CACHE_TTL_HEADER"; do
+        grep -qi "^${HEADER}:" "$HDR_FILE" || fail "$LABEL: 304 dropped $HEADER"
+    done
+
+    echo "  $LABEL: $URI -> $CODE ($ETAG)"
+    rm -f "$HDR_FILE" "$BODY_FILE"
+}
+
+# Only what pytest cannot reach is asserted here. That the tag tracks the
+# payload is app logic and is covered in tests/api/test_etag.py; keeping it out
+# also keeps this section inside the burst allowance of the nginx rate limit.
+check_conditional_request "cache hit (nginx/Lua)" "/heroes"
+check_conditional_request "cache miss (FastAPI)" "/heroes?etag-smoke=1"
+
 echo ""
 if [ "$ERRORS" -gt 0 ]; then
     echo "::error::$ERRORS validation error(s)"

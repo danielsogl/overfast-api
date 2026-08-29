@@ -42,6 +42,36 @@ def test_get_player_career(
     assert len(response.json().keys()) > 0
 
 
+@pytest.mark.parametrize("player_html_data", ["TeKrop-2217"], indirect=True)
+def test_polling_a_career_costs_no_body_while_it_is_unchanged(
+    client: TestClient,
+    player_html_data: str | None,
+    player_search_response_mock: Mock,
+):
+    """The whole point of the ETag: a mobile client polls, nothing changed, no payload.
+
+    Careers are the largest payloads this API serves and the ones clients poll
+    hardest, so the conditional request has to work on this route specifically —
+    not just on the small static ones.
+    """
+    with patch(
+        "httpx2.AsyncClient.get",
+        side_effect=[
+            player_search_response_mock,
+            Mock(status_code=status.HTTP_200_OK, text=player_html_data),
+        ],
+    ):
+        first = client.get("/players/TeKrop-2217")
+
+    response = client.get(
+        "/players/TeKrop-2217", headers={"If-None-Match": first.headers["ETag"]}
+    )
+
+    assert response.status_code == status.HTTP_304_NOT_MODIFIED
+    assert response.content == b""
+    assert response.headers["X-Cache-Status"] == first.headers["X-Cache-Status"]
+
+
 def test_get_player_career_blizzard_error(client: TestClient):
     with patch(
         "httpx2.AsyncClient.get",
