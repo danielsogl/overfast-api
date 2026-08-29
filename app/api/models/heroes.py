@@ -1,5 +1,7 @@
 """Set of pydantic models used for Heroes API routes"""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, HttpUrl
 
 from app.domain.enums import (
@@ -62,12 +64,32 @@ class AbilityVideo(BaseModel):
     link: AbilityVideoLink = Field(..., description="Link to the ability video")
 
 
+class AbilityFireMode(BaseModel):
+    mode: Literal["primary", "secondary"] = Field(
+        ..., description="Which fire mode this part of the description covers"
+    )
+    description: str = Field(
+        ...,
+        description="The part of the ability description belonging to this fire mode",
+        examples=["Hold to zoom in."],
+    )
+
+
 class Ability(BaseModel):
     name: str = Field(..., description="Name of the ability", examples=["Combat Roll"])
     description: str = Field(
         ...,
         description="Description of the ability",
         examples=["Roll in the direction you're moving and reload."],
+    )
+    fire_modes: list[AbilityFireMode] = Field(
+        default_factory=list,
+        description=(
+            "Primary/secondary fire split, when Blizzard marks one. Empty for "
+            "most abilities — only weapon abilities carry it. Blizzard shows "
+            "this as a mouse-button icon and never as text, in any language, so "
+            "it is reported here rather than injected into the description."
+        ),
     )
     icon: HttpUrl = Field(
         ...,
@@ -244,6 +266,14 @@ class Hero(BaseModel):
         ...,
         description="Role of the hero",
         examples=["damage"],
+    )
+    subrole_passive: str | None = Field(
+        None,
+        description=(
+            "The passive granted by the hero's subrole. Blizzard shows this as a "
+            "tooltip on the hero page and publishes it nowhere else."
+        ),
+        examples=["Store excess ultimate charge."],
     )
     subrole: SubRole = Field(
         ...,

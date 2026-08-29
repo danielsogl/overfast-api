@@ -76,7 +76,7 @@ def parse_hero_stats_json(
         json_data: Raw JSON response from Blizzard API
         map_filter: Map filter applied
         gamemode: Gamemode for validation
-        role_filter: Optional role to filter by
+        role_filter: Optional role or subrole to filter by
         order_by: Ordering field and direction (e.g., "pickrate:desc")
 
     Returns:
@@ -125,7 +125,14 @@ def parse_hero_stats_json(
         hero_stats = [
             rate
             for rate in rates
-            if role_filter is None or rate["hero"]["role"].lower() == role_filter
+            # Blizzard carries both on every row, and the enums are disjoint, so
+            # one parameter can accept either without ambiguity.
+            if role_filter is None
+            or role_filter
+            in (
+                rate["hero"]["role"].lower(),
+                (rate["hero"].get("subrole") or "").lower(),
+            )
         ]
         hero_stats = [
             {

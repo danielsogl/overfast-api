@@ -117,6 +117,11 @@ def _parse_hero_summary(overview_section: LexborNode, locale: Locale) -> dict:
         "backgrounds": backgrounds,
         "role": get_role_from_icon_url(role_icon_url or ""),
         "subrole": get_role_from_icon_url(subrole_icon_url or ""),
+        # Blizzard shows the subrole's passive as a tooltip and publishes it
+        # nowhere else. Empty string rather than None when absent, matching how
+        # safe_get_attribute treats every other optional attribute here.
+        "subrole_passive": safe_get_attribute(extra_list_items[1], "descriptiontext")
+        or None,
         "location": safe_get_text(extra_list_items[2]),
         "birthday": birthday,
         "age": age,
@@ -161,6 +166,48 @@ def _parse_birthday_and_age(text: str, locale: Locale) -> tuple[str | None, int 
     return birthday, age
 
 
+# Blizzard marks which part of an ability description belongs to primary and
+# secondary fire with a mouse-button <img>, and the alt is the same untranslated
+# i18n key in every locale — the distinction is conveyed purely visually, in no
+# language. `.text()` drops the images, which both loses that information and
+# leaves a double space where each one stood.
+#
+# So the prose stays exactly as Blizzard wrote it (localised, now correctly
+# spaced) and the split is reported separately. Injecting "Primary fire:" would
+# put an English word inside a Japanese description.
+_FIRE_MODE_IMG = re.compile(
+    r"<img[^>]*\balt=[\"']overwatch\.page\.herodetail\.ability\."
+    r"(?P<mode>primary|secondary)-fire[\"'][^>]*>"
+)
+_TAG = re.compile(r"<[^>]+>")
+
+
+def _clean(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def parse_ability_description(description_node: LexborNode | None) -> tuple[str, list]:
+    """Return ``(description, fire_modes)`` for one ability.
+
+    ``fire_modes`` is empty for every ability Blizzard does not mark, which is
+    most of them — only weapon abilities carry the mouse-button icons.
+    """
+    if description_node is None:
+        return "", []
+
+    inner = description_node.html or ""
+    parts = _FIRE_MODE_IMG.split(inner)
+    description = _clean(_TAG.sub(" ", inner))
+
+    # split() yields [before, mode, text, mode, text, ...]; a lone element means
+    # no marker was present.
+    fire_modes = [
+        {"mode": mode, "description": _clean(_TAG.sub(" ", text))}
+        for mode, text in zip(parts[1::2], parts[2::2], strict=True)
+    ]
+    return description, [f for f in fire_modes if f["description"]]
+
+
 def _parse_hero_abilities(abilities_section: LexborNode) -> list[dict]:
     """Parse hero abilities section"""
     carousel_section_div = abilities_section.css_first("blz-carousel-section")
@@ -168,7 +215,7 @@ def _parse_hero_abilities(abilities_section: LexborNode) -> list[dict]:
 
     # Parse ability descriptions
     abilities_desc = [
-        safe_get_text(desc_div.css_first("p")).replace("\r", "").replace("\n", " ")
+        parse_ability_description(desc_div.css_first("p"))
         for desc_div in abilities_list_div.css("blz-feature")
     ]
 
@@ -193,7 +240,8 @@ def _parse_hero_abilities(abilities_section: LexborNode) -> list[dict]:
         abilities.append(
             {
                 "name": safe_get_attribute(ability_div, "label"),
-                "description": abilities_desc[ability_index].strip(),
+                "description": abilities_desc[ability_index][0],
+                "fire_modes": abilities_desc[ability_index][1],
                 "icon": safe_get_attribute(ability_div.css_first("blz-image"), "src"),
                 "video": abilities_videos[ability_index],
             }
