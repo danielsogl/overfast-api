@@ -141,6 +141,43 @@ for ROLE in damage support tank; do
 done
 echo "  $COUNT heroes"
 
+# ── Static assets, as actually served ────────────────────────────────────────
+#
+# The unit tests assert every CSV row has its file in the repo. Nothing checked
+# that nginx serves it — and for two months it did not: `static` was a named
+# volume, which Docker fills from the image only when the volume is FIRST
+# created, so neon-junction.jpg 404ed in production from the day it was added
+# while every test stayed green.
+echo "=== Static assets served by nginx ==="
+ASSET_404=0
+CHECKED=0
+while IFS=, read -r KEY _ || [ -n "$KEY" ]; do
+    [ "$KEY" = "key" ] && continue
+    CHECKED=$((CHECKED + 1))
+    CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+        "${BASE_URL}/static/maps/${KEY}.jpg")
+    if [ "$CODE" != "200" ]; then
+        echo "  MISSING: /static/maps/${KEY}.jpg -> HTTP $CODE"
+        ASSET_404=$((ASSET_404 + 1))
+    fi
+done < app/domain/utils/data/maps.csv
+
+while IFS=, read -r KEY _ || [ -n "$KEY" ]; do
+    [ "$KEY" = "key" ] && continue
+    for ASSET in "${KEY}-icon.svg" "${KEY}.avif"; do
+        CHECKED=$((CHECKED + 1))
+        CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+            "${BASE_URL}/static/gamemodes/${ASSET}")
+        if [ "$CODE" != "200" ]; then
+            echo "  MISSING: /static/gamemodes/${ASSET} -> HTTP $CODE"
+            ASSET_404=$((ASSET_404 + 1))
+        fi
+    done
+done < app/domain/utils/data/gamemodes.csv
+
+[ "$ASSET_404" -eq 0 ] || fail "$ASSET_404 static asset(s) not served"
+echo "  $CHECKED assets served"
+
 echo ""
 if [ "$ERRORS" -gt 0 ]; then
     echo "::error::$ERRORS validation error(s)"

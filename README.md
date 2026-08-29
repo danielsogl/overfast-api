@@ -1,12 +1,9 @@
 # ⚡ OverFast API
-![Python](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/TeKrop/15a234815aa74059953a766a10e92688/raw/python-version.json)
-[![Build Status](https://github.com/TeKrop/overfast-api/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/TeKrop/overfast-api/actions/workflows/build.yml)
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=TeKrop_overfast-api&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=TeKrop_overfast-api)
-![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/TeKrop/1362ebafcd51d3f65dae7935b1d322eb/raw/pytest.json)
-[![Issues](https://img.shields.io/github/issues/TeKrop/overfast-api)](https://github.com/TeKrop/overfast-api/issues)
-[![Documentation](https://img.shields.io/badge/documentation-yes-brightgreen.svg)](https://overfast-api.tekrop.fr)
-[![License: MIT](https://img.shields.io/github/license/TeKrop/overfast-api)](https://github.com/TeKrop/overfast-api/blob/master/LICENSE)
-![Mockup OverFast API](https://files.tekrop.fr/overfast_api_logo_full_1000.png)
+[![Build Status](https://github.com/danielsogl/overfast-api/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/danielsogl/overfast-api/actions/workflows/build.yml)
+[![Issues](https://img.shields.io/github/issues/danielsogl/overfast-api)](https://github.com/danielsogl/overfast-api/issues)
+[![Documentation](https://img.shields.io/badge/documentation-yes-brightgreen.svg)](https://api.mercy-stats.app)
+[![License: MIT](https://img.shields.io/github/license/danielsogl/overfast-api)](https://github.com/danielsogl/overfast-api/blob/main/LICENSE)
+![OverFast API](static/logo.png)
 
 > OverFast API provides comprehensive data on Overwatch heroes, game modes, maps, and player statistics by scraping Blizzard pages. Developed with the efficiency of **FastAPI** and **Selectolax**, it leverages **nginx (OpenResty)** as a reverse proxy and **Valkey** for caching. Its tailored caching mechanism significantly reduces calls to Blizzard pages, ensuring swift and precise data delivery to users.
 
@@ -23,12 +20,13 @@
 * [📝 License](#-license)
 
 
-## ✨ [Live instance](https://overfast-api.tekrop.fr)
+## ✨ [Live instance](https://api.mercy-stats.app)
 The live instance operates with a rate limit applied per second, shared across all endpoints. You can view the current rate limit on the home page, and this limit may be adjusted as needed. For higher request throughput, consider hosting your own instance on a dedicated server 👍
 
-- Live instance (Redoc documentation) : https://overfast-api.tekrop.fr/
-- Swagger UI : https://overfast-api.tekrop.fr/docs
-- Status page : https://uptime-overfast-api.tekrop.fr/
+- Live instance (Redoc documentation) : https://api.mercy-stats.app/
+- Swagger UI : https://api.mercy-stats.app/docs
+
+Upstream's instance, which this fork diverged from, lives at https://overfast-api.tekrop.fr/
 
 ## 🐋 Run for production
 Running the project is straightforward. Ensure you have `docker` and `docker compose` installed. Next, generate a `.env` file using the provided `.env.dist` template. Finally, if `just` is already installed on your machine, execute the following command :
