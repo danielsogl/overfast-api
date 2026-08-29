@@ -174,11 +174,32 @@ def _parse_summary(root_tag: LexborNode, player_summary: dict | None) -> dict:
             ),
             "endorsement": _get_endorsement(progression_div),
             "competitive": _get_competitive_ranks(root_tag, progression_div),
-            "last_updated_at": player_summary.get("lastUpdated"),
+            "last_updated_at": (
+                player_summary.get("lastUpdated") or _get_last_updated(root_tag)
+            ),
         }
     except (AttributeError, KeyError, IndexError, TypeError) as error:
         error_msg = f"{error_msg_prefix}: {error!r}"
         raise ParserParsingError(error_msg) from error
+
+
+def _get_last_updated(root_tag: LexborNode) -> int | None:
+    """Read the profile's own last-update timestamp from the masthead.
+
+    ``lastUpdated`` normally comes from the search endpoint, but that payload is
+    ``{}`` for Blizzard-ID lookups and whenever no blizzard_id resolves, leaving
+    the field null for those requests. The career page carries the same value as
+    ``data-lastUpdate`` on the section this parser already selects, so the
+    fallback costs one attribute read and no extra fetch.
+    """
+    masthead = root_tag.css_first("blz-section.Profile-masthead")
+    if not masthead:
+        return None
+
+    # lexbor lowercases attribute names, so data-lastUpdate reads back as
+    # data-lastupdate.
+    raw = masthead.attributes.get("data-lastupdate")
+    return int(raw) if raw and raw.isdigit() else None
 
 
 def _get_title(profile_div: LexborNode) -> str | None:

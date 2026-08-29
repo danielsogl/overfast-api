@@ -29,8 +29,8 @@ class CachePort(Protocol):
         """Set raw value in cache with optional expiration (seconds)"""
         ...
 
-    async def delete(self, key: str) -> None:
-        """Delete key from cache"""
+    async def delete(self, *keys: str) -> None:
+        """Delete one or more keys from cache in a single round-trip."""
         ...
 
     async def exists(self, key: str) -> bool:

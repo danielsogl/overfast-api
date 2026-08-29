@@ -160,9 +160,11 @@ class PlayerService(BaseService):
         """
         pattern = f"{settings.api_cache_key_prefix}:/players/{player_id}*"
         keys = await self.cache.scan_keys(pattern)
-        for key in keys:
-            await self.cache.delete(key)
         if keys:
+            # One round-trip, not one per key: this runs after every completed
+            # player refresh, and a busy profile has a key per endpoint and
+            # query-parameter combination.
+            await self.cache.delete(*keys)
             logger.debug(
                 "[refresh] Evicted {} cache key(s) for {}", len(keys), player_id
             )

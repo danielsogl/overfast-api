@@ -108,9 +108,10 @@ class ValkeyCache(metaclass=Singleton):
         await self.valkey_server.set(key, value, ex=expire)
 
     @handle_valkey_error(default_return=None)
-    async def delete(self, key: str) -> None:
-        """Delete key from cache"""
-        await self.valkey_server.delete(key)
+    async def delete(self, *keys: str) -> None:
+        """Delete one or more keys from cache in a single round-trip."""
+        if keys:
+            await self.valkey_server.delete(*keys)
 
     @handle_valkey_error(default_return=False)
     async def exists(self, key: str) -> bool:

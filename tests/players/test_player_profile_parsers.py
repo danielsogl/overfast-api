@@ -327,3 +327,32 @@ class TestUnknownCompetitiveDivision:
                 if role == "season":
                     continue
                 assert rank is None, f"{role} should be unranked, got {rank}"
+
+
+class TestLastUpdatedFallback:
+    """last_updated_at must not be null just because the search payload is."""
+
+    # data-lastUpdate on blz-section.Profile-masthead in the fixture.
+    FIXTURE_LAST_UPDATE = 1777998881
+    SEARCH_LAST_UPDATE = 1234567890
+
+    def test_falls_back_to_the_profile_masthead_timestamp(self):
+        """Blizzard-ID lookups get no search payload, so the field was always null.
+
+        parse_player_summary returns {} for Blizzard-ID lookups and whenever no
+        blizzard_id resolves, so last_updated_at came back null for those
+        requests even though the career page carries the value as
+        data-lastUpdate on the section the parser already selects.
+        """
+        result = parse_player_profile_html(_TEKROP_HTML)  # no player_summary
+
+        assert result["summary"]["last_updated_at"] == self.FIXTURE_LAST_UPDATE
+
+    def test_search_payload_still_wins(self):
+        """The search value is authoritative when present."""
+        result = parse_player_profile_html(
+            _TEKROP_HTML,
+            player_summary={"lastUpdated": self.SEARCH_LAST_UPDATE},
+        )
+
+        assert result["summary"]["last_updated_at"] == self.SEARCH_LAST_UPDATE
