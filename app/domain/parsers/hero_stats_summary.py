@@ -93,6 +93,11 @@ def parse_hero_stats_json(
         selected_map = rates_payload["selected"]["map"]
         selected_gamemode = rates_payload["selected"]["rq"]
         rates = rates_payload["rates"]
+        # Blizzard declares the metrics which are meaningful for the selected
+        # filters in a top-level "columns" list. Ban rates are only returned for
+        # gamemodes featuring hero bans : cells always contain a "banrate" key,
+        # but it's a constant 0 when the metric isn't part of "columns".
+        has_banrate = _is_column_available(json_data, "banrate")
     except (KeyError, TypeError) as error:
         msg = f"Unexpected Blizzard hero stats JSON structure: {error!r}"
         raise ParserParsingError(msg) from error
@@ -127,6 +132,9 @@ def parse_hero_stats_json(
                 "hero": rate["id"],
                 "pickrate": _normalize_rate(rate["cells"]["pickrate"]),
                 "winrate": _normalize_rate(rate["cells"]["winrate"]),
+                "banrate": (
+                    _normalize_rate(rate["cells"]["banrate"]) if has_banrate else None
+                ),
             }
             for rate in hero_stats
         ]
@@ -134,14 +142,28 @@ def parse_hero_stats_json(
         msg = f"Unexpected Blizzard hero stats JSON structure: {error!r}"
         raise ParserParsingError(msg) from error
 
-    # Apply ordering
+    # Apply ordering. banrate is None for gamemodes without hero bans, and None
+    # is not comparable to a float — keep those out of the comparison entirely
+    # and append them, so they land last whichever direction was asked for.
     order_field, order_arrangement = order_by.split(":")
-    hero_stats.sort(
-        key=lambda stat: stat[order_field],
-        reverse=(order_arrangement == "desc"),
-    )
+    sortable = [
+        (value, stat) for stat in hero_stats if (value := stat[order_field]) is not None
+    ]
+    unrated = [stat for stat in hero_stats if stat[order_field] is None]
+    sortable.sort(key=lambda pair: pair[0], reverse=(order_arrangement == "desc"))
 
-    return hero_stats
+    return [stat for _, stat in sortable] + unrated
+
+
+def _is_column_available(json_data: dict, column_id: str) -> bool:
+    """
+    Check whether Blizzard declared a given metric for the selected filters
+
+    The "columns" list describes the metrics displayed on the rates page. A
+    metric missing from it is still present in every cell, but as a constant 0.
+    """
+    columns = json_data.get("columns") or []
+    return any(column.get("id") == column_id for column in columns)
 
 
 def _normalize_rate(rate: float) -> float:

@@ -132,6 +132,70 @@ def test_parse_hero_stats_json_raises_invalid_gamemode_filter_error():
     assert "1" in exc_info.value.message
 
 
+def _build_stats_json(columns: list[dict] | None, banrate: float = 12.7) -> dict:
+    """Build a minimal Blizzard-shaped payload with a single hero entry."""
+    payload = {
+        "rates": {
+            "selected": {"map": "all-maps", "rq": "2"},
+            "rates": [
+                {
+                    "id": "ana",
+                    "cells": {
+                        "name": "Ana",
+                        "pickrate": 25.1,
+                        "winrate": 48.5,
+                        "banrate": banrate,
+                    },
+                    "hero": {"role": "SUPPORT"},
+                }
+            ],
+        }
+    }
+    if columns is not None:
+        payload["columns"] = columns
+    return payload
+
+
+@pytest.mark.parametrize(
+    ("columns", "expected_banrate"),
+    [
+        # Blizzard declares banrate for gamemodes featuring hero bans
+        (
+            [{"id": "name"}, {"id": "pickrate"}, {"id": "winrate"}, {"id": "banrate"}],
+            12.7,
+        ),
+        # Quickplay : cells still carry a constant 0 banrate, but it's meaningless
+        ([{"id": "name"}, {"id": "pickrate"}, {"id": "winrate"}], None),
+        # Defensive : older/unexpected payloads without usable columns
+        ([], None),
+        (None, None),
+    ],
+)
+def test_parse_hero_stats_json_banrate(
+    columns: list[dict] | None, expected_banrate: float | None
+):
+    result = parse_hero_stats_json(
+        _build_stats_json(columns),
+        map_filter="all-maps",
+        gamemode=PlayerGamemode.COMPETITIVE,
+        gamemode_filter="2",
+    )
+
+    assert result[0]["banrate"] == expected_banrate
+
+
+def test_parse_hero_stats_json_banrate_normalizes_unavailable_value():
+    """Blizzard uses -1 for unavailable data, like it does for other rates."""
+    result = parse_hero_stats_json(
+        _build_stats_json([{"id": "banrate"}], banrate=-1),
+        map_filter="all-maps",
+        gamemode=PlayerGamemode.COMPETITIVE,
+        gamemode_filter="2",
+    )
+
+    assert result[0]["banrate"] == 0.0
+
+
 @pytest.mark.parametrize(
     "json_data",
     [
@@ -151,3 +215,59 @@ def test_parse_hero_stats_json_raises_parsing_error_on_unexpected_structure(
             gamemode=PlayerGamemode.QUICKPLAY,
             gamemode_filter="0",
         )
+
+
+class TestOrderingWithNullBanrate:
+    """banrate is None in gamemodes without hero bans, and None is not
+    comparable to a float — ordering by it must not raise."""
+
+    @staticmethod
+    def _two_heroes(columns: list[dict] | None) -> dict:
+        payload = _build_stats_json(columns)
+        payload["rates"]["rates"].append(
+            {
+                "id": "genji",
+                "cells": {
+                    "name": "Genji",
+                    "pickrate": 10.0,
+                    "winrate": 45.0,
+                    "banrate": 5.0,
+                },
+                "hero": {"role": "DAMAGE"},
+            }
+        )
+        return payload
+
+    @staticmethod
+    def _parse(payload: dict, order_by: str) -> list[dict]:
+        return parse_hero_stats_json(
+            payload,
+            map_filter="all-maps",
+            gamemode=PlayerGamemode.COMPETITIVE,
+            gamemode_filter="2",
+            order_by=order_by,
+        )
+
+    @pytest.mark.parametrize("direction", ["asc", "desc"])
+    def test_ordering_by_undeclared_banrate_does_not_raise(self, direction: str):
+        """Quickplay shape: no banrate column, so every value is None."""
+        payload = self._two_heroes([{"id": "pickrate"}, {"id": "winrate"}])
+
+        result = self._parse(payload, f"banrate:{direction}")
+
+        assert [stat["hero"] for stat in result] == ["ana", "genji"]
+        assert all(stat["banrate"] is None for stat in result)
+
+    def test_ordering_by_banrate_descending(self):
+        payload = self._two_heroes([{"id": "banrate"}])
+
+        result = self._parse(payload, "banrate:desc")
+
+        assert [stat["hero"] for stat in result] == ["ana", "genji"]
+
+    def test_ordering_by_banrate_ascending(self):
+        payload = self._two_heroes([{"id": "banrate"}])
+
+        result = self._parse(payload, "banrate:asc")
+
+        assert [stat["hero"] for stat in result] == ["genji", "ana"]
