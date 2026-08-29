@@ -1,7 +1,13 @@
 import pytest
 
-from app.domain.enums import CompetitiveDivision, CompetitiveRole, HeroKey
+from app.domain.enums import (
+    CareerHeroesComparisonsCategory,
+    CompetitiveDivision,
+    CompetitiveRole,
+    HeroKey,
+)
 from app.domain.parsers import player_helpers as helpers
+from app.domain.parsers.player_helpers import CAREER_COMPARISON_CATEGORY_IDS
 
 
 @pytest.mark.parametrize(
@@ -335,3 +341,12 @@ def test_get_player_title(title: dict | str | None, resulting_title: str | None)
     actual = helpers.get_player_title(title)
 
     assert actual == resulting_title
+
+
+def test_comparison_category_ids_cover_the_enum_exactly():
+    """The ID map is the primary key source now, so a typo or a missing entry
+    would silently push a category back onto the label fallback."""
+    mapped = sorted(CAREER_COMPARISON_CATEGORY_IDS.values())
+
+    assert mapped == sorted(c.value for c in CareerHeroesComparisonsCategory)
+    assert len(set(CAREER_COMPARISON_CATEGORY_IDS)) == len(mapped)

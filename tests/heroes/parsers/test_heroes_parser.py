@@ -31,7 +31,18 @@ def test_parse_heroes_html_entry_format(heroes_html_data: str):
         "role",
         "subrole",
         "gamemodes",
+        "is_new",
     }
+
+
+def test_parse_heroes_html_marks_new_heroes(heroes_html_data: str):
+    """Blizzard's data-new marker reaches the output, and only for the cards
+    that carry it — a blanket True or False would satisfy a weaker assertion."""
+    result = parse_heroes_html(heroes_html_data)
+    flagged = {hero["key"] for hero in result if hero["is_new"]}
+
+    assert flagged, "fixture has a data-new hero, so something must be flagged"
+    assert flagged != {hero["key"] for hero in result}
 
 
 def test_filter_heroes_by_role(heroes_html_data: str):

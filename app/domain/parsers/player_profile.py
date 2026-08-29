@@ -33,6 +33,7 @@ from app.domain.enums import (
     PlayerPlatform,
 )
 from app.domain.parsers.player_helpers import (
+    CAREER_COMPARISON_CATEGORY_IDS,
     get_computed_stat_value,
     get_division_from_icon,
     get_endorsement_value_from_frame,
@@ -472,13 +473,28 @@ def _parse_heroes_comparisons(top_heroes_section: LexborNode) -> dict:
     """Parse heroes comparisons (top heroes by category)"""
     categories = _get_heroes_options(top_heroes_section)
 
-    heroes_comparisons = {
-        string_to_snakecase(
-            get_real_category_name(categories[category.attributes["data-category-id"]]),
-        ): {
-            "label": get_real_category_name(
-                categories[category.attributes["data-category-id"]],
-            ),
+    heroes_comparisons: dict[str, dict | None] = {}
+    for category in top_heroes_section.iter():
+        # .get(): most nodes under this section carry neither attribute, and
+        # __getitem__ raises for an absent one.
+        css_class = category.attributes.get("class")
+        category_id = category.attributes.get("data-category-id")
+        if (
+            css_class is None
+            or "Profile-progressBars" not in css_class
+            or category_id not in categories
+        ):
+            continue
+
+        label = get_real_category_name(categories[category_id])
+        # Blizzard's stat ID is stable across the label rewordings we have
+        # actually seen; fall back to the label for a category we don't know yet.
+        category_key = CAREER_COMPARISON_CATEGORY_IDS.get(
+            category_id
+        ) or string_to_snakecase(label)
+
+        heroes_comparisons[category_key] = {
+            "label": label,
             "values": [
                 entry
                 for progress_bar in category.iter()
@@ -488,22 +504,13 @@ def _parse_heroes_comparisons(top_heroes_section: LexborNode) -> dict:
                 is not None
             ],
         }
-        for category in top_heroes_section.iter()
-        if (
-            category.attributes["class"] is not None
-            and "Profile-progressBars" in category.attributes["class"]
-            and category.attributes["data-category-id"] in categories
-        )
-    }
 
     for category in CareerHeroesComparisonsCategory:
         # Sometimes, Blizzard exposes the categories without any value
         # In that case, we must assume we have no data at all
-        if (
-            category.value not in heroes_comparisons
-            or not heroes_comparisons[category.value]["values"]
-        ):
-            heroes_comparisons[category.value] = None  # ty: ignore[invalid-assignment]
+        entry = heroes_comparisons.get(category.value)
+        if not entry or not entry["values"]:
+            heroes_comparisons[category.value] = None
 
     return heroes_comparisons
 

@@ -350,6 +350,15 @@ class HeroShort(BaseModel):
         min_length=1,
         examples=[["stadium"]],
     )
+    is_new: bool = Field(
+        default=False,
+        description=(
+            "Whether Blizzard still flags this hero as newly released. Blizzard "
+            "sets the marker at launch and removes it a season or two later, so "
+            "this reflects their current badge rather than a release date."
+        ),
+        examples=[False],
+    )
 
 
 class HeroParserErrorMessage(BaseModel):
