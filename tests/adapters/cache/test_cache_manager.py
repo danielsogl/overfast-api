@@ -221,6 +221,28 @@ class TestPlayerStatus:
         assert result is not None
         assert result["check_count"] == 1
 
+    @pytest.mark.asyncio
+    async def test_evict_volatile_data_keeps_learned_and_pending_state(
+        self, cache_manager: ValkeyCache
+    ):
+        """Only rendered output goes.
+
+        Eviction used to be an exception list — delete everything except two
+        prefixes — so every key type added later was wiped by default. Two of
+        them must not be: the AIMD delay learned against Blizzard's rate limit,
+        and the task queue's pending work. Neither is rendered output and
+        neither goes stale because our code changed.
+        """
+        await cache_manager.update_api_cache("/heroes", [{"name": "Ana"}], 3600)
+        await cache_manager.set("throttle:delay", b"1.75", expire=3600)
+        await cache_manager.set("taskiq:queue", b"pending-job", expire=3600)
+
+        await cache_manager.evict_volatile_data()
+
+        assert await cache_manager.get_api_cache("/heroes") is None
+        assert await cache_manager.get("throttle:delay") == b"1.75"
+        assert await cache_manager.get("taskiq:queue") == b"pending-job"
+
 
 class TestEvictLowCountPlayerStatuses:
     """Tests for shutdown-time eviction of low-check_count unknown-player entries."""
