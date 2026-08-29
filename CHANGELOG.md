@@ -2,6 +2,32 @@
 
 <!-- version list -->
 
+## v4.7.5 (2026-08-29)
+
+### Bug Fixes
+
+- **ci**: Drop an unused ty suppression and document the real check commands
+  ([`06fd8b9`](https://github.com/danielsogl/overfast-api/commit/06fd8b9cae9dfb2804ac3b156f184c983c7137cf))
+
+### Continuous Integration
+
+- Check the parsers against live Blizzard data daily
+  ([`8a44b3d`](https://github.com/danielsogl/overfast-api/commit/8a44b3d74b9a737223e1fa75e21b454b78109c20))
+
+- Have the drift check open a PR with new heroes, not just report them
+  ([`94d0025`](https://github.com/danielsogl/overfast-api/commit/94d00250c0bbdae69ca93c9f9244bf172ed8551f))
+
+### Performance Improvements
+
+- Cache the CSV reads, batch cache eviction, fill last_updated_at
+  ([`ab9e780`](https://github.com/danielsogl/overfast-api/commit/ab9e780f7a25211986d22c253f7e88f3853f3dda))
+
+### Refactoring
+
+- Remove the unused Discord notification pipeline
+  ([`c8e44ab`](https://github.com/danielsogl/overfast-api/commit/c8e44ab1445783eeacdb43d57d2184ecae2a88ac))
+
+
 ## v4.7.4 (2026-08-29)
 
 ### Bug Fixes
