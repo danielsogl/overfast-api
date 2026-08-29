@@ -49,6 +49,14 @@ bash scripts/smoke-test.sh        # boots the compose stack, validates the stati
 bash scripts/persistence-test.sh  # asserts postgres survives a container lifecycle
 ```
 
+Match CI exactly when checking locally — it lints and type-checks the **whole
+repo**, including `scripts/`, not just `app/`:
+
+```bash
+uv run ruff check . && uv run ruff format --check .
+POSTGRES_PASSWORD=x uv run ty check .
+```
+
 Both run in CI on every PR. Running the suite outside Docker needs `POSTGRES_PASSWORD` —
 `app/config.py` builds `Settings` at import time, so pytest fails during collection without it.
 

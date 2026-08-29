@@ -54,7 +54,6 @@ async def _patch_before_every_test(
     app.dependency_overrides[get_storage] = lambda: storage_db
 
     with (
-        patch("app.api.helpers.settings.discord_webhook_enabled", False),
         patch("app.api.helpers.settings.profiler", None),
         patch(
             "app.adapters.cache.valkey_cache.valkey.Valkey",

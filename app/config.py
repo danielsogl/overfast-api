@@ -240,25 +240,17 @@ class Settings(BaseSettings):
     hero_stats_path: str = "/en-us/rates/data/"
 
     ############
-    # CRITICAL ERROR DISCORD WEBHOOK
+    # ERROR REPORTING
     ############
 
-    # Enable Discord Webhook for critical errors or not
-    discord_webhook_enabled: bool = False
-
-    # Discord Webhook URL
-    discord_webhook_url: str = ""
-
-    # Error message to be displayed to API users
+    # Error message to be displayed to API users. Critical errors are logged
+    # with a full traceback; there is no outbound notification, so the message
+    # must not promise one.
     internal_server_error_message: str = (
-        "An internal server error occurred during the process. The developer "
-        "received a notification, but don't hesitate to create a GitHub "
-        "issue if you want any news concerning the bug resolution : "
-        "https://github.com/TeKrop/overfast-api/issues"
+        "An internal server error occurred during the process. Please open a "
+        "GitHub issue if the problem persists : "
+        "https://github.com/danielsogl/overfast-api/issues"
     )
-
-    # Enable Discord message when rate limiting is being applied
-    discord_message_on_rate_limit: bool = False
 
     ############
     # LOCAL

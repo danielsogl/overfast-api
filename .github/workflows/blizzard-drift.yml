@@ -1,0 +1,102 @@
+name: "Blizzard drift check"
+
+# The test suite parses captured fixtures, so it stays green when Blizzard
+# changes its markup or ships a new hero. This runs the repo's own parsers
+# against the live site once a day to catch both.
+#
+# Deliberately not on pull_request: Blizzard being slow or down must never
+# block a merge. A failure here means the live data drifted, not that the
+# change under review is bad.
+on:
+  schedule:
+    # 05:00 UTC — after Blizzard's usual patch window, before European daytime.
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: blizzard-drift
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  drift:
+    name: Parsers vs live Blizzard
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version: "0.12.7"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        run: uv python install 3.14
+
+      - name: Install the project
+        run: uv sync --frozen
+
+      - name: Check for drift
+        id: drift
+        # Never fails the step: a new hero is expected to report drift, and we
+        # still want the PR opened below. The job's verdict is decided at the end.
+        continue-on-error: true
+        # app/config.py builds Settings at import time and postgres_password is
+        # the one field without a default; nothing here touches the database.
+        env:
+          POSTGRES_PASSWORD: unused-by-this-check
+          PYTHONPATH: .
+        run: uv run python scripts/check_blizzard_drift.py --fix
+
+      # --fix can only supply key/name/role. Hitpoints are published nowhere by
+      # Blizzard, so the row lands with zeroes and the check keeps failing until
+      # a human fills them in — which is why this opens a draft.
+      - name: Open a PR for new heroes
+        if: steps.drift.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet -- app/domain/utils/data/; then
+            echo "Drift found but nothing auto-fixable — see the step above."
+            exit 0
+          fi
+
+          BRANCH="chore/blizzard-data-$(date -u +%Y%m%d)"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            echo "Branch $BRANCH already exists — a PR is already open for today."
+            exit 0
+          fi
+
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add app/domain/utils/data/
+          git commit -m "chore(data): add new Blizzard hero(es) to heroes.csv
+
+          Opened automatically by the Blizzard drift check. key, name and role
+          are taken from the live heroes page; health, armor and shields are
+          published nowhere by Blizzard and are left at 0 deliberately.
+
+          Fill them in from the in-game hero screen before merging — the drift
+          check fails while any hero has health=0."
+          git push origin "$BRANCH"
+
+          gh pr create --draft --base main --head "$BRANCH" \
+            --title "chore(data): new Blizzard hero(es) detected" \
+            --body "$(printf '%s\n' \
+              'Opened automatically by the daily Blizzard drift check.' '' \
+              '`key`, `name` and `role` come from the live heroes page.' '' \
+              '⚠️ **`health`, `armor` and `shields` are set to 0** and must be filled in from the in-game hero screen — Blizzard publishes them nowhere, so they cannot be scraped. The drift check stays red while any hero has `health=0`, so this cannot be forgotten silently.' '' \
+              'Draft on purpose: mark it ready once the hitpoints are in.')"
+
+      - name: Report drift verdict
+        if: steps.drift.outcome == 'failure'
+        run: |
+          echo "::error::The live Blizzard site drifted from this repo — see the check step."
+          exit 1
