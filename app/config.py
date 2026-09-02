@@ -183,6 +183,20 @@ class Settings(BaseSettings):
     # Cache TTL for search account data (seconds)
     search_account_path_cache_timeout: int = 600
 
+    ############
+    # BATCH ENDPOINTS
+    ############
+
+    # How long GET /players/summaries waits for its fan-out before answering
+    # with whatever finished and marking the rest pending.
+    #
+    # Every id is paced through the same Blizzard throttle, and a cold profile
+    # costs two round-trips, so a fully cold batch runs to tens of seconds. The
+    # ceiling that matters is nginx's proxy_read_timeout (30s): past that the
+    # proxy drops the connection and the degraded answer never leaves the
+    # building. This value must stay comfortably below it.
+    batch_summaries_timeout: float = 10.0
+
     # Cache TTL for hero stats data (seconds)
     hero_stats_cache_timeout: int = 3600
 

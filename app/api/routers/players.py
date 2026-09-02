@@ -55,15 +55,6 @@ MAX_BATCH_SUMMARIES = 20
 # own app/config.py (a parallel change is touching PlayerService). Move this to
 # Settings as `batch_summaries_timeout` when that lands.
 #
-# Every id is serialised through the global adaptive throttle in
-# app/adapters/blizzard/throttle.py, so a fully cold MAX_BATCH_SUMMARIES-sized
-# batch costs up to 2 round-trips per id, each paced by up to
-# throttle_start_delay (2.0s) or, after a 403, throttle_penalty_delay (10.0s)
-# — tens of seconds worst case. nginx cuts the whole response at 30s
-# (proxy_read_timeout, build/nginx/overfast-api.conf.template). 10s leaves
-# ample headroom for serialization/network on top of the budget.
-BATCH_SUMMARIES_TIMEOUT_SECONDS = 10.0
-
 # Tasks still in flight when the batch timeout elapses keep running in the
 # background so the throttle budget already spent on them isn't wasted and the
 # next request finds a warm cache. This set holds a live reference to each one
@@ -322,7 +313,7 @@ async def get_players_summaries(
     }
 
     _done, pending = await asyncio.wait(
-        tasks.values(), timeout=BATCH_SUMMARIES_TIMEOUT_SECONDS
+        tasks.values(), timeout=settings.batch_summaries_timeout
     )
 
     # Whatever didn't finish in time keeps running in the background instead

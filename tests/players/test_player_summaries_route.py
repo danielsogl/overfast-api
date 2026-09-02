@@ -240,7 +240,7 @@ def test_get_players_summaries_slow_player_is_pending_not_failed(client: TestCli
 
     with (
         patch(SUMMARY_METHOD, side_effect=summary_side_effect),
-        patch("app.api.routers.players.BATCH_SUMMARIES_TIMEOUT_SECONDS", 0.05),
+        patch.object(settings, "batch_summaries_timeout", 0.05),
     ):
         response = client.get("/players/summaries?ids=TeKrop-2217,Slow-9999")
 
@@ -282,7 +282,7 @@ async def test_get_players_summaries_slow_player_keeps_running_in_background():
     service = Mock()
     service.get_player_summary = AsyncMock(side_effect=summary_side_effect)
 
-    with patch("app.api.routers.players.BATCH_SUMMARIES_TIMEOUT_SECONDS", 0.001):
+    with patch.object(settings, "batch_summaries_timeout", 0.001):
         result = await get_players_summaries(
             response=Response(), service=service, ids="Slow-9999"
         )
@@ -311,7 +311,7 @@ async def test_get_players_summaries_background_failure_is_not_raised():
     service = Mock()
     service.get_player_summary = AsyncMock(side_effect=summary_side_effect)
 
-    with patch("app.api.routers.players.BATCH_SUMMARIES_TIMEOUT_SECONDS", 0.001):
+    with patch.object(settings, "batch_summaries_timeout", 0.001):
         result = await get_players_summaries(
             response=Response(), service=service, ids="Broken-9999"
         )
