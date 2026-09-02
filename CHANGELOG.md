@@ -2,6 +2,43 @@
 
 <!-- version list -->
 
+## v4.17.0 (2026-09-02)
+
+### Bug Fixes
+
+- **players**: Answer batch summaries within a time budget
+  ([`de72483`](https://github.com/danielsogl/overfast-api/commit/de72483f99caa0aa6a12d78d42eff157b441a564))
+
+- **scripts**: Let the smoke test run on a port other than 8080
+  ([`ff76517`](https://github.com/danielsogl/overfast-api/commit/ff765176c80f102fe4040e3840f5a59df9a051de))
+
+### Features
+
+- **storage**: Keep parsed payloads next to the raw sources
+  ([`48f2fc7`](https://github.com/danielsogl/overfast-api/commit/48f2fc75a32e32c9e899f4f44a29c4d28009cae9))
+
+### Performance Improvements
+
+- **players**: Serve the stored parse instead of reparsing every profile
+  ([`7dc61a5`](https://github.com/danielsogl/overfast-api/commit/7dc61a5a3867535960798e9342bee0f30a810b6c))
+
+- **static-data**: Serve the stored parse instead of reparsing every miss
+  ([`f49c193`](https://github.com/danielsogl/overfast-api/commit/f49c193742a76e15d6b6ea343995b2d84c0781f5))
+
+### Refactoring
+
+- **domain**: Type the parser boundary so ty catches Blizzard drift
+  ([`411a45c`](https://github.com/danielsogl/overfast-api/commit/411a45cce5d7a35628a41ca57312c0e5363ee8a2))
+
+- **players**: Move the batch summaries budget into Settings
+  ([`cd92764`](https://github.com/danielsogl/overfast-api/commit/cd92764b8647b830c13985e2a5eb74a229e40c2c))
+
+### Testing
+
+- **players**: Stop the diff-window test failing on a second boundary
+  ([`1e0448d`](https://github.com/danielsogl/overfast-api/commit/1e0448d468fc1609a40c3390d0092f99174d6198))
+
+
 ## v4.16.0 (2026-08-29)
 
 ### Bug Fixes
