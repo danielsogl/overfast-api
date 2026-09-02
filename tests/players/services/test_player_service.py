@@ -129,6 +129,7 @@ class TestCheckPlayerStaleness:
         svc = _make_service()
         with patch("app.domain.services.player_service.settings") as s:
             s.player_staleness_threshold = 3600
+            s.player_max_serve_age = 86400
             result = svc._check_player_staleness(1000)
 
         assert result is False
@@ -137,6 +138,7 @@ class TestCheckPlayerStaleness:
         svc = _make_service()
         with patch("app.domain.services.player_service.settings") as s:
             s.player_staleness_threshold = 3600
+            s.player_max_serve_age = 86400
             result = svc._check_player_staleness(1800)
 
         assert result is True
@@ -145,6 +147,7 @@ class TestCheckPlayerStaleness:
         svc = _make_service()
         with patch("app.domain.services.player_service.settings") as s:
             s.player_staleness_threshold = 3600
+            s.player_max_serve_age = 86400
             result = svc._check_player_staleness(2000)
 
         assert result is True
@@ -180,18 +183,18 @@ class TestGetPlayerProfileCache:
 
 
 # ---------------------------------------------------------------------------
-# _get_fresh_stored_profile
+# _get_stored_profile
 # ---------------------------------------------------------------------------
 
 
-class TestGetFreshStoredProfile:
+class TestGetStoredProfile:
     @pytest.mark.asyncio
     async def test_blizzard_id_no_profile_returns_none_with_zero_age(self):
         svc = _make_service()
         with patch(
             "app.domain.services.player_service.is_blizzard_id", return_value=True
         ):
-            result = await svc._get_fresh_stored_profile("abc123|def456")
+            result = await svc._get_stored_profile("abc123|def456")
 
         assert result == (None, 0)
 
@@ -201,28 +204,24 @@ class TestGetFreshStoredProfile:
         with patch(
             "app.domain.services.player_service.is_blizzard_id", return_value=False
         ):
-            result = await svc._get_fresh_stored_profile("TeKrop-2217")
+            result = await svc._get_stored_profile("TeKrop-2217")
 
         assert result == (None, 0)
 
     @pytest.mark.asyncio
-    async def test_stale_profile_returns_none_with_age(self):
+    async def test_stale_profile_is_returned_with_its_age(self):
+        """Age is reported, not judged — the caller decides what is too old."""
         storage = FakeStorage()
         await storage.set_player_profile("abc123", html=_TEKROP_HTML)
-        # Artificially age the profile
         storage._profiles["abc123"]["updated_at"] = int(time.time()) - 99999
         svc = _make_service(storage=storage)
-        with (
-            patch(
-                "app.domain.services.player_service.is_blizzard_id", return_value=True
-            ),
-            patch("app.domain.services.player_service.settings") as s,
+        with patch(
+            "app.domain.services.player_service.is_blizzard_id", return_value=True
         ):
-            s.player_staleness_threshold = 3600
-            s.prometheus_enabled = False
-            result = await svc._get_fresh_stored_profile("abc123")
+            profile, age = await svc._get_stored_profile("abc123")
 
-        assert result == (None, 99999)
+        assert profile is not None
+        assert age == 99999  # noqa: PLR2004
 
     @pytest.mark.asyncio
     async def test_fresh_profile_returns_tuple(self):
@@ -238,8 +237,9 @@ class TestGetFreshStoredProfile:
             patch("app.domain.services.player_service.settings") as s,
         ):
             s.player_staleness_threshold = 99999
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
-            result = await svc._get_fresh_stored_profile("abc123")
+            result = await svc._get_stored_profile("abc123")
 
         assert result is not None
         profile, age = result
@@ -429,6 +429,7 @@ class TestExecutePlayerRequest:
             patch("app.domain.services.player_service.settings") as s,
         ):
             s.player_staleness_threshold = 99999
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
             s.career_path_cache_timeout = 300
             result, _is_stale, _age = await svc._execute_player_request(
@@ -472,6 +473,7 @@ class TestExecutePlayerRequest:
             patch("app.domain.services.player_service.settings") as s,
         ):
             s.player_staleness_threshold = 0
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
             s.career_path_cache_timeout = 300
             s.blizzard_host = "https://overwatch.blizzard.com"
@@ -492,8 +494,9 @@ class TestExecutePlayerRequest:
             html=_TEKROP_HTML,
             summary=_PLAYER_SUMMARY,
         )
-        # Age the profile beyond the staleness threshold (so _get_fresh_stored_profile → None)
-        # Then it goes to slow path; we mock the identity resolution and html fetch
+        # Past the staleness threshold but inside player_max_serve_age: served
+        # from storage, with a refresh enqueued. The Blizzard mocks below stay
+        # in place to prove they are NOT reached.
         storage._profiles["abc123|def456"]["updated_at"] = int(time.time()) - 9999
         task_queue = AsyncMock()
         task_queue.is_job_pending_or_running = AsyncMock(return_value=False)
@@ -520,13 +523,14 @@ class TestExecutePlayerRequest:
             patch("app.domain.services.player_service.settings") as s,
         ):
             s.player_staleness_threshold = 3600
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
             s.career_path_cache_timeout = 300
             result, _is_stale, _age = await svc._execute_player_request(
                 "abc123|def456", "test-key", lambda _profile: {}
             )
-        # Profile is stale (age > threshold), slow path → fresh fetch → age=0 → not stale
         assert result == {}
+        assert task_queue.enqueue.await_count == 1
 
     @pytest.mark.asyncio
     async def test_fast_path_preserves_stored_at_in_cache(self):
@@ -549,6 +553,7 @@ class TestExecutePlayerRequest:
             patch("app.domain.services.player_service.settings") as s,
         ):
             s.player_staleness_threshold = 99999
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
             s.career_path_cache_timeout = 300
             s.stale_cache_timeout = 60
@@ -583,6 +588,7 @@ class TestExecutePlayerRequest:
             patch("app.domain.services.player_service.settings") as s,
         ):
             s.player_staleness_threshold = 3600
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
             s.career_path_cache_timeout = 300
             s.stale_cache_timeout = 60
@@ -623,6 +629,7 @@ class TestExecutePlayerRequest:
             patch("app.domain.services.player_service.settings") as s,
         ):
             s.player_staleness_threshold = 0
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
             s.career_path_cache_timeout = 300
             s.stale_cache_timeout = 60
@@ -670,6 +677,7 @@ class TestRefreshPlayerProfile:
             s.player_staleness_threshold = (
                 99999  # profile would pass the fast-path check
             )
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
             s.career_path_cache_timeout = 300
             s.unknown_players_cache_enabled = False
@@ -695,6 +703,7 @@ class TestRefreshPlayerProfile:
             patch("app.domain.services.player_service.settings") as s,
         ):
             s.player_staleness_threshold = 3600
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
             s.career_path_cache_timeout = 300
             s.unknown_players_cache_enabled = False
@@ -725,6 +734,7 @@ class TestRefreshPlayerProfile:
             patch("app.domain.services.player_service.settings") as s,
         ):
             s.player_staleness_threshold = 3600
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
             s.unknown_players_cache_enabled = False
             with pytest.raises(ParserBlizzardError) as exc_info:
@@ -813,6 +823,7 @@ class TestParseStoredProfileCache:
             patch("app.domain.services.player_service.settings") as s,
         ):
             s.player_staleness_threshold = 99999
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
             s.career_path_cache_timeout = 300
             summary, _, _ = await svc.get_player_summary("abc123|def456", "k1")
@@ -860,6 +871,7 @@ class TestParseStoredWriteBack:
             patch("app.domain.services.player_service.settings") as s,
         ):
             s.player_staleness_threshold = 99999
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
             s.career_path_cache_timeout = 300
             summary, _, _ = await svc.get_player_summary("abc123|def456", "k1")
@@ -890,6 +902,7 @@ class TestParseStoredWriteBack:
             patch("app.domain.services.player_service.settings") as s,
         ):
             s.player_staleness_threshold = 99999
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
             s.career_path_cache_timeout = 300
             summary, _, _ = await svc.get_player_summary("abc123|def456", "k1")
@@ -924,6 +937,7 @@ class TestParseStoredWriteBack:
             patch("app.domain.services.player_service.settings") as s,
         ):
             s.player_staleness_threshold = 99999
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
             s.career_path_cache_timeout = 300
             await svc.get_player_summary("abc123|def456", "k1")
@@ -961,6 +975,7 @@ class TestParseStoredWriteBack:
             patch("app.domain.services.player_service.settings") as s,
         ):
             s.player_staleness_threshold = 99999
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
             s.career_path_cache_timeout = 300
             summary, _, _ = await svc.get_player_summary("abc123|def456", "k1")
@@ -992,6 +1007,7 @@ class TestParseStoredWriteBack:
             patch("app.domain.services.player_service.settings") as s,
         ):
             s.player_staleness_threshold = 99999
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
             s.career_path_cache_timeout = 300
             _data, _is_stale, age = await svc._execute_player_request(
@@ -1032,6 +1048,7 @@ class TestParseStoredWriteBack:
             patch("app.domain.services.player_service.settings") as s,
         ):
             s.player_staleness_threshold = 0
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
             s.career_path_cache_timeout = 300
             s.blizzard_host = "https://overwatch.blizzard.com"
@@ -1069,6 +1086,7 @@ class TestParseStoredWriteBack:
             patch("app.domain.services.player_service.settings") as s,
         ):
             s.player_staleness_threshold = 3600
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
             s.career_path_cache_timeout = 300
             s.unknown_players_cache_enabled = False
@@ -1121,6 +1139,7 @@ class TestSingleFlightColdMiss:
             patch("app.domain.services.player_service.settings") as s,
         ):
             s.player_staleness_threshold = 99999
+            s.player_max_serve_age = 86400
             s.prometheus_enabled = False
             s.career_path_cache_timeout = 300
             results = await asyncio.gather(
@@ -1535,3 +1554,152 @@ class TestGetPlayerStatsDiff:
 
         assert data["snapshots_compared"] == 2  # noqa: PLR2004
         assert data["totals"]["time_played"] > 0
+
+
+# ---------------------------------------------------------------------------
+# Serving past the staleness threshold
+# ---------------------------------------------------------------------------
+
+
+class TestServesStaleWithinCeiling:
+    """A stored profile is served whatever its age, up to player_max_serve_age.
+
+    Before this, anything past player_staleness_threshold fell through to a
+    synchronous Blizzard fetch — so the first request for a profile nobody had
+    asked about in an hour paid the full throttled round-trip. Measured against
+    production: 3.5s for such a request, 0.21s once the profile was warm.
+    """
+
+    @pytest.mark.asyncio
+    async def test_profile_past_the_threshold_is_served_without_blizzard(self):
+        storage = FakeStorage()
+        await storage.set_player_profile(
+            "abc123|def456", html=_TEKROP_HTML, summary=_PLAYER_SUMMARY
+        )
+        storage._profiles["abc123|def456"]["updated_at"] = int(time.time()) - 7200
+        task_queue = AsyncMock()
+        task_queue.is_job_pending_or_running = AsyncMock(return_value=False)
+        svc = _make_service(storage=storage, task_queue=task_queue)
+
+        with (
+            patch(
+                "app.domain.services.player_service.is_blizzard_id", return_value=True
+            ),
+            patch(
+                "app.domain.services.player_service.fetch_player_html",
+                new_callable=AsyncMock,
+            ) as fetch,
+            patch("app.domain.services.player_service.settings") as s,
+        ):
+            s.player_staleness_threshold = 3600
+            s.player_max_serve_age = 86400
+            s.career_path_cache_timeout = 300
+            _data, is_stale, age = await svc._execute_player_request(
+                "abc123|def456", "key", lambda _profile: {}
+            )
+
+        fetch.assert_not_awaited()
+        assert is_stale is True
+        assert age >= 7200  # noqa: PLR2004
+
+    @pytest.mark.asyncio
+    async def test_serving_stale_still_enqueues_the_refresh(self):
+        storage = FakeStorage()
+        await storage.set_player_profile(
+            "abc123|def456", html=_TEKROP_HTML, summary=_PLAYER_SUMMARY
+        )
+        storage._profiles["abc123|def456"]["updated_at"] = int(time.time()) - 7200
+        task_queue = AsyncMock()
+        task_queue.is_job_pending_or_running = AsyncMock(return_value=False)
+        svc = _make_service(storage=storage, task_queue=task_queue)
+
+        with (
+            patch(
+                "app.domain.services.player_service.is_blizzard_id", return_value=True
+            ),
+            patch(
+                "app.domain.services.player_service.fetch_player_html",
+                new_callable=AsyncMock,
+            ),
+            patch("app.domain.services.player_service.settings") as s,
+        ):
+            s.player_staleness_threshold = 3600
+            s.player_max_serve_age = 86400
+            s.career_path_cache_timeout = 300
+            await svc._execute_player_request("abc123|def456", "key", lambda _p: {})
+
+        assert task_queue.enqueue.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_profile_past_the_ceiling_falls_back_to_blizzard(self):
+        """The ceiling is the guard against a worker that stopped refreshing."""
+        storage = FakeStorage()
+        await storage.set_player_profile(
+            "abc123|def456", html=_TEKROP_HTML, summary=_PLAYER_SUMMARY
+        )
+        storage._profiles["abc123|def456"]["updated_at"] = int(time.time()) - 200_000
+        task_queue = AsyncMock()
+        task_queue.is_job_pending_or_running = AsyncMock(return_value=False)
+        svc = _make_service(storage=storage, task_queue=task_queue)
+
+        with (
+            patch(
+                "app.domain.services.player_service.is_blizzard_id", return_value=True
+            ),
+            patch(
+                "app.domain.services.player_service.fetch_player_html",
+                new_callable=AsyncMock,
+                return_value=(_TEKROP_HTML, "abc123|def456"),
+            ) as fetch,
+            patch(
+                "app.domain.services.player_service.fetch_player_summary_json",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.domain.services.player_service.parse_player_summary_json",
+                return_value=None,
+            ),
+            patch("app.domain.services.player_service.settings") as s,
+        ):
+            s.player_staleness_threshold = 3600
+            s.player_max_serve_age = 86400
+            s.career_path_cache_timeout = 300
+            await svc._execute_player_request("abc123|def456", "key", lambda _p: {})
+
+        fetch.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_absent_profile_still_fetches(self):
+        """Nothing stored is the one case with genuinely nothing to serve."""
+        storage = FakeStorage()
+        task_queue = AsyncMock()
+        task_queue.is_job_pending_or_running = AsyncMock(return_value=False)
+        svc = _make_service(storage=storage, task_queue=task_queue)
+
+        with (
+            patch(
+                "app.domain.services.player_service.is_blizzard_id", return_value=True
+            ),
+            patch(
+                "app.domain.services.player_service.fetch_player_html",
+                new_callable=AsyncMock,
+                return_value=(_TEKROP_HTML, "abc123|def456"),
+            ) as fetch,
+            patch(
+                "app.domain.services.player_service.fetch_player_summary_json",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.domain.services.player_service.parse_player_summary_json",
+                return_value=None,
+            ),
+            patch("app.domain.services.player_service.settings") as s,
+        ):
+            s.player_staleness_threshold = 3600
+            s.player_max_serve_age = 86400
+            s.career_path_cache_timeout = 300
+            await svc._execute_player_request("abc123|def456", "key", lambda _p: {})
+
+        fetch.assert_awaited()

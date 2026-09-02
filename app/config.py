@@ -221,6 +221,22 @@ class Settings(BaseSettings):
     # Age (seconds) after which a player profile is considered stale.
     player_staleness_threshold: int = 3600  # 1 hour
 
+    # Age (seconds) beyond which a stored profile is no longer served and the
+    # request waits for Blizzard instead.
+    #
+    # Everything below this is answered from storage immediately, with a
+    # background refresh enqueued — that is what stale-while-revalidate means,
+    # and it is why a profile nobody has asked about in hours no longer costs
+    # its first caller a throttled round-trip.
+    #
+    # The ceiling exists for one failure mode, not for freshness: if the worker
+    # is down, enqueued refreshes never run, and without a bound every profile
+    # would keep serving indefinitely old data while looking perfectly healthy.
+    # At 24h the system degrades back to slow-but-current instead of fast-and-
+    # silently-wrong. Profiles are deleted at player_profile_max_age (7 days)
+    # anyway, so this only ever governs the window in between.
+    player_max_serve_age: int = 86400  # 24 hours
+
     # TTL (seconds) for stale responses written to Valkey API cache.
     # Short enough that background refresh (typically seconds) will overwrite it
     # with fresh data before it expires; long enough to absorb burst traffic

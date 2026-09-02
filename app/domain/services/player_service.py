@@ -240,7 +240,7 @@ class PlayerService(BaseService):
         """Unconditionally fetch fresh player data from Blizzard and persist it.
 
         Unlike the public endpoint methods, this method bypasses
-        ``_get_fresh_stored_profile`` entirely, so the worker always
+        ``_get_stored_profile`` entirely, so the worker always
         issues a live Blizzard request regardless of how recently the
         profile was last stored.  This prevents the background refresh
         task from silently no-oping when the stored profile is still
@@ -545,12 +545,27 @@ class PlayerService(BaseService):
         stored_at: int | None = None
 
         try:
-            profile, age = await self._get_fresh_stored_profile(player_id)
+            profile, age = await self._get_stored_profile(player_id)
 
-            if profile is not None:
+            if profile is not None and age <= settings.player_max_serve_age:
+                # Served whatever its age inside the ceiling, and that is the
+                # point. Past player_staleness_threshold this used to hand back
+                # None and drop into the Blizzard fetch below, so the first
+                # request for a profile nobody had asked about in an hour paid
+                # the full throttled round-trip — measured at 3.5s against
+                # production, versus 0.21s once the profile was warm.
+                #
+                # Serving it stale costs the caller nothing it can see: the
+                # freshness the app displays is Blizzard's own last_updated_at,
+                # carried inside the profile, which a refetch of an unchanged
+                # profile would not move either. Our staleness is reported
+                # honestly in the Age header, and _check_player_staleness below
+                # enqueues the refresh that makes the next request current.
                 stored_at = profile["updated_at"]
                 logger.info(
-                    "Serving player data from persistent storage (within staleness threshold)"
+                    "Serving stored profile for {} ({}s old) — no Blizzard call",
+                    player_id,
+                    age,
                 )
                 parsed = await self._parse_stored(profile)
             else:
@@ -559,8 +574,8 @@ class PlayerService(BaseService):
                 # anyway, and this way they get the stored profile instead of
                 # firing their own redundant fetch.
                 async with single_flight(player_id):
-                    profile, age = await self._get_fresh_stored_profile(player_id)
-                    if profile is not None:
+                    profile, age = await self._get_stored_profile(player_id)
+                    if profile is not None and age <= settings.player_max_serve_age:
                         stored_at = profile["updated_at"]
                         logger.info(
                             "Profile for {} was fetched by a concurrent request "
@@ -720,24 +735,32 @@ class PlayerService(BaseService):
         - ``0 ≤ age < threshold // 2``  — fresh; served from storage, no refresh enqueued.
         - ``threshold // 2 ≤ age < threshold``  — stale window: served from storage *and*
           a background refresh is enqueued so the next request finds a warm profile.
-        - ``age ≥ threshold``  — ``_get_fresh_stored_profile`` returns ``None``; the
-          request falls through to a synchronous Blizzard fetch.
+        - ``age ≥ threshold``  — still served from storage, still enqueuing a
+          refresh. The request only falls through to a synchronous Blizzard
+          fetch once ``age`` passes ``player_max_serve_age``, or when nothing is
+          stored at all.
+
+        Note this method decides only whether to *enqueue a refresh*, not
+        whether to serve. That call belongs to ``_execute_player_request``,
+        which weighs the age against ``player_max_serve_age``.
         """
         if age == 0:
             return False
         swr_threshold = settings.player_staleness_threshold // 2
         return age >= swr_threshold
 
-    async def _get_fresh_stored_profile(
-        self, player_id: str
-    ) -> tuple[dict | None, int]:
-        """Return ``(profile, age_seconds)`` if the stored profile was updated within
-        ``player_staleness_threshold``, else ``(None, 0)``.
+    async def _get_stored_profile(self, player_id: str) -> tuple[dict | None, int]:
+        """Return ``(profile, age_seconds)`` for whatever is stored, or ``(None, 0)``.
+
+        Age is reported, never judged: the caller decides what is too old to
+        serve. This used to withhold anything past
+        ``player_staleness_threshold``, which is what sent those requests into a
+        blocking Blizzard fetch — see ``_execute_player_request``.
 
         For BattleTag inputs, resolves to a Blizzard ID via the stored mapping
-        before fetching the profile.  Returns ``None`` if no mapping exists or if the
-        profile is absent. Returns tuple with ``(None, age)`` if the profile exists
-        but is older than the threshold.
+        before fetching the profile. Returns ``(None, 0)`` when no mapping exists
+        or the profile is absent — the one case where there is genuinely nothing
+        to serve.
 
         See ``_check_player_staleness`` for the full SWR lifecycle description.
         """
@@ -753,16 +776,7 @@ class PlayerService(BaseService):
             return None, 0
 
         age = int(time.time()) - profile["updated_at"]
-        if age < settings.player_staleness_threshold:
-            logger.info(
-                "Stored profile for {} is {:.0f}s old (threshold {}s) — skipping Blizzard",
-                player_id,
-                age,
-                settings.player_staleness_threshold,
-            )
-            return profile, age
-
-        return None, age
+        return profile, age
 
     async def _get_player_html(
         self,
