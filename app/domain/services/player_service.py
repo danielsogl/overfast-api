@@ -19,6 +19,7 @@ from app.domain.exceptions import (
     ParserParsingError,
 )
 from app.domain.models.player import PlayerIdentity
+from app.domain.parsers import PARSER_VERSION
 from app.domain.parsers.player_career_stats import process_career_stats
 from app.domain.parsers.player_profile import (
     extract_name_from_profile_html,
@@ -42,11 +43,17 @@ from app.domain.services.base_service import BaseService
 from app.infrastructure.logger import logger
 
 # Parsing one stored profile costs 10-20ms of blocking CPU (roughly half lexbor
-# DOM build, half tree walk), and all five player endpoints funnel through the
-# same parse of the same HTML. The API cache in Valkey expires after
-# ``career_path_cache_timeout`` (600s) while the stored profile stays valid for
-# ``player_staleness_threshold`` (3600s), so without this every endpoint reparses
-# the identical blob roughly six times per stored profile.
+# DOM build, half tree walk). ``player_profiles.parsed`` now carries that result
+# across restarts and processes, so the common read path (``_parse_stored``)
+# takes it straight from storage and never calls into this cache at all.
+#
+# What is left for this cache to do: a stored row can still need a *reparse* —
+# missing ``parsed``, or a ``data_version`` behind ``PARSER_VERSION`` after a
+# parser change — and ``_parse_stored`` writes the result back so it happens at
+# most once per row. This cache only guards that narrow reparse path: repeated
+# hits on the same stale row within one process (concurrent requests racing
+# ahead of the write-back landing, or the write-back itself failing) reuse the
+# same parse instead of redoing the CPU work each time.
 #
 # Keying on ``updated_at`` is what makes it safe: a background refresh writes a
 # new timestamp and misses the cache, and a restart starts empty so parser
@@ -66,7 +73,10 @@ def parse_stored_profile(
     html: str,
     player_summary: dict,
 ) -> dict:
-    """Parse a stored profile, reusing the result across endpoints.
+    """Parse a stored profile needing a reparse, memoising the result.
+
+    Only reached when the stored row has no usable ``parsed`` payload (see
+    ``PlayerService._parse_stored``) — a normal storage hit never calls this.
 
     The returned dict is **shared between callers — treat it as read-only.**
     Three consumers pass nested parts of it straight through to the response
@@ -255,6 +265,10 @@ class PlayerService(BaseService):
                 )
             else:
                 await self._store_snapshot(effective_id, parsed)
+                # Same parse, reused for storage too — so the next request for
+                # this player reads it back instead of reparsing the HTML
+                # ``_get_player_html`` just persisted.
+                await self._write_back_parsed(effective_id, parsed)
             await self._evict_player_cache_keys(player_id)
         except Exception as exc:  # noqa: BLE001
             await self._handle_player_exceptions(exc, player_id, identity)
@@ -525,7 +539,7 @@ class PlayerService(BaseService):
                 logger.info(
                     "Serving player data from persistent storage (within staleness threshold)"
                 )
-                parsed = self._parse_stored(player_id, profile)
+                parsed = await self._parse_stored(profile)
             else:
                 # Single-flight: the lock is held across the Blizzard round-trip
                 # on purpose. Waiters would otherwise queue behind the throttle
@@ -540,7 +554,7 @@ class PlayerService(BaseService):
                             "while waiting — skipping Blizzard",
                             player_id,
                         )
-                        parsed = self._parse_stored(player_id, profile)
+                        parsed = await self._parse_stored(profile)
                     else:
                         identity = await self._resolve_player_identity(player_id)
                         effective_id = identity.blizzard_id or player_id
@@ -551,6 +565,9 @@ class PlayerService(BaseService):
                         parsed = parse_player_profile_html(
                             html, identity.player_summary
                         )
+                        # Persist the parse alongside the HTML ``_get_player_html``
+                        # already wrote, so the very next read needs no parse.
+                        await self._write_back_parsed(effective_id, parsed)
                         # The data is now as fresh as it gets. _get_fresh_stored
                         # _profile reports the *stored* age even when it hands
                         # back None, so leaving it meant _check_player_staleness
@@ -588,15 +605,52 @@ class PlayerService(BaseService):
     # Profile caching helpers
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _parse_stored(player_id: str, profile: dict) -> dict:
-        """Parse a storage hit through the shared parsed-profile cache."""
-        return parse_stored_profile(
-            player_id,
+    async def _parse_stored(self, profile: dict) -> dict:
+        """Use the row's stored parse when current, else parse once and write it back.
+
+        A storage hit whose ``parsed`` payload is already stamped with the
+        current ``PARSER_VERSION`` needs no CPU at all — the JSONB round-trip
+        already did the work. Anything else (a row written before the
+        ``parsed`` column existed, or one stamped by an older parser version)
+        is parsed here exactly once and persisted, so the *next* read for this
+        ``updated_at`` hits the fast path above. A parser version bump takes
+        effect on the very next request for each player, the same property
+        ``_serve_from_storage`` relies on for static data.
+
+        The returned dict is shared/read-only — see ``parse_stored_profile``.
+        """
+        if (
+            profile.get("parsed") is not None
+            and profile.get("data_version") == PARSER_VERSION
+        ):
+            return profile["parsed"]
+
+        parsed = parse_stored_profile(
+            profile["player_id"],
             profile["updated_at"],
             profile["profile"],
             profile["summary"],
         )
+        await self._write_back_parsed(profile["player_id"], parsed)
+        return parsed
+
+    async def _write_back_parsed(self, player_id: str, parsed: dict) -> None:
+        """Persist a freshly-parsed profile so the next read needs no parse.
+
+        Never raises: this is a caching optimisation riding along with a
+        request or a background refresh that has already succeeded, so a
+        storage hiccup here must not fail either one.
+        """
+        try:
+            await self.storage.set_player_profile_parsed(
+                player_id, parsed, data_version=PARSER_VERSION
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[player] Could not write back parsed profile for {}: {}",
+                player_id,
+                exc,
+            )
 
     async def get_player_profile_cache(self, player_id: str) -> dict | None:
         """Get player profile from persistent storage."""
@@ -605,7 +659,10 @@ class PlayerService(BaseService):
             return None
 
         return {
+            "player_id": player_id,
             "profile": profile["html"],
+            "parsed": profile.get("parsed"),
+            "data_version": profile.get("data_version"),
             "summary": profile["summary"],
             "battletag": profile.get("battletag"),
             "name": profile.get("name"),

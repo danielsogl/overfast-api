@@ -17,6 +17,7 @@ from app.domain.exceptions import (
     ParserParsingError,
 )
 from app.domain.models.player import PlayerIdentity
+from app.domain.parsers import PARSER_VERSION
 from app.domain.services.player_service import (
     _INFLIGHT_LOCKS,
     _PARSED_PROFILE_CACHE,
@@ -811,6 +812,260 @@ class TestParseStoredProfileCache:
         assert career["summary"] == {"username": "TeKrop"}
 
         await storage.close()
+
+
+# ---------------------------------------------------------------------------
+# _parse_stored — use the storage-parsed payload when current, else write one back
+# ---------------------------------------------------------------------------
+
+
+class TestParseStoredWriteBack:
+    """A row's own ``parsed`` + ``data_version`` now do what the in-process
+    cache used to: a storage hit at the current ``PARSER_VERSION`` needs no
+    parse at all. Anything older is parsed once and the result is written
+    back so the *next* hit takes the fast path too."""
+
+    @pytest.mark.asyncio
+    async def test_current_data_version_skips_parsing(self):
+        storage = FakeStorage()
+        await storage.set_player_profile(
+            "abc123|def456",
+            html=_TEKROP_HTML,
+            summary=_PLAYER_SUMMARY,
+            parsed={"summary": {"username": "stored"}, "stats": {}},
+            data_version=PARSER_VERSION,
+        )
+        svc = _make_service(storage=storage)
+
+        with (
+            patch(
+                "app.domain.services.player_service.is_blizzard_id", return_value=True
+            ),
+            patch(
+                "app.domain.services.player_service.parse_player_profile_html"
+            ) as parse,
+            patch("app.domain.services.player_service.settings") as s,
+        ):
+            s.player_staleness_threshold = 99999
+            s.prometheus_enabled = False
+            s.career_path_cache_timeout = 300
+            summary, _, _ = await svc.get_player_summary("abc123|def456", "k1")
+
+        parse.assert_not_called()
+        assert summary == {"username": "stored"}
+
+    @pytest.mark.asyncio
+    async def test_stale_data_version_parses_and_writes_back(self):
+        storage = FakeStorage()
+        await storage.set_player_profile(
+            "abc123|def456",
+            html=_TEKROP_HTML,
+            summary=_PLAYER_SUMMARY,
+            parsed={"summary": {"username": "old"}, "stats": {}},
+            data_version=PARSER_VERSION - 1,
+        )
+        svc = _make_service(storage=storage)
+
+        with (
+            patch(
+                "app.domain.services.player_service.is_blizzard_id", return_value=True
+            ),
+            patch(
+                "app.domain.services.player_service.parse_player_profile_html",
+                return_value={"summary": {"username": "fresh"}, "stats": {}},
+            ) as parse,
+            patch("app.domain.services.player_service.settings") as s,
+        ):
+            s.player_staleness_threshold = 99999
+            s.prometheus_enabled = False
+            s.career_path_cache_timeout = 300
+            summary, _, _ = await svc.get_player_summary("abc123|def456", "k1")
+
+        parse.assert_called_once()
+        assert summary == {"username": "fresh"}
+
+        row = await storage.get_player_profile("abc123|def456")
+        assert row is not None
+        assert row["parsed"] == {"summary": {"username": "fresh"}, "stats": {}}
+        assert row["data_version"] == PARSER_VERSION
+
+    @pytest.mark.asyncio
+    async def test_missing_parsed_parses_and_writes_back(self):
+        """A row written before the ``parsed`` column existed has ``parsed=None``
+        even at the current ``data_version`` — must still be treated as needing
+        a reparse, not as "nothing to compute"."""
+        storage = FakeStorage()
+        await storage.set_player_profile(
+            "abc123|def456", html=_TEKROP_HTML, summary=_PLAYER_SUMMARY
+        )
+        svc = _make_service(storage=storage)
+
+        with (
+            patch(
+                "app.domain.services.player_service.is_blizzard_id", return_value=True
+            ),
+            patch(
+                "app.domain.services.player_service.parse_player_profile_html",
+                return_value={"summary": {"username": "fresh"}, "stats": {}},
+            ) as parse,
+            patch("app.domain.services.player_service.settings") as s,
+        ):
+            s.player_staleness_threshold = 99999
+            s.prometheus_enabled = False
+            s.career_path_cache_timeout = 300
+            await svc.get_player_summary("abc123|def456", "k1")
+
+        parse.assert_called_once()
+        row = await storage.get_player_profile("abc123|def456")
+        assert row is not None
+        assert row["parsed"] is not None
+        assert row["data_version"] == PARSER_VERSION
+
+    @pytest.mark.asyncio
+    async def test_write_back_failure_does_not_break_the_request(self):
+        storage = FakeStorage()
+        await storage.set_player_profile(
+            "abc123|def456",
+            html=_TEKROP_HTML,
+            summary=_PLAYER_SUMMARY,
+            data_version=PARSER_VERSION - 1,
+        )
+        svc = _make_service(storage=storage)
+
+        with (
+            patch(
+                "app.domain.services.player_service.is_blizzard_id", return_value=True
+            ),
+            patch(
+                "app.domain.services.player_service.parse_player_profile_html",
+                return_value={"summary": {"username": "fresh"}, "stats": {}},
+            ),
+            patch.object(
+                storage,
+                "set_player_profile_parsed",
+                new=AsyncMock(side_effect=RuntimeError("db down")),
+            ),
+            patch("app.domain.services.player_service.settings") as s,
+        ):
+            s.player_staleness_threshold = 99999
+            s.prometheus_enabled = False
+            s.career_path_cache_timeout = 300
+            summary, _, _ = await svc.get_player_summary("abc123|def456", "k1")
+
+        assert summary == {"username": "fresh"}
+
+    @pytest.mark.asyncio
+    async def test_write_back_does_not_change_reported_age(self):
+        """A lazy reparse must not disturb ``updated_at`` — it is the age of the
+        Blizzard profile, read by staleness checks and the ``Age`` header."""
+        storage = FakeStorage()
+        await storage.set_player_profile(
+            "abc123|def456",
+            html=_TEKROP_HTML,
+            summary=_PLAYER_SUMMARY,
+            data_version=PARSER_VERSION - 1,
+        )
+        original_updated_at = storage._profiles["abc123|def456"]["updated_at"]
+        svc = _make_service(storage=storage)
+
+        with (
+            patch(
+                "app.domain.services.player_service.is_blizzard_id", return_value=True
+            ),
+            patch(
+                "app.domain.services.player_service.parse_player_profile_html",
+                return_value={"summary": {}, "stats": {}},
+            ),
+            patch("app.domain.services.player_service.settings") as s,
+        ):
+            s.player_staleness_threshold = 99999
+            s.prometheus_enabled = False
+            s.career_path_cache_timeout = 300
+            _data, _is_stale, age = await svc._execute_player_request(
+                "abc123|def456", "test-key", lambda _profile: {}
+            )
+
+        assert age >= 0
+        assert storage._profiles["abc123|def456"]["updated_at"] == original_updated_at
+
+    @pytest.mark.asyncio
+    async def test_fresh_blizzard_fetch_persists_parsed_profile(self):
+        """A cold Blizzard fetch (the single-flight miss branch) stores the
+        parsed profile too, so the very next read needs no parse."""
+        svc = _make_service()
+
+        with (
+            patch(
+                "app.domain.services.player_service.is_blizzard_id", return_value=False
+            ),
+            patch(
+                "app.domain.services.player_service.fetch_player_summary_json",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "app.domain.services.player_service.parse_player_summary_json",
+                return_value=None,
+            ),
+            patch(
+                "app.domain.services.player_service.fetch_player_html",
+                new_callable=AsyncMock,
+                return_value=(_TEKROP_HTML, "abc123|def456"),
+            ),
+            patch(
+                "app.domain.services.player_service.parse_player_profile_html",
+                return_value={"summary": {"username": "fresh"}, "stats": {}},
+            ),
+            patch("app.domain.services.player_service.settings") as s,
+        ):
+            s.player_staleness_threshold = 0
+            s.prometheus_enabled = False
+            s.career_path_cache_timeout = 300
+            s.blizzard_host = "https://overwatch.blizzard.com"
+            s.career_path = "/career"
+            s.unknown_players_cache_enabled = False
+            await svc._execute_player_request(
+                "TeKrop-2217", "test-key", lambda _profile: {}
+            )
+
+        row = await svc.storage.get_player_profile("abc123|def456")
+        assert row is not None
+        assert row["parsed"] == {"summary": {"username": "fresh"}, "stats": {}}
+        assert row["data_version"] == PARSER_VERSION
+
+    @pytest.mark.asyncio
+    async def test_refresh_persists_parsed_profile(self):
+        """refresh_player_profile reuses its snapshot parse for storage too,
+        rather than parsing the same HTML twice."""
+        storage = FakeStorage()
+        svc = _make_service(storage=storage)
+
+        with (
+            patch(
+                "app.domain.services.player_service.is_blizzard_id", return_value=True
+            ),
+            patch(
+                "app.domain.services.player_service.fetch_player_html",
+                new_callable=AsyncMock,
+                return_value=(_TEKROP_HTML, "abc123|def456"),
+            ),
+            patch(
+                "app.domain.services.player_service.parse_player_profile_html",
+                return_value={"summary": {"username": "fresh"}, "stats": {}},
+            ) as parse,
+            patch("app.domain.services.player_service.settings") as s,
+        ):
+            s.player_staleness_threshold = 3600
+            s.prometheus_enabled = False
+            s.career_path_cache_timeout = 300
+            s.unknown_players_cache_enabled = False
+            await svc.refresh_player_profile("abc123|def456")
+
+        parse.assert_called_once()
+        row = await storage.get_player_profile("abc123|def456")
+        assert row is not None
+        assert row["parsed"] == {"summary": {"username": "fresh"}, "stats": {}}
+        assert row["data_version"] == PARSER_VERSION
 
 
 # ---------------------------------------------------------------------------
