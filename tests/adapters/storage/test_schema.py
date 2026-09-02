@@ -59,3 +59,17 @@ class TestSchemaIdempotency:
 
     def test_create_type_only_runs_when_the_type_is_absent(self):
         assert "IF NOT EXISTS (SELECT 1 FROM pg_type" in _SCHEMA_SQL
+
+    def test_every_alter_table_adds_columns_idempotently(self):
+        """The parsed columns are added by ALTER, and this runs on every boot.
+
+        ``CREATE TABLE IF NOT EXISTS`` skips a table that already exists, so a
+        column added after the fact can only arrive through an ALTER — and that
+        ALTER re-executes on every single startup. Without ``IF NOT EXISTS`` the
+        second boot fails, which means the app never comes up again after the
+        first deploy that introduced the column.
+        """
+        alters = re.findall(r"^ALTER TABLE .*$", _SCHEMA_SQL, flags=re.MULTILINE)
+
+        assert alters
+        assert all("ADD COLUMN IF NOT EXISTS" in alter for alter in alters)

@@ -168,6 +168,7 @@ class TestGetStaticData:
         updated_at = datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC)
         row = {
             "data": compressed,
+            "parsed": None,
             "category": "heroes",
             "updated_at": updated_at,
             "data_version": 1,
@@ -182,7 +183,28 @@ class TestGetStaticData:
         assert result["data"] == payload
         assert result["category"] == "heroes"
         assert result["data_version"] == 1
+        assert result["parsed"] is None
         assert isinstance(result["updated_at"], int)
+
+    @pytest.mark.asyncio
+    async def test_returns_the_parsed_payload_when_present(self):
+        parsed = [{"key": "ana"}]
+        row = {
+            "data": PostgresStorage._compress("<html/>"),
+            "parsed": parsed,
+            "category": "heroes",
+            "updated_at": datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC),
+            "data_version": 3,
+        }
+        conn = _make_connection()
+        conn.fetchrow = AsyncMock(return_value=row)
+        pool, _ = _make_pool(conn=conn)
+        storage = _make_storage(pool=pool)
+        result = await storage.get_static_data("heroes")
+
+        assert result is not None
+        assert result["parsed"] == parsed
+        assert result["data_version"] == 3  # noqa: PLR2004
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +253,7 @@ class TestGetPlayerProfile:
         updated_at = datetime.datetime(2025, 6, 1, tzinfo=datetime.UTC)
         row = {
             "html_compressed": compressed,
+            "parsed": None,
             "battletag": "TeKrop-2217",
             "name": "TeKrop",
             "summary": summary,
@@ -256,6 +279,7 @@ class TestGetPlayerProfile:
         updated_at = datetime.datetime(2025, 6, 1, tzinfo=datetime.UTC)
         row = {
             "html_compressed": compressed,
+            "parsed": None,
             "battletag": None,
             "name": None,
             "summary": None,
@@ -332,8 +356,9 @@ class TestSetPlayerProfile:
         )
         args = conn.execute.call_args[0]
 
-        # last_updated_blizzard is 6th positional arg
-        assert args[6] == 9999  # noqa: PLR2004
+        # Bind order: player_id, battletag, name, html, parsed, summary,
+        # last_updated_blizzard, data_version — args[0] being the SQL itself.
+        assert args[7] == 9999  # noqa: PLR2004
 
 
 # ---------------------------------------------------------------------------
@@ -526,3 +551,62 @@ class TestInitConnection:
             decoder=json.loads,
             schema="pg_catalog",
         )
+
+
+# ---------------------------------------------------------------------------
+# parsed write-back — set_static_data_parsed / set_player_profile_parsed
+# ---------------------------------------------------------------------------
+
+
+class TestParsedWriteBack:
+    """The lazy re-parse path must update the payload without ageing the row.
+
+    ``updated_at`` is the age of the *Blizzard* data: the SWR layer derives
+    staleness from it and nginx turns it into the ``Age`` header. Bumping it
+    when all we did was re-parse bytes we already had would make a day-old row
+    report an age of zero and silently suppress its background refresh.
+    """
+
+    @pytest.mark.asyncio
+    async def test_static_write_back_leaves_updated_at_alone(self):
+        pool, conn = _make_pool()
+        storage = _make_storage(pool=pool)
+
+        await storage.set_static_data_parsed("heroes", [{"key": "ana"}], 2)
+
+        sql = conn.execute.call_args[0][0]
+        assert "UPDATE static_data" in sql
+        assert "updated_at" not in sql
+
+    @pytest.mark.asyncio
+    async def test_player_write_back_leaves_updated_at_alone(self):
+        pool, conn = _make_pool()
+        storage = _make_storage(pool=pool)
+
+        await storage.set_player_profile_parsed("abc123", {"summary": {}}, 2)
+
+        sql = conn.execute.call_args[0][0]
+        assert "UPDATE player_profiles" in sql
+        assert "updated_at" not in sql
+
+    @pytest.mark.asyncio
+    async def test_static_write_back_binds_payload_and_version(self):
+        pool, conn = _make_pool()
+        storage = _make_storage(pool=pool)
+        parsed = [{"key": "ana"}]
+
+        await storage.set_static_data_parsed("heroes", parsed, 7)
+
+        args = conn.execute.call_args[0]
+        assert args[1:] == ("heroes", parsed, 7)
+
+    @pytest.mark.asyncio
+    async def test_player_write_back_binds_payload_and_version(self):
+        pool, conn = _make_pool()
+        storage = _make_storage(pool=pool)
+        parsed = {"summary": {"username": "TeKrop"}}
+
+        await storage.set_player_profile_parsed("abc123", parsed, 7)
+
+        args = conn.execute.call_args[0]
+        assert args[1:] == ("abc123", parsed, 7)

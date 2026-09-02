@@ -6,6 +6,8 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from app.domain.parsers import PARSER_VERSION
+
 if TYPE_CHECKING:
     from datetime import date
 
@@ -50,17 +52,32 @@ class FakeStorage:
         key: str,
         data: str,
         category: StaticDataCategory,
-        data_version: int = 1,
+        data_version: int = PARSER_VERSION,
+        parsed: dict | list | None = None,
     ) -> None:
         now = int(time.time())
         existing = self._static.get(key)
         self._static[key] = {
             "data": data,
+            "parsed": parsed,
             "category": str(category),
             "data_version": data_version,
             "updated_at": now,
             "created_at": existing["created_at"] if existing else now,
         }
+
+    async def set_static_data_parsed(
+        self,
+        key: str,
+        parsed: dict | list,
+        data_version: int = PARSER_VERSION,
+    ) -> None:
+        existing = self._static.get(key)
+        if existing is None:
+            return
+        # updated_at is left untouched on purpose — see the port docstring.
+        existing["parsed"] = parsed
+        existing["data_version"] = data_version
 
     # ------------------------------------------------------------------ #
     # Player profiles
@@ -89,12 +106,14 @@ class FakeStorage:
         battletag: str | None = None,
         name: str | None = None,
         last_updated_blizzard: int | None = None,
-        data_version: int = 1,
+        data_version: int = PARSER_VERSION,
+        parsed: dict | None = None,
     ) -> None:
         now = int(time.time())
         existing = self._profiles.get(player_id)
         self._profiles[player_id] = {
             "html": html,
+            "parsed": parsed,
             "summary": summary or {},
             "battletag": battletag or (existing["battletag"] if existing else None),
             "name": name or (existing["name"] if existing else None),
@@ -105,6 +124,19 @@ class FakeStorage:
         }
         if battletag:
             self._battletag_index[battletag] = player_id
+
+    async def set_player_profile_parsed(
+        self,
+        player_id: str,
+        parsed: dict,
+        data_version: int = PARSER_VERSION,
+    ) -> None:
+        existing = self._profiles.get(player_id)
+        if existing is None:
+            return
+        # updated_at is left untouched on purpose — see the port docstring.
+        existing["parsed"] = parsed
+        existing["data_version"] = data_version
 
     # ------------------------------------------------------------------ #
     # Player snapshots

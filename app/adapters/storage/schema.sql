@@ -117,3 +117,23 @@ CREATE TABLE IF NOT EXISTS hero_stats_snapshots (
     data      JSONB NOT NULL,
     PRIMARY KEY (taken_on, platform, gamemode, region)
 );
+
+-- Parsed payloads, added alongside the raw sources they are derived from.
+--
+-- The raw column stays: it is the only thing a new parser can be replayed
+-- against, and dropping it would turn every parser change into a full refetch
+-- behind the Blizzard throttle. What changes is which one the READ path uses.
+-- Before this column, every cache miss rebuilt a DOM from the stored HTML —
+-- 10-20ms of blocking CPU per player profile, in the event loop of a single
+-- app process, for output that never varies between two identical reads.
+--
+-- ``data_version`` is what keeps that safe. It already existed and was written
+-- but never read; it now holds app.domain.parsers.PARSER_VERSION. A row whose
+-- stamp does not match is re-parsed once on read and written back, so a parser
+-- change still takes effect on the very next request.
+--
+-- NULL is a legitimate value: it means "not parsed yet" and sends that one read
+-- down the old path. That is what makes this deployable without a backfill —
+-- existing rows simply upgrade themselves the first time they are served.
+ALTER TABLE static_data     ADD COLUMN IF NOT EXISTS parsed JSONB;
+ALTER TABLE player_profiles ADD COLUMN IF NOT EXISTS parsed JSONB;

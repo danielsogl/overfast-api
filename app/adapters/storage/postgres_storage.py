@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import asyncpg
 
 from app.config import settings
+from app.domain.parsers import PARSER_VERSION
 from app.infrastructure.logger import logger
 from app.infrastructure.metaclasses import Singleton
 
@@ -120,10 +121,11 @@ class PostgresStorage(metaclass=Singleton):
 
     async def get_static_data(self, key: str) -> dict | None:
         """Get static data by key. Returns dict with 'data' (decompressed str),
-        'category', 'updated_at' (Unix int), 'data_version' or None."""
+        'parsed' (dict/list or None), 'category', 'updated_at' (Unix int),
+        'data_version' or None."""
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             row = await conn.fetchrow(
-                """SELECT data, category, updated_at, data_version
+                """SELECT data, parsed, category, updated_at, data_version
                    FROM static_data WHERE key = $1""",
                 key,
             )
@@ -133,6 +135,7 @@ class PostgresStorage(metaclass=Singleton):
         decompressed_data = self._decompress(row["data"])
         return {
             "data": decompressed_data,
+            "parsed": row["parsed"],
             "category": row["category"],
             "updated_at": int(row["updated_at"].timestamp()),
             "data_version": row["data_version"],
@@ -143,22 +146,57 @@ class PostgresStorage(metaclass=Singleton):
         key: str,
         data: str,
         category: StaticDataCategory,
-        data_version: int = 1,
+        data_version: int = PARSER_VERSION,
+        parsed: dict | list | None = None,
     ) -> None:
-        """Upsert static data. ``data`` is a raw string (HTML or JSON) compressed with zstd."""
+        """Upsert static data. ``data`` is a raw string (HTML or JSON) compressed with zstd.
+
+        ``parsed`` is the parser's output for that same raw string, stored so the
+        read path never has to rebuild it. Passing ``None`` writes SQL NULL,
+        which the read path reads as "not parsed yet" and handles by parsing
+        once — so an omitted argument degrades to the old behaviour rather than
+        serving an empty payload.
+        """
         compressed = self._compress(data)
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             await conn.execute(
-                """INSERT INTO static_data (key, data, category, data_version, updated_at)
-                   VALUES ($1, $2, $3::static_data_category, $4, NOW())
+                """INSERT INTO static_data
+                       (key, data, parsed, category, data_version, updated_at)
+                   VALUES ($1, $2, $3::jsonb, $4::static_data_category, $5, NOW())
                    ON CONFLICT (key) DO UPDATE
                    SET data = EXCLUDED.data,
+                       parsed = EXCLUDED.parsed,
                        category = EXCLUDED.category,
                        data_version = EXCLUDED.data_version,
                        updated_at = NOW()""",
                 key,
                 compressed,
+                parsed,
                 category.value,
+                data_version,
+            )
+
+    async def set_static_data_parsed(
+        self,
+        key: str,
+        parsed: dict | list,
+        data_version: int = PARSER_VERSION,
+    ) -> None:
+        """Write back a re-parse without touching the raw source or ``updated_at``.
+
+        ``updated_at`` is deliberately left alone. It is what the SWR layer reads
+        as the age of the *Blizzard data*, and what nginx turns into the ``Age``
+        header. Bumping it here would make a row that was merely re-parsed look
+        freshly fetched, suppressing the background refresh that should have run
+        and reporting an ``Age`` of 0 for data that may be a day old.
+        """
+        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+            await conn.execute(
+                """UPDATE static_data
+                   SET parsed = $2::jsonb, data_version = $3
+                   WHERE key = $1""",
+                key,
+                parsed,
                 data_version,
             )
 
@@ -169,13 +207,13 @@ class PostgresStorage(metaclass=Singleton):
     async def get_player_profile(self, player_id: str) -> dict | None:
         """Get player profile by player_id.
 
-        Returns dict with 'html', 'summary' (dict), 'battletag', 'name',
-        'last_updated_blizzard', 'updated_at' (Unix int), 'data_version'
-        or None if not found.
+        Returns dict with 'html', 'parsed' (dict or None), 'summary' (dict),
+        'battletag', 'name', 'last_updated_blizzard', 'updated_at' (Unix int),
+        'data_version' or None if not found.
         """
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             row = await conn.fetchrow(
-                """SELECT battletag, name, html_compressed, summary,
+                """SELECT battletag, name, html_compressed, parsed, summary,
                           last_updated_blizzard, updated_at, data_version
                    FROM player_profiles WHERE player_id = $1""",
                 player_id,
@@ -189,6 +227,7 @@ class PostgresStorage(metaclass=Singleton):
 
         return {
             "html": self._decompress(row["html_compressed"]),
+            "parsed": row["parsed"],
             "battletag": row["battletag"],
             "name": row["name"],
             "summary": summary,
@@ -214,9 +253,14 @@ class PostgresStorage(metaclass=Singleton):
         battletag: str | None = None,
         name: str | None = None,
         last_updated_blizzard: int | None = None,
-        data_version: int = 1,
+        data_version: int = PARSER_VERSION,
+        parsed: dict | None = None,
     ) -> None:
-        """Upsert player profile. HTML is zstd-compressed before storage."""
+        """Upsert player profile. HTML is zstd-compressed before storage.
+
+        ``parsed`` is the parsed profile for that same HTML. See
+        :meth:`set_static_data` for why ``None`` is a safe value to write.
+        """
         if summary and last_updated_blizzard is None:
             last_updated_blizzard = summary.get("lastUpdated")
 
@@ -225,13 +269,14 @@ class PostgresStorage(metaclass=Singleton):
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             await conn.execute(
                 """INSERT INTO player_profiles
-                       (player_id, battletag, name, html_compressed, summary,
+                       (player_id, battletag, name, html_compressed, parsed, summary,
                         last_updated_blizzard, data_version, updated_at)
-                   VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, NOW())
+                   VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, NOW())
                    ON CONFLICT (player_id) DO UPDATE
                    SET battletag = COALESCE(EXCLUDED.battletag, player_profiles.battletag),
                        name = COALESCE(EXCLUDED.name, player_profiles.name),
                        html_compressed = EXCLUDED.html_compressed,
+                       parsed = EXCLUDED.parsed,
                        summary = EXCLUDED.summary,
                        last_updated_blizzard = EXCLUDED.last_updated_blizzard,
                        data_version = EXCLUDED.data_version,
@@ -240,8 +285,30 @@ class PostgresStorage(metaclass=Singleton):
                 battletag,
                 name,
                 compressed,
+                parsed,
                 summary,
                 last_updated_blizzard,
+                data_version,
+            )
+
+    async def set_player_profile_parsed(
+        self,
+        player_id: str,
+        parsed: dict,
+        data_version: int = PARSER_VERSION,
+    ) -> None:
+        """Write back a re-parse without touching the HTML or ``updated_at``.
+
+        Same reasoning as :meth:`set_static_data_parsed`: ``updated_at`` is the
+        age of the Blizzard profile, not of our parse of it.
+        """
+        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+            await conn.execute(
+                """UPDATE player_profiles
+                   SET parsed = $2::jsonb, data_version = $3
+                   WHERE player_id = $1""",
+                player_id,
+                parsed,
                 data_version,
             )
 

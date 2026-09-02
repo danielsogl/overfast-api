@@ -32,8 +32,16 @@ class StoragePort(Protocol):
     async def get_static_data(self, key: str) -> dict | None:
         """Get static data (heroes, maps, gamemodes, roles) by key.
 
-        Returns dict with 'data' (str — raw HTML or JSON), 'category' (str),
-        'updated_at' (int Unix ts), 'data_version' (int) or None if not found.
+        Returns dict with 'data' (str — raw HTML or JSON), 'parsed'
+        (dict/list or None — the parser's output for that same raw source),
+        'category' (str), 'updated_at' (int Unix ts), 'data_version' (int)
+        or None if not found.
+
+        ``parsed`` is ``None`` for a row written before the parsed column
+        existed, or by a caller that had nothing to store; a reader that finds
+        ``None`` — or a ``data_version`` other than
+        ``app.domain.parsers.PARSER_VERSION`` — must parse ``data`` itself and
+        write the result back with ``set_static_data_parsed``.
         """
         ...
 
@@ -43,17 +51,37 @@ class StoragePort(Protocol):
         data: str,
         category: StaticDataCategory,
         data_version: int = 1,
+        parsed: dict | list | None = None,
     ) -> None:
-        """Store static data. ``data`` is a raw string (HTML or JSON)."""
+        """Store static data. ``data`` is a raw string (HTML or JSON).
+
+        ``parsed`` is the parser output for ``data``, stored so the read path
+        does not have to rebuild it.
+        """
+        ...
+
+    async def set_static_data_parsed(
+        self,
+        key: str,
+        parsed: dict | list,
+        data_version: int = 1,
+    ) -> None:
+        """Update only the parsed payload and its version stamp.
+
+        Must not touch ``updated_at`` — that timestamp is the age of the
+        Blizzard data, and the SWR layer and the ``Age`` header both read it.
+        """
         ...
 
     async def get_player_profile(self, player_id: str) -> dict | None:
         """
         Get player profile HTML and parsed summary.
 
-        Returns dict with 'html', 'summary' (dict), 'battletag', 'name',
-        'last_updated_blizzard', 'updated_at' (int Unix ts), 'data_version'
-        or None if not found.
+        Returns dict with 'html', 'parsed' (dict or None — the parsed profile),
+        'summary' (dict), 'battletag', 'name', 'last_updated_blizzard',
+        'updated_at' (int Unix ts), 'data_version' or None if not found.
+
+        Same contract as ``get_static_data`` for ``parsed`` / ``data_version``.
         """
         ...
 
@@ -78,8 +106,21 @@ class StoragePort(Protocol):
         name: str | None = None,
         last_updated_blizzard: int | None = None,
         data_version: int = 1,
+        parsed: dict | None = None,
     ) -> None:
         """Store player profile HTML and parsed summary with optional metadata"""
+        ...
+
+    async def set_player_profile_parsed(
+        self,
+        player_id: str,
+        parsed: dict,
+        data_version: int = 1,
+    ) -> None:
+        """Update only the parsed profile and its version stamp.
+
+        Must not touch ``updated_at`` — see ``set_static_data_parsed``.
+        """
         ...
 
     async def add_player_snapshot(
