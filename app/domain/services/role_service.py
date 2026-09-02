@@ -4,6 +4,7 @@ from app.config import settings
 from app.domain.enums import Locale
 from app.domain.exceptions import ParserInternalError, ParserParsingError
 from app.domain.parsers.roles import fetch_roles_html, parse_roles_html
+from app.domain.services import SwrResult
 from app.domain.services.static_data_service import StaticDataService, StaticFetchConfig
 
 
@@ -37,7 +38,7 @@ class RoleService(StaticDataService):
         self,
         locale: Locale,
         cache_key: str,
-    ) -> tuple[list[dict], bool, int]:
+    ) -> SwrResult[list[dict]]:
         """Return the roles list.
 
         Stores raw Blizzard HTML per locale so that parser changes take effect

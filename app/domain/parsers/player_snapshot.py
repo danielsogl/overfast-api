@@ -11,7 +11,15 @@ Rows are stored once per profile version and kept for a year, so the payload is
 deliberately narrow: icons, labels and averages are all left out.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from app.domain.enums import CareerHeroesComparisonsCategory
+
+if TYPE_CHECKING:
+    from app.domain.models.player import CompetitiveRanksData, PlayerProfileData
+
 
 # The only heroes_comparisons categories that accumulate. Ordering is irrelevant;
 # the set is what the two functions below agree on.
@@ -31,7 +39,7 @@ _DELTA_KEYS = (
 _WIN_PERCENTAGE = CareerHeroesComparisonsCategory.WIN_PERCENTAGE.value
 
 
-def build_player_snapshot(parsed_profile: dict) -> dict | None:
+def build_player_snapshot(parsed_profile: PlayerProfileData) -> dict | None:
     """Reduce a parsed profile to the payload stored in ``player_snapshots``.
 
     ``parsed_profile`` is the dict returned by ``parse_player_profile_html``:
@@ -56,7 +64,7 @@ def build_player_snapshot(parsed_profile: dict) -> dict | None:
     }
 
 
-def _build_competitive(competitive: dict | None) -> dict:
+def _build_competitive(competitive: CompetitiveRanksData | None) -> dict:
     """Keep ``{division, tier}`` per platform per role, dropping every icon URL.
 
     The three icon fields are static CDN links that never differ between two
@@ -67,8 +75,14 @@ def _build_competitive(competitive: dict | None) -> dict:
         return {}
 
     ranks: dict[str, dict] = {}
-    for platform, platform_ranks in competitive.items():
-        if not platform_ranks:
+    # The two platform keys are named rather than iterated. `competitive` is a
+    # TypedDict, so its values have a different type per key — iterating
+    # `.items()` generically throws that away, and ty then cannot narrow the
+    # per-platform value away from None. Naming them is both the honest access
+    # for this type and what keeps the check below verifiable.
+    for platform in ("pc", "console"):
+        platform_ranks = competitive.get(platform)
+        if platform_ranks is None:
             continue
         platform_entry = {
             role: {"division": rank["division"], "tier": rank["tier"]}

@@ -16,7 +16,11 @@ from app.domain.exceptions import (
     ParserInternalError,
     ParserParsingError,
 )
-from app.domain.models.player import PlayerIdentity
+from app.domain.models.player import (
+    BlizzardSearchPlayer,
+    PlayerIdentity,
+    PlayerProfileData,
+)
 from app.domain.parsers import PARSER_VERSION
 from app.domain.services.player_service import (
     _INFLIGHT_LOCKS,
@@ -30,12 +34,21 @@ from tests.fake_storage import FakeStorage
 from tests.helpers import read_html_file
 
 _TEKROP_HTML = read_html_file("players/TeKrop-2217.html") or ""
+# Not a real Blizzard search payload (it uses "username" rather than "name",
+# and omits fields BlizzardSearchPlayer declares) — most of these tests only
+# round-trip it through storage, which stays untyped `dict`. Left as a plain
+# dict for that reason; call sites that need the stricter type (below) cast
+# it explicitly instead of narrowing every usage.
 _PLAYER_SUMMARY = {
     "url": "abc123|def456",
     "username": "TeKrop",
     "avatar": "https://example.com/avatar.png",
     "lastUpdated": 1700000000,
 }
+# parse_stored_profile below takes the stricter BlizzardSearchPlayer — cast
+# once here rather than widen _PLAYER_SUMMARY's own type for its many other
+# (untyped-storage) call sites.
+_TYPED_PLAYER_SUMMARY = cast("BlizzardSearchPlayer", _PLAYER_SUMMARY)
 
 
 def _make_service(
@@ -734,8 +747,8 @@ class TestParseStoredProfileCache:
             "app.domain.services.player_service.parse_player_profile_html",
             return_value={"summary": {}, "stats": {}},
         ) as parse:
-            first = parse_stored_profile("p", 100, _TEKROP_HTML, _PLAYER_SUMMARY)
-            second = parse_stored_profile("p", 100, _TEKROP_HTML, _PLAYER_SUMMARY)
+            first = parse_stored_profile("p", 100, _TEKROP_HTML, _TYPED_PLAYER_SUMMARY)
+            second = parse_stored_profile("p", 100, _TEKROP_HTML, _TYPED_PLAYER_SUMMARY)
 
         assert parse.call_count == 1
         assert first is second
@@ -747,8 +760,8 @@ class TestParseStoredProfileCache:
             "app.domain.services.player_service.parse_player_profile_html",
             side_effect=[{"v": 1}, {"v": 2}],
         ):
-            first = parse_stored_profile("p", 100, _TEKROP_HTML, _PLAYER_SUMMARY)
-            second = parse_stored_profile("p", 200, _TEKROP_HTML, _PLAYER_SUMMARY)
+            first = parse_stored_profile("p", 100, _TEKROP_HTML, _TYPED_PLAYER_SUMMARY)
+            second = parse_stored_profile("p", 200, _TEKROP_HTML, _TYPED_PLAYER_SUMMARY)
 
         # Distinct values can only come out if the parser ran twice.
         assert (first, second) == ({"v": 1}, {"v": 2})
@@ -758,8 +771,8 @@ class TestParseStoredProfileCache:
             "app.domain.services.player_service.parse_player_profile_html",
             side_effect=[{"who": "a"}, {"who": "b"}],
         ):
-            first = parse_stored_profile("a", 100, _TEKROP_HTML, _PLAYER_SUMMARY)
-            second = parse_stored_profile("b", 100, _TEKROP_HTML, _PLAYER_SUMMARY)
+            first = parse_stored_profile("a", 100, _TEKROP_HTML, _TYPED_PLAYER_SUMMARY)
+            second = parse_stored_profile("b", 100, _TEKROP_HTML, _TYPED_PLAYER_SUMMARY)
 
         assert (first, second) == ({"who": "a"}, {"who": "b"})
 
@@ -771,7 +784,7 @@ class TestParseStoredProfileCache:
             side_effect=lambda *_: {},
         ):
             for i in range(_PARSED_PROFILE_CACHE_MAXSIZE + 5):
-                parse_stored_profile(f"p{i}", 1, _TEKROP_HTML, _PLAYER_SUMMARY)
+                parse_stored_profile(f"p{i}", 1, _TEKROP_HTML, _TYPED_PLAYER_SUMMARY)
 
         assert len(_PARSED_PROFILE_CACHE) == _PARSED_PROFILE_CACHE_MAXSIZE
         assert ("p0", 1) not in _PARSED_PROFILE_CACHE
@@ -1222,12 +1235,18 @@ class TestStoreSnapshot:
         storage = FakeStorage()
         await _seed_stored_profile(storage)
         svc = _make_service(storage=storage)
-        parsed = {
-            "summary": {
-                "competitive": {"pc": {"tank": {"division": "gold", "tier": 1}}}
+        # Partial on purpose: _store_snapshot only ever reads summary.competitive
+        # and summary.last_updated_at, so these tests exercise it with just
+        # those keys rather than a full PlayerProfileSummary.
+        parsed = cast(
+            "PlayerProfileData",
+            {
+                "summary": {
+                    "competitive": {"pc": {"tank": {"division": "gold", "tier": 1}}}
+                },
+                "stats": None,
             },
-            "stats": None,
-        }
+        )
 
         await svc._store_snapshot(_BLIZZARD_ID, parsed)
 
@@ -1238,7 +1257,10 @@ class TestStoreSnapshot:
         storage = FakeStorage()
         await _seed_stored_profile(storage)
         svc = _make_service(storage=storage)
-        parsed = {"summary": {"last_updated_at": 1700000000}, "stats": None}
+        parsed = cast(
+            "PlayerProfileData",
+            {"summary": {"last_updated_at": 1700000000}, "stats": None},
+        )
 
         await svc._store_snapshot(_BLIZZARD_ID, parsed)
 

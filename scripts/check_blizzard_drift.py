@@ -19,11 +19,14 @@ Run locally with:
     PYTHONPATH=. POSTGRES_PASSWORD=x uv run python scripts/check_blizzard_drift.py
 """
 
+from __future__ import annotations
+
 import csv
 import re
 import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import httpx2
 
@@ -33,6 +36,12 @@ from app.domain.parsers.hero import parse_hero_html
 from app.domain.parsers.heroes import parse_heroes_html
 from app.domain.parsers.roles import parse_roles_html
 from app.domain.utils.csv_reader import read_csv_file
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
+    from app.domain.models.hero import HeroListEntry
+
 
 LOCALE = "en-us"
 TIMEOUT = 30
@@ -68,7 +77,7 @@ def fetch(path: str) -> str:
     return response.text
 
 
-def add_heroes_to_csv(new_heroes: list[dict]) -> None:
+def add_heroes_to_csv(new_heroes: Sequence[Mapping[str, Any]]) -> None:
     """Insert new heroes into heroes.csv, alphabetically, with zeroed hitpoints.
 
     Only key/name/role can be filled from the Blizzard page. Hitpoints appear
@@ -119,7 +128,7 @@ def add_heroes_to_csv(new_heroes: list[dict]) -> None:
     read_csv_file.cache_clear()
 
 
-def check_heroes() -> list[dict]:
+def check_heroes() -> list[HeroListEntry]:
     """Parse the live heroes index and compare its keys with the HeroKey enum."""
     print("=== heroes index ===")
     heroes = parse_heroes_html(fetch(settings.heroes_path))

@@ -8,7 +8,7 @@ This module handles parsing of player profile HTML including:
 """
 
 from http import HTTPStatus
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from app.config import settings
 from app.domain.exceptions import ParserBlizzardError, ParserParsingError
@@ -22,6 +22,14 @@ from app.domain.parsers.utils import (
 if TYPE_CHECKING:
     from selectolax.lexbor import LexborNode
 
+    from app.domain.models.player import (
+        BlizzardSearchPlayer,
+        CompetitiveRanksData,
+        PlatformCompetitiveRanksData,
+        PlayerEndorsementData,
+        PlayerProfileData,
+        PlayerProfileSummary,
+    )
     from app.domain.ports import BlizzardClientPort
 
 from app.domain.enums import (
@@ -120,8 +128,8 @@ def extract_name_from_profile_html(html: str) -> str | None:
 
 def parse_player_profile_html(
     html: str,
-    player_summary: dict | None = None,
-) -> dict:
+    player_summary: BlizzardSearchPlayer | None = None,
+) -> PlayerProfileData:
     """
     Parse player profile HTML into summary and stats
 
@@ -157,7 +165,9 @@ def parse_player_profile_html(
     }
 
 
-def _parse_summary(root_tag: LexborNode, player_summary: dict | None) -> dict:
+def _parse_summary(
+    root_tag: LexborNode, player_summary: BlizzardSearchPlayer | None
+) -> PlayerProfileSummary:
     """Parse player summary section (username, avatar, endorsement, ranks)"""
     player_summary = player_summary or {}
     error_msg_prefix = "Failed to parse player summary"
@@ -220,7 +230,7 @@ def _get_title(profile_div: LexborNode) -> str | None:
     return title_tag.text() or None
 
 
-def _get_endorsement(progression_div: LexborNode) -> dict | None:
+def _get_endorsement(progression_div: LexborNode) -> PlayerEndorsementData | None:
     """Extract endorsement level and frame"""
     endorsement_span = progression_div.css_first(
         "span.Profile-player--endorsementWrapper"
@@ -244,7 +254,7 @@ def _get_endorsement(progression_div: LexborNode) -> dict | None:
 def _get_competitive_ranks(
     root_tag: LexborNode,
     progression_div: LexborNode,
-) -> dict | None:
+) -> CompetitiveRanksData | None:
     """Extract competitive ranks for all platforms"""
     competitive_ranks = {
         platform.value: _get_platform_competitive_ranks(
@@ -256,14 +266,19 @@ def _get_competitive_ranks(
     }
 
     # If no data for any platform, return None
-    return None if not any(competitive_ranks.values()) else competitive_ranks
+    if not any(competitive_ranks.values()):
+        return None
+    # PLATFORMS_DIV_MAPPING has exactly the PC/console entries CompetitiveRanksData
+    # declares, but a dict comprehension is typed as dict[str, ...], not the
+    # TypedDict itself — the cast asserts what the mapping already guarantees.
+    return cast("CompetitiveRanksData", competitive_ranks)
 
 
 def _get_platform_competitive_ranks(
     root_tag: LexborNode,
     progression_div: LexborNode,
     platform_class: str,
-) -> dict | None:
+) -> PlatformCompetitiveRanksData | None:
     """Extract competitive ranks for a specific platform"""
     last_season_played = _get_last_season_played(root_tag, platform_class)
 
@@ -338,7 +353,10 @@ def _get_platform_competitive_ranks(
 
     competitive_ranks["season"] = last_season_played
 
-    return competitive_ranks
+    # Built incrementally by role key above rather than as one literal, so the
+    # cast asserts what the two loops just guaranteed: every CompetitiveRole
+    # plus "season" is set.
+    return cast("PlatformCompetitiveRanksData", competitive_ranks)
 
 
 def _get_last_season_played(root_tag: LexborNode, platform_class: str) -> int | None:

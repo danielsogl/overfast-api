@@ -4,7 +4,9 @@ This module provides simplified access to career stats extracted
 from the full player profile data.
 """
 
-from typing import TYPE_CHECKING
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from app.domain.parsers.player_profile import (
     filter_stats_by_query,
@@ -12,10 +14,15 @@ from app.domain.parsers.player_profile import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from app.domain.enums import PlayerGamemode, PlayerPlatform
+    from app.domain.models.player import BlizzardSearchPlayer, PlayerProfileData
 
 
-def extract_career_stats_from_profile(profile_data: dict) -> dict:
+def extract_career_stats_from_profile(
+    profile_data: Mapping[str, Any],
+) -> dict:
     """
     Extract career stats structure from full profile data
 
@@ -25,7 +32,13 @@ def extract_career_stats_from_profile(profile_data: dict) -> dict:
     Returns:
         Dict with "stats" key containing nested career stats structure
     """
-    if not profile_data or not profile_data.get("stats"):
+    # Typed loosely on purpose, unlike ``process_career_stats`` above it. The
+    # guard below exists to absorb a partial or empty profile, and declaring
+    # ``PlayerProfileData`` here would assert the very thing that guard does not
+    # trust — leaving it dead code that the tests could no longer reach.
+
+    platforms = profile_data.get("stats") if profile_data else None
+    if not platforms:
         return {}
 
     return {
@@ -52,14 +65,14 @@ def extract_career_stats_from_profile(profile_data: dict) -> dict:
                 for gamemode, gamemode_stats in platform_stats.items()
                 if gamemode_stats
             }
-            for platform, platform_stats in profile_data["stats"].items()
+            for platform, platform_stats in platforms.items()
             if platform_stats
         },
     }
 
 
 def process_career_stats(
-    profile_data: dict,
+    profile_data: PlayerProfileData,
     gamemode: PlayerGamemode | str,
     platform: PlayerPlatform | str | None = None,
     hero: str | None = None,
@@ -91,7 +104,7 @@ def process_career_stats(
 def parse_player_career_stats_from_html(
     html: str,
     gamemode: PlayerGamemode | str,
-    player_summary: dict | None = None,
+    player_summary: BlizzardSearchPlayer | None = None,
     platform: PlayerPlatform | str | None = None,
     hero: str | None = None,
 ) -> dict:

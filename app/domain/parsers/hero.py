@@ -2,7 +2,7 @@
 
 import re
 from http import HTTPStatus
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from app.config import settings
 from app.domain.parsers.utils import (
@@ -15,6 +15,19 @@ from app.domain.parsers.utils import (
 if TYPE_CHECKING:
     from selectolax.lexbor import LexborNode
 
+    from app.domain.models.hero import (
+        Ability,
+        AbilityFireMode,
+        AbilityVideo,
+        HeroBackground,
+        HeroDetail,
+        Media,
+        Perk,
+        PerksContainer,
+        StadiumPower,
+        Story,
+        StoryChapter,
+    )
     from app.domain.ports import BlizzardClientPort
 
 from app.domain.enums import Locale, MediaType
@@ -35,7 +48,7 @@ async def fetch_hero_html(
     return response.text
 
 
-def parse_hero_html(html: str, locale: Locale = Locale.ENGLISH_US) -> dict:
+def parse_hero_html(html: str, locale: Locale = Locale.ENGLISH_US) -> HeroDetail:
     """
     Parse single hero details from HTML
 
@@ -77,7 +90,12 @@ def parse_hero_html(html: str, locale: Locale = Locale.ENGLISH_US) -> dict:
         if not lore_section:
             logger.warning("Hero page has no lore section, reporting null story")
 
-        hero_data = {
+        # Built up as a plain dict — HeroDetail.portrait/hitpoints/stadium_powers
+        # are NotRequired, and `**`-merging + conditional assignment onto a
+        # TypedDict-annotated dict isn't something the checker follows key by
+        # key. cast() below documents the resulting shape without changing
+        # anything at runtime (a TypedDict *is* a plain dict).
+        hero_data: dict = {
             **_parse_hero_summary(overview_section, locale),
             "abilities": _parse_hero_abilities(abilities_section),
             "perks": _parse_hero_perks(perks_section) if perks_section else None,
@@ -93,7 +111,7 @@ def parse_hero_html(html: str, locale: Locale = Locale.ENGLISH_US) -> dict:
         msg = f"Unexpected Blizzard hero page structure: {error}"
         raise ParserParsingError(msg) from error
     else:
-        return hero_data
+        return cast("HeroDetail", hero_data)
 
 
 def _parse_hero_summary(overview_section: LexborNode, locale: Locale) -> dict:
@@ -110,14 +128,17 @@ def _parse_hero_summary(overview_section: LexborNode, locale: Locale) -> dict:
     subrole_icon_element = extra_list_items[1].css_first("blz-icon")
     subrole_icon_url = safe_get_attribute(subrole_icon_element, "src")
 
-    backgrounds = [
-        {
-            "url": img.attributes["src"],
-            "sizes": (img.attributes.get("bp") or "").split(),
-        }
-        for img in overview_section.css("blz-image[slot=background]")
-        if img.attributes.get("src")
-    ]
+    backgrounds: list[HeroBackground] = []
+    for img in overview_section.css("blz-image[slot=background]"):
+        src = img.attributes.get("src")
+        if not src:
+            continue
+        # str(...) rather than relying on the declared annotation: `x or ""`
+        # infers as `str | Literal[""]`, and .split() on that union yields
+        # `list[str] | list[LiteralString]` — not the same type as `list[str]`
+        # to the checker, even though every value in it is one at runtime.
+        bp = str(img.attributes.get("bp") or "")
+        backgrounds.append({"url": src, "sizes": bp.split()})
 
     return {
         "name": safe_get_text(header_section.css_first("h2")),
@@ -194,7 +215,9 @@ def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def parse_ability_description(description_node: LexborNode | None) -> tuple[str, list]:
+def parse_ability_description(
+    description_node: LexborNode | None,
+) -> tuple[str, list[AbilityFireMode]]:
     """Return ``(description, fire_modes)`` for one ability.
 
     ``fire_modes`` is empty for every ability Blizzard does not mark, which is
@@ -209,14 +232,14 @@ def parse_ability_description(description_node: LexborNode | None) -> tuple[str,
 
     # split() yields [before, mode, text, mode, text, ...]; a lone element means
     # no marker was present.
-    fire_modes = [
+    fire_modes: list[AbilityFireMode] = [
         {"mode": mode, "description": _clean(_TAG.sub(" ", text))}
         for mode, text in zip(parts[1::2], parts[2::2], strict=True)
     ]
     return description, [f for f in fire_modes if f["description"]]
 
 
-def _parse_hero_abilities(abilities_section: LexborNode) -> list[dict]:
+def _parse_hero_abilities(abilities_section: LexborNode) -> list[Ability]:
     """Parse hero abilities section"""
     carousel_section_div = abilities_section.css_first("blz-carousel-section")
     abilities_list_div = carousel_section_div.css_first("blz-carousel")
@@ -236,17 +259,18 @@ def _parse_hero_abilities(abilities_section: LexborNode) -> list[dict]:
     abilities_videos = _parse_ability_videos(carousel_section_div)
 
     # Combine into abilities list
-    abilities = []
+    abilities: list[Ability] = []
     tab_controls = abilities_list_div.css_first("blz-tab-controls").css(
         "blz-tab-control"
     )
     for ability_index, ability_div in enumerate(tab_controls):
         abilities.append(
             {
-                "name": safe_get_attribute(ability_div, "label"),
+                "name": safe_get_attribute(ability_div, "label") or "",
                 "description": abilities_desc[ability_index][0],
                 "fire_modes": abilities_desc[ability_index][1],
-                "icon": safe_get_attribute(ability_div.css_first("blz-image"), "src"),
+                "icon": safe_get_attribute(ability_div.css_first("blz-image"), "src")
+                or "",
                 # None rather than a neighbour's video. A missing video is
                 # visibly missing; a wrong one is indistinguishable from a right
                 # one, and the old positional index also raised IndexError
@@ -258,13 +282,13 @@ def _parse_hero_abilities(abilities_section: LexborNode) -> list[dict]:
     return abilities
 
 
-def _parse_ability_videos(carousel_section_div: LexborNode) -> dict[int, dict]:
+def _parse_ability_videos(carousel_section_div: LexborNode) -> dict[int, AbilityVideo]:
     """Map Blizzard's ``data-group`` ordinal to the video it belongs to.
 
     A video missing any of its three URLs is dropped: the response model types
     them as URLs, so a partial one fails validation for the whole hero.
     """
-    videos: dict[int, dict] = {}
+    videos: dict[int, AbilityVideo] = {}
 
     for video_div in carousel_section_div.css("blz-web-video"):
         group = safe_get_attribute(video_div, "data-group")
@@ -289,7 +313,7 @@ def _parse_ability_videos(carousel_section_div: LexborNode) -> dict[int, dict]:
     return videos
 
 
-def _parse_hero_perks(perks_section: LexborNode) -> dict:
+def _parse_hero_perks(perks_section: LexborNode) -> PerksContainer:
     """Parse hero perks section"""
     return {
         "minor": _parse_perk_level(perks_section.css_first("div.perk-category.minor")),
@@ -297,15 +321,15 @@ def _parse_hero_perks(perks_section: LexborNode) -> dict:
     }
 
 
-def _parse_perk_level(perk_level_div: LexborNode) -> list[dict]:
+def _parse_perk_level(perk_level_div: LexborNode) -> list[Perk]:
     return [
         _parse_perk_detail(perk_level_div.css_first("div.perk-details.left")),
         _parse_perk_detail(perk_level_div.css_first("div.perk-details.right")),
     ]
 
 
-def _parse_perk_detail(perk_detail_div: LexborNode) -> dict:
-    perk_icon = safe_get_attribute(perk_detail_div.css_first("img"), "src")
+def _parse_perk_detail(perk_detail_div: LexborNode) -> Perk:
+    perk_icon = safe_get_attribute(perk_detail_div.css_first("img"), "src") or ""
     perk_info_div = perk_detail_div.css_first("div.perk-info")
 
     return {
@@ -315,7 +339,7 @@ def _parse_perk_detail(perk_detail_div: LexborNode) -> dict:
     }
 
 
-def _parse_hero_story(lore_section: LexborNode) -> dict:
+def _parse_hero_story(lore_section: LexborNode) -> Story:
     """Parse hero story/lore section"""
     showcase_section = lore_section.css_first("blz-showcase")
 
@@ -331,7 +355,7 @@ def _parse_hero_story(lore_section: LexborNode) -> dict:
     }
 
 
-def _parse_hero_media(showcase_section: LexborNode) -> dict | None:
+def _parse_hero_media(showcase_section: LexborNode) -> Media | None:
     """Parse hero media (video, comic, or short story)"""
     # Check for YouTube video
     if video := showcase_section.css_first("blz-youtube-video"):
@@ -367,7 +391,7 @@ def _parse_hero_media(showcase_section: LexborNode) -> dict | None:
     return None
 
 
-def _parse_story_chapters(accordion: LexborNode) -> list[dict]:
+def _parse_story_chapters(accordion: LexborNode) -> list[StoryChapter]:
     """Parse hero story chapters from accordion"""
     # Parse chapter content
     chapters_content = [
@@ -379,7 +403,8 @@ def _parse_story_chapters(accordion: LexborNode) -> list[dict]:
 
     # Parse chapter pictures
     chapters_picture = [
-        safe_get_attribute(picture, "src") for picture in accordion.css("blz-image")
+        safe_get_attribute(picture, "src") or ""
+        for picture in accordion.css("blz-image")
     ]
 
     # Parse chapter titles
@@ -395,7 +420,7 @@ def _parse_story_chapters(accordion: LexborNode) -> list[dict]:
     ]
 
 
-def _parse_hero_stadium_powers(stadium_wrapper: LexborNode) -> list[dict]:
+def _parse_hero_stadium_powers(stadium_wrapper: LexborNode) -> list[StadiumPower]:
     stadium_carousel = stadium_wrapper.css_first(
         "blz-section#stadium blz-carousel-beta"
     )
@@ -404,7 +429,7 @@ def _parse_hero_stadium_powers(stadium_wrapper: LexborNode) -> list[dict]:
         {
             "name": power.css_first("p.talent-name").text(),
             "description": power.css_first("p.talent-desc").text(),
-            "icon": safe_get_attribute(power.css_first("img"), "src"),
+            "icon": safe_get_attribute(power.css_first("img"), "src") or "",
         }
         for power in stadium_carousel.css("blz-card.talent-card")
     ]

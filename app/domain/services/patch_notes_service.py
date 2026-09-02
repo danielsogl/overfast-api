@@ -9,6 +9,7 @@ from app.domain.parsers.patch_notes import (
     limit_patch_notes,
     parse_patch_notes_html,
 )
+from app.domain.services import SwrResult
 from app.domain.services.static_data_service import StaticDataService, StaticFetchConfig
 from app.domain.utils.helpers import build_hero_key_index
 from app.infrastructure.logger import logger
@@ -96,7 +97,7 @@ class PatchNotesService(StaticDataService):
         locale: Locale,
         cache_key: str,
         limit: int | None = None,
-    ) -> tuple[list[dict], bool, int]:
+    ) -> SwrResult[list[dict]]:
         """Return the patch notes list, newest first.
 
         Stores raw Blizzard HTML per locale so that parser changes take effect

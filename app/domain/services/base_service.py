@@ -13,7 +13,7 @@ staleness strategy (Blizzard ``lastUpdated`` comparison) and storage logic
 (``player_profiles`` table).
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from app.config import settings
 from app.infrastructure.logger import logger
@@ -25,6 +25,25 @@ if TYPE_CHECKING:
         StoragePort,
         TaskQueuePort,
     )
+
+
+class SwrResult[T](NamedTuple):
+    """What every SWR read hands back: the payload plus its freshness.
+
+    A NamedTuple rather than a dataclass on purpose. Twenty-three call sites in
+    the routers already unpack this positionally (`data, is_stale, age = ...`),
+    and a NamedTuple leaves every one of them working untouched while giving the
+    signatures names and giving `ty` something to check. A dataclass would have
+    bought the same names for a diff across every router.
+
+    ``age`` is seconds since the payload's data was stored, and it is what nginx
+    turns into the ``Age`` header; ``is_stale`` says a background refresh was
+    enqueued, not that the payload is unusable.
+    """
+
+    data: T
+    is_stale: bool
+    age: int
 
 
 class BaseService:

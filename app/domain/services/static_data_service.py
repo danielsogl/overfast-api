@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from app.config import settings
 from app.domain.parsers import PARSER_VERSION
 from app.domain.ports.storage import StaticDataCategory
-from app.domain.services import BaseService
+from app.domain.services import BaseService, SwrResult
 from app.infrastructure.logger import logger
 
 if TYPE_CHECKING:
@@ -44,7 +44,7 @@ class StaticDataService(BaseService):
     is reached; this service only ever *writes* to the API cache.
     """
 
-    async def get_or_fetch(self, config: StaticFetchConfig) -> tuple[Any, bool, int]:
+    async def get_or_fetch(self, config: StaticFetchConfig) -> SwrResult[Any]:
         """SWR orchestration for static data.
 
         Returns:
@@ -74,7 +74,7 @@ class StaticDataService(BaseService):
 
     async def _serve_from_storage(
         self, stored: dict[str, Any], config: StaticFetchConfig
-    ) -> tuple[Any, bool, int]:
+    ) -> SwrResult[Any]:
         """Serve data from a persistent storage hit, triggering a background refresh if stale.
 
         For Blizzard HTML sources, the stored ``parsed`` payload is used directly
@@ -129,7 +129,7 @@ class StaticDataService(BaseService):
                 staleness_threshold=config.staleness_threshold,
             )
 
-        return filtered, is_stale, age
+        return SwrResult(filtered, is_stale, age)
 
     async def _parse_stored(self, raw: str, config: StaticFetchConfig) -> Any:
         """Produce structured data from ``raw`` stored source.
@@ -233,13 +233,13 @@ class StaticDataService(BaseService):
 
         return filtered
 
-    async def _cold_fetch(self, config: StaticFetchConfig) -> tuple[Any, bool, int]:
+    async def _cold_fetch(self, config: StaticFetchConfig) -> SwrResult[Any]:
         """Fetch from source on cold start, persist to storage and Valkey."""
         logger.info(
             "[SWR] {} not in storage — fetching from source", config.entity_type
         )
         filtered = await self._fetch_and_store(config)
-        return filtered, False, 0
+        return SwrResult(filtered, False, 0)
 
     async def _store_in_storage(
         self,

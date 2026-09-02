@@ -1,5 +1,7 @@
 """Unit tests for player_career_stats parser module"""
 
+from typing import TYPE_CHECKING, cast
+
 from app.domain.enums import PlayerGamemode, PlayerPlatform
 from app.domain.parsers.player_career_stats import (
     extract_career_stats_from_profile,
@@ -7,6 +9,10 @@ from app.domain.parsers.player_career_stats import (
     process_career_stats,
 )
 from tests.helpers import read_html_file
+
+if TYPE_CHECKING:
+    from app.domain.models.player import PlayerProfileData
+
 
 # Use a real HTML fixture directly (avoids indirect parametrize complexity)
 _TEKROP_HTML = read_html_file("players/TeKrop-2217.html") or ""
@@ -22,24 +28,31 @@ _MINIMAL_CAREER_STATS = [
     }
 ]
 
-_PROFILE_WITH_STATS = {
-    "summary": {"username": "TeKrop"},
-    "stats": {
-        PlayerPlatform.PC.value: {
-            PlayerGamemode.QUICKPLAY.value: {
-                "heroes_comparisons": {},
-                "career_stats": {"tracer": _MINIMAL_CAREER_STATS},
+# Cast rather than completed: these stand in for a parsed profile, and the
+# functions under test read only "stats". Filling in the seven summary keys
+# PlayerProfileData declares would add noise to every fixture and assert
+# nothing — the shape of the summary is covered by the summary parser's own
+# tests.
+_PROFILE_WITH_STATS = cast(
+    "PlayerProfileData",
+    {
+        "summary": {"username": "TeKrop"},
+        "stats": {
+            PlayerPlatform.PC.value: {
+                PlayerGamemode.QUICKPLAY.value: {
+                    "heroes_comparisons": {},
+                    "career_stats": {"tracer": _MINIMAL_CAREER_STATS},
+                },
+                PlayerGamemode.COMPETITIVE.value: None,
             },
-            PlayerGamemode.COMPETITIVE.value: None,
+            PlayerPlatform.CONSOLE.value: None,
         },
-        PlayerPlatform.CONSOLE.value: None,
     },
-}
+)
 
-_PROFILE_NO_STATS = {
-    "summary": {"username": "TeKrop"},
-    "stats": None,
-}
+_PROFILE_NO_STATS = cast(
+    "PlayerProfileData", {"summary": {"username": "TeKrop"}, "stats": None}
+)
 
 
 class TestExtractCareerStatsFromProfile:
@@ -92,7 +105,9 @@ class TestExtractCareerStatsFromProfile:
 class TestProcessCareerStats:
     def test_empty_profile_returns_empty(self):
         """process_career_stats with empty profile returns {}."""
-        result = process_career_stats({}, gamemode=PlayerGamemode.QUICKPLAY)
+        result = process_career_stats(
+            cast("PlayerProfileData", {}), gamemode=PlayerGamemode.QUICKPLAY
+        )
 
         assert result == {}
 

@@ -1,6 +1,6 @@
 """Stateless parser for player summary data from Blizzard search endpoint"""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from app.config import settings
 from app.domain.exceptions import ParserParsingError
@@ -12,6 +12,7 @@ from app.domain.parsers.utils import (
 from app.infrastructure.logger import logger
 
 if TYPE_CHECKING:
+    from app.domain.models.player import BlizzardSearchPlayer
     from app.domain.ports import BlizzardClientPort
 
 
@@ -39,7 +40,7 @@ async def fetch_player_summary_json(
 
 def parse_player_summary_json(
     json_data: list[dict], player_id: str, blizzard_id: str | None = None
-) -> dict:
+) -> BlizzardSearchPlayer:
     """
     Parse player summary from search endpoint JSON
 
@@ -108,4 +109,7 @@ def parse_player_summary_json(
         msg = f"Unexpected Blizzard search payload structure: {error}"
         raise ParserParsingError(msg) from error
     else:
-        return player_data
+        # player_data comes from raw Blizzard JSON (list[dict]) — trusted at
+        # this boundary the same way the rest of this module already treats
+        # Blizzard's payload as authoritative.
+        return cast("BlizzardSearchPlayer", player_data)

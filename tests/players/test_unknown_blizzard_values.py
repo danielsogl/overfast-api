@@ -65,12 +65,26 @@ class TestUnreadableStatValues:
         assert result == expected
 
 
+def _pc_quickplay(html: str) -> dict:
+    """Parse the fixture and return its PC/quickplay stats block.
+
+    The `stats` key is `None` for a profile Blizzard exposes no data for, so
+    reaching into it unguarded would turn a fixture regression into an
+    AttributeError rather than a failed assertion — and worse, a fixture that
+    silently lost its stats would make every test below pass over an empty list.
+    """
+    profile = parse_player_profile_html(html)
+    stats = profile["stats"]
+    assert stats is not None, "fixture parsed to a profile with no stats at all"
+
+    return stats["pc"]["quickplay"]
+
+
 class TestProfileSurvivesUnknownValues:
     """End to end: the parser output must stay model-clean."""
 
     def test_every_comparison_hero_is_a_known_key(self):
-        profile = parse_player_profile_html(_HTML)
-        comparisons = profile["stats"]["pc"]["quickplay"]["heroes_comparisons"]
+        comparisons = _pc_quickplay(_HTML)["heroes_comparisons"]
         heroes = [
             row["hero"]
             for category in comparisons.values()
@@ -82,8 +96,7 @@ class TestProfileSurvivesUnknownValues:
         assert all(h in HeroKey for h in heroes)
 
     def test_every_comparison_value_is_numeric(self):
-        profile = parse_player_profile_html(_HTML)
-        comparisons = profile["stats"]["pc"]["quickplay"]["heroes_comparisons"]
+        comparisons = _pc_quickplay(_HTML)["heroes_comparisons"]
         values = [
             row["value"]
             for category in comparisons.values()
@@ -97,16 +110,14 @@ class TestProfileSurvivesUnknownValues:
         )
 
     def test_every_career_category_is_a_known_category(self):
-        profile = parse_player_profile_html(_HTML)
-        career = profile["stats"]["pc"]["quickplay"]["career_stats"]
+        career = _pc_quickplay(_HTML)["career_stats"]
         categories = [c["category"] for hero in career.values() for c in hero]
 
         assert categories
         assert all(c in CareerStatCategory for c in categories)
 
     def test_every_career_stat_value_is_numeric(self):
-        profile = parse_player_profile_html(_HTML)
-        career = profile["stats"]["pc"]["quickplay"]["career_stats"]
+        career = _pc_quickplay(_HTML)["career_stats"]
         values = [
             stat["value"]
             for hero in career.values()

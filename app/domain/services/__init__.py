@@ -1,6 +1,6 @@
 """Domain services — SWR orchestration layer"""
 
-from .base_service import BaseService
+from .base_service import BaseService, SwrResult
 from .gamemode_service import GamemodeService
 from .hero_service import HeroService
 from .map_service import MapService
@@ -16,4 +16,5 @@ __all__ = [
     "PatchNotesService",
     "PlayerService",
     "RoleService",
+    "SwrResult",
 ]

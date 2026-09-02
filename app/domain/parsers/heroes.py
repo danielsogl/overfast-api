@@ -14,6 +14,7 @@ from app.domain.parsers.utils import (
 from app.infrastructure.logger import logger
 
 if TYPE_CHECKING:
+    from app.domain.models.hero import HeroListEntry
     from app.domain.ports import BlizzardClientPort
 
 
@@ -34,7 +35,7 @@ async def fetch_heroes_html(
     return response.text
 
 
-def parse_heroes_html(html: str) -> list[dict]:
+def parse_heroes_html(html: str) -> list[HeroListEntry]:
     """
     Parse heroes list HTML into structured data
 
@@ -50,7 +51,7 @@ def parse_heroes_html(html: str) -> list[dict]:
     try:
         root_tag = parse_html_root(html)
 
-        heroes = []
+        heroes: list[HeroListEntry] = []
         for hero_element in root_tag.css("div.heroIndexWrapper blz-media-gallery a"):
             hero_url = safe_get_attribute(hero_element, "href")
             if not hero_url:
@@ -60,7 +61,11 @@ def parse_heroes_html(html: str) -> list[dict]:
             name_element = hero_element.css_first("blz-card blz-content-block h2")
             portrait_element = hero_element.css_first("blz-card blz-image")
 
-            gamemodes = [HeroGamemode.QUICKPLAY]
+            # See app/domain/models/hero.py's module docstring: these are real
+            # HeroGamemode instances now, but come back as plain str once
+            # round-tripped through JSONB storage — the field type on
+            # HeroListEntry accounts for both.
+            gamemodes: list[HeroGamemode | str] = [HeroGamemode.QUICKPLAY]
             if hero_element.css_matches("blz-card blz-badge.stadium-badge"):
                 gamemodes.append(HeroGamemode.STADIUM)
 
@@ -85,9 +90,9 @@ def parse_heroes_html(html: str) -> list[dict]:
                 {
                     "key": hero_key,
                     "name": safe_get_text(name_element),
-                    "portrait": safe_get_attribute(portrait_element, "src"),
-                    "role": safe_get_attribute(hero_element, "data-role"),
-                    "subrole": safe_get_attribute(hero_element, "data-subrole"),
+                    "portrait": safe_get_attribute(portrait_element, "src") or "",
+                    "role": safe_get_attribute(hero_element, "data-role") or "",
+                    "subrole": safe_get_attribute(hero_element, "data-subrole") or "",
                     "gamemodes": gamemodes,
                     # Blizzard's own "new hero" marker, which it drops again a
                     # season or two after release. Absent on every other card.
@@ -103,8 +108,8 @@ def parse_heroes_html(html: str) -> list[dict]:
 
 
 def filter_heroes(
-    heroes: list[dict], role: str | None, gamemode: HeroGamemode | None
-) -> list[dict]:
+    heroes: list[HeroListEntry], role: str | None, gamemode: HeroGamemode | None
+) -> list[HeroListEntry]:
     """Filter heroes list by role and gamemode"""
     if role:
         heroes = [

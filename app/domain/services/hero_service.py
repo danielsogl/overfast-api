@@ -2,7 +2,7 @@
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from app.config import settings
 from app.domain.enums import (
@@ -17,6 +17,7 @@ from app.domain.exceptions import (
     ParserInternalError,
     ParserParsingError,
 )
+from app.domain.models.hero import HeroDetail, HeroListEntry
 from app.domain.parsers.hero import fetch_hero_html, parse_hero_html
 from app.domain.parsers.hero_stats_summary import (
     build_hero_stats_snapshot,
@@ -28,6 +29,7 @@ from app.domain.parsers.heroes import (
     parse_heroes_html,
 )
 from app.domain.parsers.heroes_hitpoints import parse_heroes_hitpoints
+from app.domain.services import SwrResult
 from app.domain.services.static_data_service import StaticDataService, StaticFetchConfig
 from app.infrastructure.logger import logger
 
@@ -77,7 +79,7 @@ class HeroService(StaticDataService):
         async def _fetch() -> str:
             return await fetch_heroes_html(self.blizzard_client, locale)
 
-        def _parse(html: str) -> list[dict]:
+        def _parse(html: str) -> list[HeroListEntry]:
             try:
                 return parse_heroes_html(html)
             except ParserParsingError as exc:
@@ -107,7 +109,7 @@ class HeroService(StaticDataService):
         role: Role | SubRole | None,
         gamemode: HeroGamemode | None,
         cache_key: str,
-    ) -> tuple[list[dict], bool, int]:
+    ) -> SwrResult[list[HeroListEntry]]:
         """Return the heroes list (with optional role/gamemode filters).
 
         Stores raw Blizzard HTML per locale in persistent storage so that
@@ -151,7 +153,7 @@ class HeroService(StaticDataService):
                 separators=(",", ":"),
             )
 
-        def _parse(raw: str) -> dict:
+        def _parse(raw: str) -> HeroDetail:
             sources = json.loads(raw)
             try:
                 hero_data = parse_hero_html(sources["hero_html"], locale)
@@ -179,7 +181,7 @@ class HeroService(StaticDataService):
         hero_key: str,
         locale: Locale,
         cache_key: str,
-    ) -> tuple[dict, bool, int]:
+    ) -> SwrResult[HeroDetail]:
         """Return full hero details merged with portrait and hitpoints.
 
         Stores a JSON-encoded dict of raw HTML sources per ``hero_key:locale``
@@ -220,7 +222,7 @@ class HeroService(StaticDataService):
         competitive_division: CompetitiveDivisionFilter | None,
         order_by: str,
         cache_key: str,
-    ) -> tuple[list[dict], bool, int]:
+    ) -> SwrResult[list[dict]]:
         """Return hero usage statistics — Valkey-only cache, no persistent storage.
 
         Stats change frequently and have too many parameter combinations to
@@ -241,7 +243,7 @@ class HeroService(StaticDataService):
             data,
             settings.hero_stats_cache_timeout,
         )
-        return data, False, 0
+        return SwrResult(data, False, 0)
 
     async def _fetch_hero_stats(
         self,
@@ -335,7 +337,7 @@ class HeroService(StaticDataService):
         hero: str | None = None,
         since: int | None = None,
         limit: int = 30,
-    ) -> tuple[dict, bool, int]:
+    ) -> SwrResult[dict]:
         """Return the recorded hero stats series for one region, newest first.
 
         Only the canonical slice exists in storage, so platform and gamemode are
@@ -369,7 +371,7 @@ class HeroService(StaticDataService):
             data,
             settings.hero_stats_cache_timeout,
         )
-        return data, False, 0
+        return SwrResult(data, False, 0)
 
     async def _get_hero_stats_gamemode_filters(
         self, gamemode: PlayerGamemode
@@ -441,12 +443,18 @@ class HeroService(StaticDataService):
 
 
 def _merge_hero_data(
-    hero_data: dict,
-    heroes_list: list[dict],
+    hero_data: HeroDetail,
+    heroes_list: list[HeroListEntry],
     heroes_hitpoints: dict,
     hero_key: str,
-) -> dict:
+) -> HeroDetail:
     """Merge data from hero details, heroes list, and heroes hitpoints."""
+    # dict_insert_value_before_key works positionally on any dict and returns
+    # a plain dict — a TypedDict is a plain dict at runtime, so `working`
+    # carries the same object/shape as hero_data throughout, just without a
+    # key-by-key-checked type. cast() below is a pure typing shim (see
+    # app/domain/models/hero.py for why portrait/hitpoints are NotRequired).
+    working: dict = cast("dict", hero_data)
     try:
         portrait_value = next(
             hero["portrait"] for hero in heroes_list if hero["key"] == hero_key
@@ -454,8 +462,8 @@ def _merge_hero_data(
     except StopIteration:
         portrait_value = None
     else:
-        hero_data = dict_insert_value_before_key(
-            hero_data, "role", "portrait", portrait_value
+        working = dict_insert_value_before_key(
+            working, "role", "portrait", portrait_value
         )
 
     try:
@@ -463,11 +471,11 @@ def _merge_hero_data(
     except KeyError:
         hitpoints = None
     else:
-        hero_data = dict_insert_value_before_key(
-            hero_data, "abilities", "hitpoints", hitpoints
+        working = dict_insert_value_before_key(
+            working, "abilities", "hitpoints", hitpoints
         )
 
-    return hero_data
+    return cast("HeroDetail", working)
 
 
 def dict_insert_value_before_key(

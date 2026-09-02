@@ -1,9 +1,15 @@
 """Domain helper utilities"""
 
+from __future__ import annotations
+
 import unicodedata
 from functools import cache
+from typing import TYPE_CHECKING, Any
 
 from app.domain.utils.csv_reader import read_csv_file
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
 
 
 @cache
@@ -55,7 +61,7 @@ def normalize_hero_name(hero_name: str) -> str:
     return " ".join(unaccented.casefold().split())
 
 
-def build_hero_key_index(heroes: list[dict]) -> dict[str, str]:
+def build_hero_key_index(heroes: Sequence[Mapping[str, Any]]) -> dict[str, str]:
     """Build a normalised display-name → hero key index from a heroes list.
 
     The heroes list is Blizzard's own, scraped per locale, so the index resolves

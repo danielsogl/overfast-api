@@ -18,7 +18,11 @@ from app.domain.exceptions import (
     ParserInternalError,
     ParserParsingError,
 )
-from app.domain.models.player import PlayerIdentity
+from app.domain.models.player import (
+    BlizzardSearchPlayer,
+    PlayerIdentity,
+    PlayerProfileData,
+)
 from app.domain.parsers import PARSER_VERSION
 from app.domain.parsers.player_career_stats import process_career_stats
 from app.domain.parsers.player_profile import (
@@ -39,7 +43,7 @@ from app.domain.parsers.player_summary import (
     parse_player_summary_json,
 )
 from app.domain.parsers.utils import is_blizzard_id
-from app.domain.services.base_service import BaseService
+from app.domain.services.base_service import BaseService, SwrResult
 from app.infrastructure.logger import logger
 
 # Parsing one stored profile costs 10-20ms of blocking CPU (roughly half lexbor
@@ -63,7 +67,7 @@ from app.infrastructure.logger import logger
 # ponytail: process-local OrderedDict, not Valkey. There is one app process and
 # no `await` in the lookup, so it needs no lock. Move it to Valkey only if the
 # app is ever scaled past one process AND the hit rate proves worth a round-trip.
-_PARSED_PROFILE_CACHE: OrderedDict[tuple[str, int], dict] = OrderedDict()
+_PARSED_PROFILE_CACHE: OrderedDict[tuple[str, int], PlayerProfileData] = OrderedDict()
 _PARSED_PROFILE_CACHE_MAXSIZE = 16
 
 
@@ -71,8 +75,8 @@ def parse_stored_profile(
     player_id: str,
     updated_at: int,
     html: str,
-    player_summary: dict,
-) -> dict:
+    player_summary: BlizzardSearchPlayer,
+) -> PlayerProfileData:
     """Parse a stored profile needing a reparse, memoising the result.
 
     Only reached when the stored row has no usable ``parsed`` payload (see
@@ -194,11 +198,14 @@ class PlayerService(BaseService):
         self,
         player_id: str,
         cache_key: str,
-    ) -> tuple[dict, bool, int]:
+    ) -> SwrResult[dict]:
         """Return player summary (name, avatar, competitive ranks, …)."""
 
-        def extract(profile: dict) -> dict:
-            return profile.get("summary") or {}
+        def extract(profile: PlayerProfileData) -> dict:
+            # profile["summary"] is a PlayerProfileSummary, a TypedDict — the
+            # response layer takes it as a plain dict, same as every other
+            # extract() below.
+            return cast("dict", profile.get("summary") or {})
 
         return await self._execute_player_request(player_id, cache_key, extract)
 
@@ -212,10 +219,10 @@ class PlayerService(BaseService):
         gamemode: PlayerGamemode | None,
         platform: PlayerPlatform | None,
         cache_key: str,
-    ) -> tuple[dict, bool, int]:
+    ) -> SwrResult[dict]:
         """Return full player data: summary + stats."""
 
-        def extract(profile: dict) -> dict:
+        def extract(profile: PlayerProfileData) -> dict:
             return {
                 "summary": profile.get("summary") or {},
                 "stats": filter_all_stats_data(
@@ -351,10 +358,10 @@ class PlayerService(BaseService):
         platform: PlayerPlatform | None,
         hero: HeroKeyCareerFilter | None,
         cache_key: str,
-    ) -> tuple[dict, bool, int]:
+    ) -> SwrResult[dict]:
         """Return player stats with category labels."""
 
-        def extract(profile: dict) -> dict:
+        def extract(profile: PlayerProfileData) -> dict:
             return filter_stats_by_query(
                 profile.get("stats") or {}, gamemode, platform, hero
             )
@@ -371,10 +378,12 @@ class PlayerService(BaseService):
         gamemode: PlayerGamemode | None,
         platform: PlayerPlatform | None,
         cache_key: str,
-    ) -> tuple[dict, bool, int]:
+    ) -> SwrResult[dict]:
         """Return player statistics summary (winrate, kda, …)."""
 
-        def extract(profile: dict) -> dict:
+        def extract(profile: PlayerProfileData) -> dict:
+            # process_player_stats_summary is owned by another module and
+            # takes a bare dict — PlayerProfileData is one at runtime.
             return process_player_stats_summary(profile, gamemode, platform)
 
         return await self._execute_player_request(player_id, cache_key, extract)
@@ -390,10 +399,12 @@ class PlayerService(BaseService):
         platform: PlayerPlatform | None,
         hero: HeroKeyCareerFilter | None,
         cache_key: str,
-    ) -> tuple[dict, bool, int]:
+    ) -> SwrResult[dict]:
         """Return player career stats (no labels)."""
 
-        def extract(profile: dict) -> dict:
+        def extract(profile: PlayerProfileData) -> dict:
+            # process_career_stats is owned by another module and takes a
+            # bare dict — PlayerProfileData is one at runtime.
             return process_career_stats(profile, gamemode, platform, hero)
 
         return await self._execute_player_request(player_id, cache_key, extract)
@@ -408,7 +419,7 @@ class PlayerService(BaseService):
         cache_key: str,
         since: int | None = None,
         limit: int = 100,
-    ) -> tuple[dict, bool, int]:
+    ) -> SwrResult[dict]:
         """Return the player's stored snapshot series, newest first.
 
         The live profile is requested first so that "now" is always the head of
@@ -424,7 +435,7 @@ class PlayerService(BaseService):
         await self._update_api_cache(
             cache_key, data, settings.career_path_cache_timeout
         )
-        return data, is_stale, age
+        return SwrResult(data, is_stale, age)
 
     # ------------------------------------------------------------------
     # Snapshot diff  (GET /players/{player_id}/stats/diff)
@@ -435,7 +446,7 @@ class PlayerService(BaseService):
         player_id: str,
         cache_key: str,
         since: int | None = None,
-    ) -> tuple[dict, bool, int]:
+    ) -> SwrResult[dict]:
         """Compare the oldest snapshot at/after *since* against the newest.
 
         ``since`` defaults to 24 hours ago. A player with no history yet gets an
@@ -455,7 +466,7 @@ class PlayerService(BaseService):
         await self._update_api_cache(
             cache_key, data, settings.career_path_cache_timeout
         )
-        return data, is_stale, age
+        return SwrResult(data, is_stale, age)
 
     async def _warm_player_profile(self, player_id: str) -> tuple[bool, int]:
         """Run the normal player request for its side effects only.
@@ -481,13 +492,15 @@ class PlayerService(BaseService):
             return player_id
         return await self.storage.get_player_id_by_battletag(player_id) or player_id
 
-    async def _store_snapshot(self, player_id: str, parsed: dict) -> None:
+    async def _store_snapshot(self, player_id: str, parsed: PlayerProfileData) -> None:
         """Record one point of the player's history, if it is a new version.
 
         Never raises. History is a by-product of serving a profile we fetched
         anyway; a storage hiccup must cost the row, not the response.
         """
         try:
+            # build_player_snapshot is owned by another module and takes a
+            # bare dict — PlayerProfileData is one at runtime.
             snapshot = build_player_snapshot(parsed)
             if snapshot is None:
                 return
@@ -517,8 +530,8 @@ class PlayerService(BaseService):
         self,
         player_id: str,
         cache_key: str | None,
-        data_factory: Callable[[dict], dict],
-    ) -> tuple[dict, bool, int]:
+        data_factory: Callable[[PlayerProfileData], dict],
+    ) -> SwrResult[dict]:
         """Resolve identity → get HTML → parse → compute data → update cache → return.
 
         Fast path: if persistent storage has a profile fresher than
@@ -599,13 +612,13 @@ class PlayerService(BaseService):
             )
         if is_stale:
             await self._enqueue_refresh("player_profile", player_id)
-        return data, is_stale, age
+        return SwrResult(data, is_stale, age)
 
     # ------------------------------------------------------------------
     # Profile caching helpers
     # ------------------------------------------------------------------
 
-    async def _parse_stored(self, profile: dict) -> dict:
+    async def _parse_stored(self, profile: dict) -> PlayerProfileData:
         """Use the row's stored parse when current, else parse once and write it back.
 
         A storage hit whose ``parsed`` payload is already stamped with the
@@ -634,7 +647,9 @@ class PlayerService(BaseService):
         await self._write_back_parsed(profile["player_id"], parsed)
         return parsed
 
-    async def _write_back_parsed(self, player_id: str, parsed: dict) -> None:
+    async def _write_back_parsed(
+        self, player_id: str, parsed: PlayerProfileData
+    ) -> None:
         """Persist a freshly-parsed profile so the next read needs no parse.
 
         Never raises: this is a caching optimisation riding along with a
@@ -642,8 +657,10 @@ class PlayerService(BaseService):
         storage hiccup here must not fail either one.
         """
         try:
+            # StoragePort.set_player_profile_parsed takes a bare dict —
+            # PlayerProfileData is one at runtime.
             await self.storage.set_player_profile_parsed(
-                player_id, parsed, data_version=PARSER_VERSION
+                player_id, cast("dict", parsed), data_version=PARSER_VERSION
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
@@ -672,7 +689,7 @@ class PlayerService(BaseService):
     async def update_player_profile_cache(
         self,
         player_id: str,
-        player_summary: dict,
+        player_summary: BlizzardSearchPlayer,
         html: str,
         battletag: str | None = None,
         name: str | None = None,
@@ -681,7 +698,9 @@ class PlayerService(BaseService):
         await self.storage.set_player_profile(
             player_id=player_id,
             html=html,
-            summary=player_summary or None,
+            # StoragePort takes a bare dict — BlizzardSearchPlayer is one at
+            # runtime.
+            summary=cast("dict", player_summary) or None,
             battletag=battletag,
             name=name,
         )
@@ -906,7 +925,7 @@ class PlayerService(BaseService):
 
     async def _enrich_from_blizzard_id(
         self, blizzard_id: str
-    ) -> tuple[dict, str | None]:
+    ) -> tuple[BlizzardSearchPlayer, str | None]:
         """Reverse-enrich: fetch HTML → extract name → search for summary."""
         html, _ = await fetch_player_html(self.blizzard_client, blizzard_id)
         if not html:

@@ -2,6 +2,7 @@
 
 from app.config import settings
 from app.domain.parsers.maps import parse_maps_csv
+from app.domain.services import SwrResult
 from app.domain.services.static_data_service import StaticDataService, StaticFetchConfig
 
 
@@ -36,7 +37,7 @@ class MapService(StaticDataService):
         self,
         gamemode: str | None,
         cache_key: str,
-    ) -> tuple[list[dict], bool, int]:
+    ) -> SwrResult[list[dict]]:
         """Return the maps list (with optional gamemode filter).
 
         Stores the full (unfiltered) maps list in persistent storage.

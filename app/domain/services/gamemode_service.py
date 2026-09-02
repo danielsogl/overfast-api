@@ -2,6 +2,7 @@
 
 from app.config import settings
 from app.domain.parsers.gamemodes import parse_gamemodes_csv
+from app.domain.services import SwrResult
 from app.domain.services.static_data_service import StaticDataService, StaticFetchConfig
 
 
@@ -26,7 +27,7 @@ class GamemodeService(StaticDataService):
     async def list_gamemodes(
         self,
         cache_key: str,
-    ) -> tuple[list[dict], bool, int]:
+    ) -> SwrResult[list[dict]]:
         """Return the gamemodes list."""
         return await self.get_or_fetch(self._gamemodes_config(cache_key))
 

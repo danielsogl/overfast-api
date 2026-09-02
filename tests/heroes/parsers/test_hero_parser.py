@@ -160,7 +160,11 @@ class TestAbilityVideoPairing:
     @pytest.mark.parametrize("hero_html_data", ["ana"], indirect=True)
     def test_every_ability_keeps_its_own_video(self, hero_html_data: str):
         hero = parse_hero_html(hero_html_data, Locale.ENGLISH_US)
-        videos = [a["video"]["link"]["mp4"] for a in hero["abilities"]]
+        videos = []
+        for ability in hero["abilities"]:
+            video = ability["video"]
+            assert video is not None, "every ability in the ana fixture has a video"
+            videos.append(video["link"]["mp4"])
 
         assert len(videos) == len(set(videos)), "an ability reused another's video"
 

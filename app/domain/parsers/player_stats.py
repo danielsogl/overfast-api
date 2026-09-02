@@ -6,9 +6,11 @@ This module computes aggregated player statistics with:
 - General stats (overall aggregation)
 """
 
+from __future__ import annotations
+
 from collections import defaultdict
 from copy import deepcopy
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.domain.enums import HeroKey, PlayerGamemode, PlayerPlatform, Role
 from app.domain.parsers.player_helpers import (
@@ -17,6 +19,10 @@ from app.domain.parsers.player_helpers import (
 )
 from app.domain.parsers.player_profile import parse_player_profile_html
 from app.infrastructure.logger import logger
+
+if TYPE_CHECKING:
+    from app.domain.models.player import BlizzardSearchPlayer, PlayerProfileData
+
 
 # Stat names for aggregation
 GENERIC_STATS_NAMES = [
@@ -337,7 +343,7 @@ def _calculate_averages(stat: dict) -> dict:
 
 
 def process_player_stats_summary(
-    profile_data: dict,
+    profile_data: PlayerProfileData,
     gamemode: PlayerGamemode | None = None,
     platform: PlayerPlatform | None = None,
 ) -> dict:
@@ -377,7 +383,7 @@ def process_player_stats_summary(
 
 def parse_player_stats_summary_from_html(
     html: str,
-    player_summary: dict | None = None,
+    player_summary: BlizzardSearchPlayer | None = None,
     gamemode: PlayerGamemode | None = None,
     platform: PlayerPlatform | None = None,
 ) -> dict:

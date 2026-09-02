@@ -1,5 +1,7 @@
 """Tests for the player snapshot payload builder and the snapshot diff"""
 
+from typing import TYPE_CHECKING, cast
+
 import pytest
 
 from app.domain.parsers.player_profile import parse_player_profile_html
@@ -9,19 +11,34 @@ from app.domain.parsers.player_snapshot import (
 )
 from tests.helpers import players_ids, read_html_file
 
+if TYPE_CHECKING:
+    from app.domain.models.player import PlayerProfileData
+
 
 def _snapshot(taken_at: int, data: dict) -> dict:
     return {"taken_at": taken_at, "last_updated_blizzard": taken_at - 10, "data": data}
 
 
-def _profile(competitive: dict | None = None, stats: dict | None = None) -> dict:
-    return {
-        "summary": {
-            "endorsement": {"level": 3, "frame": "https://example.com/3.svg"},
-            "competitive": competitive,
+def _profile(
+    competitive: dict | None = None, stats: dict | None = None
+) -> PlayerProfileData:
+    """A minimal stand-in for a parsed profile.
+
+    Cast rather than completed: ``build_player_snapshot`` reads only the
+    endorsement, the competitive ranks and the stats, so filling in the rest of
+    the seven summary keys would add noise to every case here and assert
+    nothing the summary parser's own tests do not already cover.
+    """
+    return cast(
+        "PlayerProfileData",
+        {
+            "summary": {
+                "endorsement": {"level": 3, "frame": "https://example.com/3.svg"},
+                "competitive": competitive,
+            },
+            "stats": stats,
         },
-        "stats": stats,
-    }
+    )
 
 
 _PC_QUICKPLAY_STATS = {
@@ -73,7 +90,7 @@ class TestBuildPlayerSnapshot:
         assert result is None
 
     def test_returns_none_when_summary_and_stats_are_absent(self):
-        result = build_player_snapshot({})
+        result = build_player_snapshot(cast("PlayerProfileData", {}))
 
         assert result is None
 
