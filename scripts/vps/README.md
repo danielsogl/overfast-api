@@ -37,6 +37,50 @@ crontab -l 2>/dev/null | { cat; cat <<'CRON'; } | crontab -
 CRON
 ```
 
+## Git access: why the repo is fetched over SSH
+
+`origin` on the host is `git@github.com:...`, not the HTTPS URL you would get
+from a plain `git clone`. That is deliberate.
+
+On 2026-09-02 a deploy failed at its very first step:
+
+```
+[12:13:19] Fetching latest changes...
+fatal: could not read Username for 'https://github.com': No such device or address
+```
+
+The repo is public and the URL was correct. GitHub was answering *anonymous*
+git-over-HTTPS from this datacenter IP with `401 www-authenticate: Basic
+realm="GitHub"` — for every repository, `git/git` included, while plain `curl`
+to the same endpoint still returned 200. It cleared on its own within the hour,
+which is the problem: it is throttling, it is invisible until a deploy dies, and
+it will come back.
+
+Authenticated access is not subject to that throttle, so the host uses a
+**read-only deploy key**:
+
+```bash
+ssh-keygen -t ed25519 -N "" -C "overfast-api-prod deploy (read-only)" \
+    -f /root/.ssh/id_ed25519_overfast_deploy
+ssh-keyscan -t ed25519 github.com >> /root/.ssh/known_hosts
+# verify against GitHub's published fingerprint before trusting it:
+#   SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU
+gh repo deploy-key add /root/.ssh/id_ed25519_overfast_deploy.pub \
+    -R danielsogl/overfast-api -t "overfast-api-prod (read-only)"
+git -C /opt/overfast-api remote set-url origin git@github.com:danielsogl/overfast-api.git
+```
+
+`/root/.ssh/config` pins that key to `github.com` with `IdentitiesOnly yes`, so
+ssh does not offer anything else first.
+
+Read-only is not a formality — the host never pushes, and a key that cannot
+write is one that cannot rewrite history if the machine is compromised. Verify
+it stayed that way with `git push --dry-run`, which must be rejected.
+
+`upstream` stays on HTTPS. A deploy key is scoped to one repository, so it
+cannot reach TeKrop's, and nothing automated fetches upstream anyway — it is
+there for manual cherry-picks.
+
 ## Health check: alerting
 
 `healthcheck.sh` detects an unreachable API or an unhealthy container, logs it,
