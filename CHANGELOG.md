@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v4.17.1 (2026-09-02)
+
+### Documentation
+
+- **config**: Document the batch summaries timeout in .env.dist
+  ([`2ad2caa`](https://github.com/danielsogl/overfast-api/commit/2ad2caa5761120f54519a8dc41e97336de897324))
+
+### Performance Improvements
+
+- **players**: Serve a stale profile instead of blocking on Blizzard
+  ([`9809801`](https://github.com/danielsogl/overfast-api/commit/98098015c54b956f6d26394f1c3c956444e11b77))
+
+
 ## v4.17.0 (2026-09-02)
 
 ### Bug Fixes
