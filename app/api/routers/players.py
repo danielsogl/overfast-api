@@ -1,6 +1,7 @@
 """Players endpoints router : players search, players career, statistics, etc."""
 
 import asyncio
+import functools
 from typing import Annotated, Any
 from urllib.parse import quote
 
@@ -49,6 +50,46 @@ from app.infrastructure.logger import logger
 # round-trips on a cold profile, so an unbounded list would let one client
 # monopolise the throttle for everyone.
 MAX_BATCH_SUMMARIES = 20
+
+# ponytail: module constant instead of a Settings field — this router doesn't
+# own app/config.py (a parallel change is touching PlayerService). Move this to
+# Settings as `batch_summaries_timeout` when that lands.
+#
+# Every id is serialised through the global adaptive throttle in
+# app/adapters/blizzard/throttle.py, so a fully cold MAX_BATCH_SUMMARIES-sized
+# batch costs up to 2 round-trips per id, each paced by up to
+# throttle_start_delay (2.0s) or, after a 403, throttle_penalty_delay (10.0s)
+# — tens of seconds worst case. nginx cuts the whole response at 30s
+# (proxy_read_timeout, build/nginx/overfast-api.conf.template). 10s leaves
+# ample headroom for serialization/network on top of the budget.
+BATCH_SUMMARIES_TIMEOUT_SECONDS = 10.0
+
+# Tasks still in flight when the batch timeout elapses keep running in the
+# background so the throttle budget already spent on them isn't wasted and the
+# next request finds a warm cache. This set holds a live reference to each one
+# so it can't be garbage-collected mid-flight, and is drained by
+# _forget_background_task as each finishes.
+_BACKGROUND_SUMMARY_TASKS: set[asyncio.Task[Any]] = set()
+
+
+def _forget_background_task(player_id: str, task: asyncio.Task[Any]) -> None:
+    """Drain a background summary fetch once it finishes past the batch budget.
+
+    Retrieves the task's exception (if any) so it never surfaces as an
+    "exception was never retrieved" warning, and drops the module-level
+    reference that kept it alive.
+    """
+    _BACKGROUND_SUMMARY_TASKS.discard(task)
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.opt(exception=exc).warning(
+            "Background summary fetch for {} failed after the batch "
+            "timeout window had already closed",
+            player_id,
+        )
+
 
 # Custom route responses for player careers
 career_routes_responses = {
@@ -236,6 +277,10 @@ def build_summary_error(player_id: str, exc: BaseException) -> PlayerSummaryErro
         "list or a team roster one round-trip per player. "
         "<br />Partial failure is expected : an unknown or unavailable player "
         "fills its own <code>error</code> entry, it never fails the batch. "
+        "The batch also answers within a fixed time budget : a player whose "
+        "fetch is still running when the budget elapses comes back with "
+        "<code>pending</code> set instead of failing the whole request — "
+        "retry that id shortly. "
         "Results are returned in the requested order, duplicates removed."
         f"<br />**Cache TTL : {get_human_readable_duration(settings.career_path_cache_timeout)}.**"
     ),
@@ -263,33 +308,70 @@ async def get_players_summaries(
 
     # The single-flight lock in PlayerService already collapses concurrent work
     # for the same player, so a shared id costs one Blizzard round-trip.
-    outcomes = await asyncio.gather(
-        *(
+    # ensure_future (not gather) so each fetch is its own Task we keep a
+    # reference to past the timeout below — asyncio.wait never cancels what it
+    # doesn't finish waiting for, unlike gather under wait_for.
+    tasks = {
+        player_id: asyncio.ensure_future(
             service.get_player_summary(
                 player_id=player_id,
                 cache_key=build_summary_cache_key(player_id),
             )
-            for player_id in player_ids
-        ),
-        return_exceptions=True,
+        )
+        for player_id in player_ids
+    }
+
+    _done, pending = await asyncio.wait(
+        tasks.values(), timeout=BATCH_SUMMARIES_TIMEOUT_SECONDS
     )
+
+    # Whatever didn't finish in time keeps running in the background instead
+    # of being cancelled : it's mid-way through Blizzard fetches that will
+    # still populate storage and the API cache, and killing it would waste the
+    # throttle budget already spent for nothing.
+    for player_id, task in tasks.items():
+        if task in pending:
+            _BACKGROUND_SUMMARY_TASKS.add(task)
+            task.add_done_callback(
+                functools.partial(_forget_background_task, player_id)
+            )
 
     results = []
     batch_is_stale = False
     batch_age = 0
-    for player_id, outcome in zip(player_ids, outcomes, strict=True):
-        if isinstance(outcome, BaseException):
+    for player_id, task in tasks.items():
+        if task in pending:
             results.append(
                 {
                     "player_id": player_id,
                     "summary": None,
-                    "error": build_summary_error(player_id, outcome),
+                    "error": None,
+                    "pending": True,
                 }
             )
             continue
 
-        summary, is_stale, age = outcome
-        results.append({"player_id": player_id, "summary": summary, "error": None})
+        exc = task.exception()
+        if exc is not None:
+            results.append(
+                {
+                    "player_id": player_id,
+                    "summary": None,
+                    "error": build_summary_error(player_id, exc),
+                    "pending": False,
+                }
+            )
+            continue
+
+        summary, is_stale, age = task.result()
+        results.append(
+            {
+                "player_id": player_id,
+                "summary": summary,
+                "error": None,
+                "pending": False,
+            }
+        )
         batch_is_stale = batch_is_stale or is_stale
         batch_age = max(batch_age, age)
 

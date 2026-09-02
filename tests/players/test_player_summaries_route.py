@@ -1,12 +1,13 @@
+import asyncio
 from fnmatch import fnmatch
 from http import HTTPStatus
 from typing import TYPE_CHECKING
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Response, status
 
-from app.api.routers.players import MAX_BATCH_SUMMARIES
+from app.api.routers.players import MAX_BATCH_SUMMARIES, get_players_summaries
 from app.config import settings
 from app.domain.exceptions import ParserBlizzardError, ParserInternalError
 from tests.helpers import read_html_file
@@ -52,6 +53,7 @@ def test_get_players_summaries(client: TestClient, player_search_response_mock: 
     ]
     assert [result["error"] for result in results] == [None, None]
     assert [result["summary"]["username"] for result in results] == ["TeKrop", "KIRIKO"]
+    assert [result["pending"] for result in results] == [False, False]
     assert response.headers["X-Cache-Status"] == "hit"
 
 
@@ -73,6 +75,7 @@ def test_get_players_summaries_partial_failure(client: TestClient):
                 "player_id": "TeKrop-2217",
                 "summary": build_summary("TeKrop"),
                 "error": None,
+                "pending": False,
             },
             {
                 "player_id": "Unknown-1234",
@@ -81,6 +84,7 @@ def test_get_players_summaries_partial_failure(client: TestClient):
                     "status_code": status.HTTP_404_NOT_FOUND,
                     "message": "Player not found",
                 },
+                "pending": False,
             },
         ]
     }
@@ -223,3 +227,99 @@ def test_get_players_summaries_cache_key_is_evictable(client: TestClient):
 
     assert cache_keys == ["/players/TeKrop-2217/summary"]
     assert fnmatch(f"{settings.api_cache_key_prefix}:{cache_keys[0]}", evict_pattern)
+
+
+def test_get_players_summaries_slow_player_is_pending_not_failed(client: TestClient):
+    """A player still in flight when the budget elapses comes back pending,
+    not as an error, and the fast player next to it is unaffected."""
+
+    async def summary_side_effect(player_id: str, **_kwargs) -> tuple:
+        if player_id == "Slow-9999":
+            await asyncio.sleep(3600)  # never resolves within the test budget
+        return build_summary("TeKrop"), False, 0
+
+    with (
+        patch(SUMMARY_METHOD, side_effect=summary_side_effect),
+        patch("app.api.routers.players.BATCH_SUMMARIES_TIMEOUT_SECONDS", 0.05),
+    ):
+        response = client.get("/players/summaries?ids=TeKrop-2217,Slow-9999")
+
+    assert response.status_code == status.HTTP_200_OK
+    results = {result["player_id"]: result for result in response.json()["results"]}
+
+    assert results["TeKrop-2217"] == {
+        "player_id": "TeKrop-2217",
+        "summary": build_summary("TeKrop"),
+        "error": None,
+        "pending": False,
+    }
+    assert results["Slow-9999"] == {
+        "player_id": "Slow-9999",
+        "summary": None,
+        "error": None,
+        "pending": True,
+    }
+
+
+# These two tests call the route coroutine directly rather than through
+# TestClient : TestClient tears down its portal/event loop at the end of each
+# request (unless entered via `with client:`, which in turn runs the app's
+# real lifespan and tries to reach a live Postgres). Calling the coroutine on
+# pytest-asyncio's own loop keeps that loop alive past the `await`, which is
+# what a background task actually needs to prove it wasn't cancelled.
+@pytest.mark.asyncio
+async def test_get_players_summaries_slow_player_keeps_running_in_background():
+    """The task for a player that missed the budget is not cancelled : it
+    keeps running (and completing) after the response has been built."""
+    finished = asyncio.Event()
+
+    async def summary_side_effect(player_id: str, **_kwargs) -> tuple:
+        if player_id == "Slow-9999":
+            await asyncio.sleep(0.05)
+            finished.set()
+        return build_summary("TeKrop"), False, 0
+
+    service = Mock()
+    service.get_player_summary = AsyncMock(side_effect=summary_side_effect)
+
+    with patch("app.api.routers.players.BATCH_SUMMARIES_TIMEOUT_SECONDS", 0.001):
+        result = await get_players_summaries(
+            response=Response(), service=service, ids="Slow-9999"
+        )
+
+    assert result["results"][0]["pending"] is True
+
+    # Not cancelled : the background task actually completes after
+    # get_players_summaries already returned its response.
+    await asyncio.wait_for(finished.wait(), timeout=2.0)
+
+
+@pytest.mark.asyncio
+async def test_get_players_summaries_background_failure_is_not_raised():
+    """A background task that later raises must not surface as an unhandled
+    'exception was never retrieved' warning — this just has to not blow up."""
+    raised = asyncio.Event()
+
+    async def summary_side_effect(player_id: str, **_kwargs) -> tuple:
+        if player_id == "Broken-9999":
+            await asyncio.sleep(0.05)
+            raised.set()
+            msg = "boom after the budget"
+            raise ValueError(msg)
+        return build_summary("TeKrop"), False, 0
+
+    service = Mock()
+    service.get_player_summary = AsyncMock(side_effect=summary_side_effect)
+
+    with patch("app.api.routers.players.BATCH_SUMMARIES_TIMEOUT_SECONDS", 0.001):
+        result = await get_players_summaries(
+            response=Response(), service=service, ids="Broken-9999"
+        )
+
+    assert result["results"][0]["pending"] is True
+
+    # Let the background task actually raise ; if its exception weren't
+    # drained by _forget_background_task this would only ever surface as a
+    # logged warning during garbage collection, never a test failure — the
+    # real assertion is that awaiting past this point doesn't raise/hang.
+    await asyncio.wait_for(raised.wait(), timeout=2.0)

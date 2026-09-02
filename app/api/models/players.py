@@ -298,11 +298,28 @@ class PlayerSummaryResult(BaseModel):
     )
     summary: PlayerSummary | None = Field(
         ...,
-        description="Player summary, or null when the player couldn't be retrieved",
+        description=(
+            "Player summary, or null when the player couldn't be retrieved "
+            "or is still pending (see ``pending``)"
+        ),
     )
     error: PlayerSummaryError | None = Field(
         ...,
-        description="Reason this player couldn't be retrieved, null on success",
+        description=(
+            "Reason this player couldn't be retrieved, null on success or while pending"
+        ),
+    )
+    pending: bool = Field(
+        False,
+        description=(
+            "True when this player's fetch was still in flight when the "
+            "batch's time budget elapsed. Both ``summary`` and ``error`` are "
+            "null in that case : nothing failed, the fetch simply kept "
+            "running in the background past the response — it will populate "
+            "storage and the cache, so retrying this id shortly usually "
+            "returns a result without paying the Blizzard round-trip again."
+        ),
+        examples=[False],
     )
 
 
@@ -311,8 +328,10 @@ class PlayerSummaries(BaseModel):
         ...,
         description=(
             "One entry per requested (de-duplicated) player identifier, in the "
-            "order they were requested. Exactly one of ``summary`` and "
-            "``error`` is set on each entry."
+            "order they were requested. On a normal entry, exactly one of "
+            "``summary`` and ``error`` is set. On an entry still in flight "
+            "when the batch's time budget elapsed, both are null and "
+            "``pending`` is true instead."
         ),
         min_length=1,
     )
