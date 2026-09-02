@@ -10,7 +10,12 @@
 # Runnable locally: `bash scripts/smoke-test.sh` (overwrites .env).
 set -euo pipefail
 
-BASE_URL="${BASE_URL:-http://localhost:8080}"
+# Port is overridable because this script advertises itself as runnable by
+# hand, and 8080 is the single most contended port on a developer machine —
+# anything else already listening there aborted the run at `compose up`,
+# after the full image build. CI leaves both unset and gets the old values.
+APP_PORT="${APP_PORT:-8080}"
+BASE_URL="${BASE_URL:-http://localhost:$APP_PORT}"
 TIMEOUT="${TIMEOUT:-150}"
 INTERVAL=5
 ERRORS=0
@@ -36,7 +41,7 @@ if [ -f .env ]; then
 fi
 # One non-in-place pass: `sed -i'' -e` is read by BSD sed (macOS) as a backup
 # suffix of "-e", which left a credential-carrying .env-e behind on every run.
-sed -e 's/^APP_PORT=.*/APP_PORT=8080/' \
+sed -e "s/^APP_PORT=.*/APP_PORT=$APP_PORT/" \
     -e 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=ci-test-password/' \
     .env.dist > .env
 
