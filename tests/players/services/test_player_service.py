@@ -1479,10 +1479,17 @@ class TestGetPlayerStatsDiff:
         storage = FakeStorage()
         await _seed_stored_profile(storage)
         svc = _make_service(storage=storage)
+        before = int(time.time())
 
         data, _is_stale, _age = await svc.get_player_stats_diff(_BLIZZARD_ID, "key")
 
-        assert int(time.time()) - data["since"] == 86400  # noqa: PLR2004
+        # Bracketed rather than compared against a single reading: the service
+        # takes its own int(time.time()) and the assertion takes another, so a
+        # call that happens to straddle a whole second made the difference 86401
+        # and failed the run. Seen once in a full-suite run, never in isolation.
+        after = int(time.time())
+        one_day = 86400
+        assert before - one_day <= data["since"] <= after - one_day
 
     @pytest.mark.asyncio
     async def test_compares_the_ends_of_the_window(self):
