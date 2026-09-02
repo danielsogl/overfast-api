@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.domain.parsers import PARSER_VERSION
 from app.domain.services.static_data_service import StaticDataService, StaticFetchConfig
 
 
@@ -192,3 +193,136 @@ class TestStoreInStorage:
         cast("Any", svc.storage).set_static_data.side_effect = Exception("disk full")
         # Should not raise
         await svc._store_in_storage("heroes:en-us", "<html>", "heroes")
+
+
+class TestParsedWriteThrough:
+    @pytest.mark.asyncio
+    async def test_fresh_fetch_stores_parsed_payload(self):
+        """A cold fetch stores both raw and parsed, stamped with PARSER_VERSION."""
+        svc = _make_service()
+        cast("Any", svc.storage).get_static_data.return_value = None
+
+        parsed = [{"key": "ana"}]
+        config = _make_config(fetcher=lambda: "<html>", parser=lambda _html: parsed)
+
+        await svc.get_or_fetch(config)
+
+        call_kwargs = cast("Any", svc.storage).set_static_data.call_args.kwargs
+        assert call_kwargs["parsed"] == parsed
+        assert call_kwargs["data_version"] == PARSER_VERSION
+
+    @pytest.mark.asyncio
+    async def test_storage_hit_with_current_version_skips_parser(self):
+        """A storage hit whose data_version matches PARSER_VERSION uses stored parsed as-is."""
+        svc = _make_service()
+        now = int(time.time())
+        cast("Any", svc.storage).get_static_data.return_value = {
+            "data": "raw-html",
+            "parsed": [{"key": "ana"}],
+            "data_version": PARSER_VERSION,
+            "updated_at": now - 100,
+        }
+
+        parser = MagicMock(side_effect=AssertionError("parser must not be called"))
+        config = _make_config(fetcher=lambda: "<html>", parser=parser)
+
+        data, _is_stale, _age = await svc.get_or_fetch(config)
+
+        parser.assert_not_called()
+        assert data == [{"key": "ana"}]
+        cast("Any", svc.storage).set_static_data_parsed.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_storage_hit_with_stale_version_parses_and_writes_back(self):
+        """A storage hit with a stale/missing data_version parses raw and writes the result back."""
+        svc = _make_service()
+        now = int(time.time())
+        cast("Any", svc.storage).get_static_data.return_value = {
+            "data": "raw-html",
+            "parsed": [{"key": "old"}],
+            "data_version": PARSER_VERSION - 1,
+            "updated_at": now - 100,
+        }
+
+        parsed = [{"key": "ana"}]
+        config = _make_config(fetcher=lambda: "<html>", parser=lambda _html: parsed)
+
+        data, _is_stale, _age = await svc.get_or_fetch(config)
+
+        assert data == parsed
+        write_back_kwargs = cast(
+            "Any", svc.storage
+        ).set_static_data_parsed.call_args.kwargs
+        assert write_back_kwargs["key"] == config.storage_key
+        assert write_back_kwargs["parsed"] == parsed
+        assert write_back_kwargs["data_version"] == PARSER_VERSION
+
+    @pytest.mark.asyncio
+    async def test_storage_hit_with_missing_parsed_parses_and_writes_back(self):
+        """A storage hit with parsed=None (pre-existing row) parses raw and writes back."""
+        svc = _make_service()
+        now = int(time.time())
+        cast("Any", svc.storage).get_static_data.return_value = {
+            "data": "raw-html",
+            "parsed": None,
+            "data_version": PARSER_VERSION,
+            "updated_at": now - 100,
+        }
+
+        parsed = [{"key": "ana"}]
+        parser = MagicMock(return_value=parsed)
+        config = _make_config(fetcher=lambda: "<html>", parser=parser)
+
+        data, _is_stale, _age = await svc.get_or_fetch(config)
+
+        parser.assert_called_once_with("raw-html")
+        assert data == parsed
+        cast("Any", svc.storage).set_static_data_parsed.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_write_back_does_not_change_reported_age(self):
+        """A lazy re-parse write-back does not affect the age/staleness computed from updated_at."""
+        svc = _make_service()
+        now = int(time.time())
+        updated_at = now - 100
+        cast("Any", svc.storage).get_static_data.return_value = {
+            "data": "raw-html",
+            "parsed": None,
+            "data_version": None,
+            "updated_at": updated_at,
+        }
+
+        config = _make_config(
+            fetcher=lambda: "<html>",
+            parser=lambda _html: [{"key": "ana"}],
+            staleness_threshold=3600,
+        )
+
+        _data, is_stale, age = await svc.get_or_fetch(config)
+
+        assert is_stale is False
+        assert 99 <= age <= 102  # noqa: PLR2004
+        call_kwargs = cast("Any", svc.cache).update_api_cache.call_args.kwargs
+        assert call_kwargs["stored_at"] == updated_at
+
+    @pytest.mark.asyncio
+    async def test_csv_source_never_reads_or_writes_parsed(self):
+        """CSV sources (no parser) always re-read the local file and never touch stored parsed."""
+        svc = _make_service()
+        now = int(time.time())
+        cast("Any", svc.storage).get_static_data.return_value = {
+            "data": '[{"key": "old"}]',
+            "parsed": [{"key": "should-not-be-used"}],
+            "data_version": PARSER_VERSION,
+            "updated_at": now - 100,
+        }
+
+        fresh = [{"key": "map-a"}]
+        fetcher = MagicMock(return_value=fresh)
+        config = _make_config(fetcher=fetcher, parser=None)
+
+        data, _is_stale, _age = await svc.get_or_fetch(config)
+
+        fetcher.assert_called_once()
+        assert data == fresh
+        cast("Any", svc.storage).set_static_data_parsed.assert_not_awaited()

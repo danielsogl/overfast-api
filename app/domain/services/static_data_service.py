@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from app.config import settings
+from app.domain.parsers import PARSER_VERSION
 from app.domain.ports.storage import StaticDataCategory
 from app.domain.services import BaseService
 from app.infrastructure.logger import logger
@@ -58,11 +59,13 @@ class StaticDataService(BaseService):
         return await self._cold_fetch(config)
 
     async def _load_from_storage(self, storage_key: str) -> dict[str, Any] | None:
-        """Load raw source from the ``static_data`` table. Returns ``None`` on miss."""
+        """Load raw + parsed source from the ``static_data`` table. Returns ``None`` on miss."""
         result = await self.storage.get_static_data(storage_key)
         return (
             {
                 "raw": result["data"],
+                "parsed": result.get("parsed"),
+                "data_version": result.get("data_version"),
                 "updated_at": result["updated_at"],
             }
             if result
@@ -74,12 +77,16 @@ class StaticDataService(BaseService):
     ) -> tuple[Any, bool, int]:
         """Serve data from a persistent storage hit, triggering a background refresh if stale.
 
-        The stored ``raw`` value is always re-parsed with the current parser (for
-        Blizzard HTML sources) or re-fetched from the local source (for CSV sources) so
-        that code-only changes (e.g. new fields added to the parser) take effect
-        immediately on restart without waiting for the staleness threshold.
+        For Blizzard HTML sources, the stored ``parsed`` payload is used directly
+        when it is stamped with the current ``PARSER_VERSION`` — no re-parse.
+        Otherwise (missing, or written by an older parser) the raw source is
+        parsed once here and the result is written back, so a parser code
+        change takes effect on the very next request without paying the parse
+        cost on every subsequent miss. CSV sources are always re-read from the
+        local file (see ``_parse_stored``) so that CSV edits take effect
+        immediately.
         """
-        data = await self._parse_stored(stored["raw"], config)
+        data = await self._get_parsed(stored, config)
         age = int(time.time()) - stored["updated_at"]
         is_stale = age >= config.staleness_threshold
         filtered = self._apply_filter(data, config.result_filter)
@@ -140,6 +147,50 @@ class StaticDataService(BaseService):
             return await config.fetcher()
         return config.fetcher()
 
+    async def _get_parsed(
+        self, stored: dict[str, Any], config: StaticFetchConfig
+    ) -> Any:
+        """Return structured data for a storage hit, reusing the stored parse when valid.
+
+        CSV sources (``config.parser is None``) have nothing to gain from a
+        stored parsed copy of a local file read — always re-read via
+        ``_parse_stored`` so CSV edits take effect immediately (see its
+        docstring).
+
+        HTML/JSON sources use ``stored["parsed"]`` as-is when present and its
+        ``data_version`` matches the current ``PARSER_VERSION``. Otherwise the
+        raw source is parsed once and the result is written back so the next
+        hit skips the parse too.
+        """
+        if config.parser is None:
+            return await self._parse_stored(stored["raw"], config)
+
+        if stored["parsed"] is not None and stored["data_version"] == PARSER_VERSION:
+            return stored["parsed"]
+
+        parsed = await self._parse_stored(stored["raw"], config)
+        await self._write_back_parsed(config.storage_key, parsed)
+        return parsed
+
+    async def _write_back_parsed(self, storage_key: str, parsed: Any) -> None:
+        """Persist a freshly (re)parsed payload so future storage hits skip the parse.
+
+        Same posture as ``_store_in_storage``: a write failure here must not
+        fail the request that already has ``parsed`` in hand — log and move on.
+        Deliberately does not touch ``updated_at`` (``set_static_data_parsed``
+        never does — see the port docstring).
+        """
+        try:
+            await self.storage.set_static_data_parsed(
+                key=storage_key,
+                parsed=parsed,
+                data_version=PARSER_VERSION,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[SWR] Parsed write-back failed for {}: {}", storage_key, exc
+            )
+
     @staticmethod
     def _apply_filter(data: Any, result_filter: Callable[[Any], Any] | None) -> Any:
         """Apply ``result_filter`` to ``data`` if provided, otherwise return as-is."""
@@ -160,8 +211,16 @@ class StaticDataService(BaseService):
         raw_to_store = (
             raw if config.parser is not None else json.dumps(raw, separators=(",", ":"))
         )
+        # CSV sources get no stored parse: ``_get_parsed`` always re-reads the
+        # local file for them, so a parsed copy would be a second identical blob
+        # written on every refresh and read by nobody — and the next person to
+        # find a populated ``parsed`` column that nothing consults would have to
+        # work out why. Only HTML/JSON sources have a parse worth keeping.
         await self._store_in_storage(
-            config.storage_key, raw_to_store, config.entity_type
+            config.storage_key,
+            raw_to_store,
+            config.entity_type,
+            parsed=data if config.parser is not None else None,
         )
 
         filtered = self._apply_filter(data, config.result_filter)
@@ -183,14 +242,24 @@ class StaticDataService(BaseService):
         return filtered, False, 0
 
     async def _store_in_storage(
-        self, storage_key: str, raw: str, entity_type: str
+        self,
+        storage_key: str,
+        raw: str,
+        entity_type: str,
+        parsed: Any = None,
     ) -> None:
-        """Persist raw source string to the ``static_data`` table (zstd-compressed BYTEA)."""
+        """Persist raw source string + its parsed form to the ``static_data`` table.
+
+        ``raw`` is zstd-compressed BYTEA; ``parsed`` (JSONB) is stamped with the
+        current ``PARSER_VERSION`` so a later storage hit can skip re-parsing.
+        """
         try:
             await self.storage.set_static_data(
                 key=storage_key,
                 data=raw,
                 category=StaticDataCategory(entity_type),
+                data_version=PARSER_VERSION,
+                parsed=parsed,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("[SWR] Storage write failed for {}: {}", storage_key, exc)
