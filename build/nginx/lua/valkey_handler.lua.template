@@ -124,13 +124,14 @@ local function handle_valkey_request()
     -- run to hundreds of KB. Envelopes written before this field existed simply
     -- carry no tag, and the response then behaves as it always did.
     --
-    -- Gated on the client declaring it handles conditional GETs (stores the
-    -- ETag, resends it as If-None-Match, resolves a 304 against its own
-    -- cached body): a client built before this feature existed can still have
-    -- its HTTP stack revalidate against ours on its own, get a bodyless 304 it
-    -- has nothing to resolve against, and surface that as "no data" to users.
-    -- Without the header this branch never runs, so ETag is never even set —
-    -- the same "no tag" case above, on every request from that client.
+    -- Gated on the client declaring it handles conditional GETs. Offering a
+    -- tag is enough for a client's own HTTP stack to start revalidating with
+    -- no cooperation from its code, and a revalidated entry comes back as the
+    -- stored 200 with the 304's Content-Length: 0 merged in (RFC 9111 4.3.4).
+    -- An already-shipped client believed that header over the body it was
+    -- handed and showed users an empty screen. Without the header this branch
+    -- never runs, so no tag is ever set and that client's stored responses
+    -- have no validator to revalidate with — the "no tag" case above.
     --
     -- Set after the cache metadata headers on purpose: ngx.exit keeps whatever
     -- is already in ngx.header, so the 304 still carries Age, Cache-Control,

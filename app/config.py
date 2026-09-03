@@ -164,14 +164,21 @@ class Settings(BaseSettings):
     # the API Cache TTL when calling the API
     cache_ttl_header: str = "X-Cache-TTL"
 
-    # Name of the *request* header a client sends to declare it correctly
-    # handles conditional GETs (stores the ETag, resends it as If-None-Match,
-    # and resolves a 304 against its own cached body). Only clients sending
-    # this get an ETag or a 304 at all; everyone else gets the plain 200 this
-    # API always sent before conditional-request support existed. Added after
-    # a client shipped before this feature existed had its own HTTP stack
-    # transparently revalidate against ours, receive an empty 304 body it had
-    # no cache to resolve against, and surface that as "no data" to users.
+    # Name of the *request* header a client sends to declare it handles
+    # conditional GETs correctly. Only clients sending this get an ETag or a
+    # 304 at all; everyone else gets the plain 200 this API always sent
+    # before conditional-request support existed.
+    #
+    # Added after an already-shipped client broke on it. Offering an ETag is
+    # enough for a client's *own* HTTP stack to start revalidating, with no
+    # cooperation from its application code — and when a stale entry was
+    # revalidated, the 304's ``Content-Length: 0`` was merged onto the stored
+    # 200 it served back (RFC 9111 4.3.4). That client believed the header
+    # over the body it had actually been handed, read nothing, and showed its
+    # users an empty screen. Its fetcher was fixed, but a released build can
+    # never be patched retroactively: withholding the tag is what keeps one
+    # working, because a stored response with no validator cannot be
+    # revalidated at all — it is simply refetched in full.
     conditional_get_header: str = "X-Conditional-Get"
 
     # Prefix for keys in API Cache with entire payload (Valkey).

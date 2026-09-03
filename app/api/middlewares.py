@@ -51,15 +51,16 @@ class ETagMiddleware(BaseHTTPMiddleware):
     never an error body, the docs page or ``/openapi.json``.
 
     Also requires the client to send ``settings.conditional_get_header``,
-    declaring it stores the ETag, resends it as ``If-None-Match``, and resolves
-    a 304 against its own cached body. A client built before this feature
-    existed can still have its HTTP stack revalidate against ours on its own
-    (matching ``Cache-Control``/``ETag`` alone is enough for that, with no
-    cooperation from the client's own code) — and since it never learned to
-    resolve a bodyless 304, that surfaced to its users as "no data". Without
-    the header this never tags a response, so that client's HTTP stack has no
-    ETag to revalidate against in the first place: the same "no tag" case
-    below, on every request from it.
+    declaring it handles conditional GETs correctly. Offering an ETag is
+    enough for a client's *own* HTTP stack to start revalidating, with no
+    cooperation from its application code — and when a stale entry is
+    revalidated, the 304's ``Content-Length: 0`` is merged onto the stored
+    200 served back (RFC 9111 §4.3.4). An already-shipped client believed
+    that header over the body it had actually been handed, read nothing, and
+    showed its users an empty screen. Without the header this never tags a
+    response, so that client's stored responses carry no validator, cannot be
+    revalidated at all, and are simply refetched in full: the same "no tag"
+    case below, on every request from it.
 
     This covers the cache-*miss* path only, because a cache hit never reaches
     FastAPI: nginx serves it straight from Valkey and reads the ETag out of the
