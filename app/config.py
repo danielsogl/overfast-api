@@ -164,6 +164,16 @@ class Settings(BaseSettings):
     # the API Cache TTL when calling the API
     cache_ttl_header: str = "X-Cache-TTL"
 
+    # Name of the *request* header a client sends to declare it correctly
+    # handles conditional GETs (stores the ETag, resends it as If-None-Match,
+    # and resolves a 304 against its own cached body). Only clients sending
+    # this get an ETag or a 304 at all; everyone else gets the plain 200 this
+    # API always sent before conditional-request support existed. Added after
+    # a client shipped before this feature existed had its own HTTP stack
+    # transparently revalidate against ours, receive an empty 304 body it had
+    # no cache to resolve against, and surface that as "no data" to users.
+    conditional_get_header: str = "X-Conditional-Get"
+
     # Prefix for keys in API Cache with entire payload (Valkey).
     # Used by nginx as main API cache.
     api_cache_key_prefix: str = "api-cache"

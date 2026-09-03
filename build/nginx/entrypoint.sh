@@ -24,6 +24,7 @@ set -o pipefail 2>/dev/null || true
 # directly, where trusting nothing is the correct default.
 : "${TRUSTED_PROXY_CIDRS:=172.16.0.0/12,192.168.0.0/16,10.0.0.0/8}"
 : "${RETRY_AFTER_HEADER:=Retry-After}"
+: "${CONDITIONAL_GET_HEADER:=X-Conditional-Get}"
 : "${UNKNOWN_PLAYER_COOLDOWN_KEY_PREFIX:=unknown-player:cooldown}"
 : "${UNKNOWN_PLAYERS_CACHE_ENABLED:=true}"
 
@@ -69,7 +70,7 @@ envsubst '${NGINX_WORKER_PROCESSES_VALUE} ${NGINX_WORKER_CONNECTIONS} ${NGINX_MU
 
 # Replace placeholders and generate config and lua script from templates
 envsubst '${REAL_IP_CONFIG} ${RATE_LIMIT_PER_SECOND_PER_IP} ${RATE_LIMIT_PER_IP_BURST} ${MAX_CONNECTIONS_PER_IP} ${RETRY_AFTER_HEADER}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf
-envsubst '${VALKEY_HOST} ${VALKEY_PORT} ${CACHE_TTL_HEADER} ${RETRY_AFTER_HEADER} ${UNKNOWN_PLAYER_COOLDOWN_KEY_PREFIX} ${UNKNOWN_PLAYERS_CACHE_ENABLED}' < /usr/local/openresty/lualib/valkey_handler.lua.template > /usr/local/openresty/lualib/valkey_handler.lua
+envsubst '${VALKEY_HOST} ${VALKEY_PORT} ${CACHE_TTL_HEADER} ${RETRY_AFTER_HEADER} ${CONDITIONAL_GET_HEADER} ${UNKNOWN_PLAYER_COOLDOWN_KEY_PREFIX} ${UNKNOWN_PLAYERS_CACHE_ENABLED}' < /usr/local/openresty/lualib/valkey_handler.lua.template > /usr/local/openresty/lualib/valkey_handler.lua
 
 # Check OpenResty config before starting
 openresty -t

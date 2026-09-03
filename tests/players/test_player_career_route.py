@@ -54,6 +54,7 @@ def test_polling_a_career_costs_no_body_while_it_is_unchanged(
     hardest, so the conditional request has to work on this route specifically —
     not just on the small static ones.
     """
+    conditional = {settings.conditional_get_header: "1"}
     with patch(
         "httpx2.AsyncClient.get",
         side_effect=[
@@ -61,10 +62,11 @@ def test_polling_a_career_costs_no_body_while_it_is_unchanged(
             Mock(status_code=status.HTTP_200_OK, text=player_html_data),
         ],
     ):
-        first = client.get("/players/TeKrop-2217")
+        first = client.get("/players/TeKrop-2217", headers=conditional)
 
     response = client.get(
-        "/players/TeKrop-2217", headers={"If-None-Match": first.headers["ETag"]}
+        "/players/TeKrop-2217",
+        headers={**conditional, "If-None-Match": first.headers["ETag"]},
     )
 
     assert response.status_code == status.HTTP_304_NOT_MODIFIED

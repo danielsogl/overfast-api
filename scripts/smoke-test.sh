@@ -230,6 +230,22 @@ echo "  $DIRECT_COUNT heroes, filter survives the redirect"
 echo "=== ETag / If-None-Match ==="
 CACHE_TTL_HEADER=$(awk -F= '/^CACHE_TTL_HEADER=/ { print $2 }' .env)
 CACHE_TTL_HEADER="${CACHE_TTL_HEADER:-X-Cache-TTL}"
+CONDITIONAL_GET_HEADER=$(awk -F= '/^CONDITIONAL_GET_HEADER=/ { print $2 }' .env)
+CONDITIONAL_GET_HEADER="${CONDITIONAL_GET_HEADER:-X-Conditional-Get}"
+
+# A client that never declares itself must never see an ETag — that's the
+# whole point of the gate (a pre-4.16.0 client's HTTP stack could otherwise
+# still revalidate on its own and get a bodyless 304 it has nothing to
+# resolve against). Checked on both paths, same as the capable-client case
+# below.
+check_no_etag_without_header() {
+    LABEL="$1"
+    URI="$2"
+
+    ETAG=$(curl -s -D - -o /dev/null "$BASE_URL$URI" \
+        | tr -d '\r' | awk 'tolower($1) == "etag:" { print $2 }' || true)
+    [ -z "$ETAG" ] || fail "$LABEL: got an ETag on $URI without declaring $CONDITIONAL_GET_HEADER"
+}
 
 check_conditional_request() {
     LABEL="$1"
@@ -237,7 +253,7 @@ check_conditional_request() {
     HDR_FILE=$(mktemp)
     BODY_FILE=$(mktemp)
 
-    ETAG=$(curl -s -D - -o /dev/null "$BASE_URL$URI" \
+    ETAG=$(curl -s -D - -o /dev/null -H "$CONDITIONAL_GET_HEADER: 1" "$BASE_URL$URI" \
         | tr -d '\r' | awk 'tolower($1) == "etag:" { print $2 }' || true)
     if [ -z "$ETAG" ]; then
         fail "$LABEL: no ETag on $URI"
@@ -246,7 +262,7 @@ check_conditional_request() {
     fi
 
     CODE=$(curl -s -D "$HDR_FILE" -o "$BODY_FILE" -w "%{http_code}" \
-        -H "If-None-Match: $ETAG" "$BASE_URL$URI")
+        -H "$CONDITIONAL_GET_HEADER: 1" -H "If-None-Match: $ETAG" "$BASE_URL$URI")
     [ "$CODE" = "304" ] || fail "$LABEL: expected 304 for $URI, got $CODE"
     # An empty body is the entire point: a 304 costs no payload.
     [ ! -s "$BODY_FILE" ] || fail "$LABEL: 304 carried a body"
@@ -263,6 +279,8 @@ check_conditional_request() {
 # Only what pytest cannot reach is asserted here. That the tag tracks the
 # payload is app logic and is covered in tests/api/test_etag.py; keeping it out
 # also keeps this section inside the burst allowance of the nginx rate limit.
+check_no_etag_without_header "cache hit (nginx/Lua)" "/heroes"
+check_no_etag_without_header "cache miss (FastAPI)" "/heroes?etag-smoke=1"
 check_conditional_request "cache hit (nginx/Lua)" "/heroes"
 check_conditional_request "cache miss (FastAPI)" "/heroes?etag-smoke=1"
 

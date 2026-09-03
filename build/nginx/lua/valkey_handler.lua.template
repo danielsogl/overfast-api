@@ -5,6 +5,11 @@ local valkey = require "resty.redis"
 local EXCLUDED_PATHS = { ["/"] = true, ["/docs"] = true, ["/openapi.json"] = true }
 local COOLDOWN_KEY_PREFIX = "${UNKNOWN_PLAYER_COOLDOWN_KEY_PREFIX}"
 local UNKNOWN_PLAYERS_CACHE_ENABLED = "${UNKNOWN_PLAYERS_CACHE_ENABLED}" == "true"
+-- nginx exposes every request header as $http_<name>, lowercased with '-' to
+-- '_'. Computed once here from the configured header name rather than
+-- hardcoded, matching app/api/middlewares.py's ETagMiddleware gate on the
+-- FastAPI (cache-miss) side.
+local CONDITIONAL_GET_HEADER_VAR = "http_" .. string.lower(string.gsub("${CONDITIONAL_GET_HEADER}", "%-", "_"))
 
 local function release(valk)
     local ok, err = valk:set_keepalive(10000, 100)
@@ -119,12 +124,20 @@ local function handle_valkey_request()
     -- run to hundreds of KB. Envelopes written before this field existed simply
     -- carry no tag, and the response then behaves as it always did.
     --
+    -- Gated on the client declaring it handles conditional GETs (stores the
+    -- ETag, resends it as If-None-Match, resolves a 304 against its own
+    -- cached body): a client built before this feature existed can still have
+    -- its HTTP stack revalidate against ours on its own, get a bodyless 304 it
+    -- has nothing to resolve against, and surface that as "no data" to users.
+    -- Without the header this branch never runs, so ETag is never even set —
+    -- the same "no tag" case above, on every request from that client.
+    --
     -- Set after the cache metadata headers on purpose: ngx.exit keeps whatever
     -- is already in ngx.header, so the 304 still carries Age, Cache-Control,
     -- X-Cache-Status and the TTL header. A 304 that dropped those would make a
     -- client's caching worse than no ETag at all.
     local etag = envelope.etag
-    if etag ~= nil and etag ~= ngx.null then
+    if etag ~= nil and etag ~= ngx.null and ngx.var[CONDITIONAL_GET_HEADER_VAR] then
         ngx.header["ETag"] = etag
         local if_none_match = ngx.var.http_if_none_match
         -- Plain (non-pattern) find: the client echoes the tag back verbatim,

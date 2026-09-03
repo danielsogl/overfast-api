@@ -12,6 +12,7 @@ from anyio import to_thread
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import HTMLResponse, JSONResponse, Response
 
+from app.config import settings
 from app.infrastructure.helpers import compute_etag
 
 if TYPE_CHECKING:
@@ -49,10 +50,23 @@ class ETagMiddleware(BaseHTTPMiddleware):
     payload routes — players, heroes, maps, gamemodes, roles, patch notes — and
     never an error body, the docs page or ``/openapi.json``.
 
+    Also requires the client to send ``settings.conditional_get_header``,
+    declaring it stores the ETag, resends it as ``If-None-Match``, and resolves
+    a 304 against its own cached body. A client built before this feature
+    existed can still have its HTTP stack revalidate against ours on its own
+    (matching ``Cache-Control``/``ETag`` alone is enough for that, with no
+    cooperation from the client's own code) — and since it never learned to
+    resolve a bodyless 304, that surfaced to its users as "no data". Without
+    the header this never tags a response, so that client's HTTP stack has no
+    ETag to revalidate against in the first place: the same "no tag" case
+    below, on every request from it.
+
     This covers the cache-*miss* path only, because a cache hit never reaches
     FastAPI: nginx serves it straight from Valkey and reads the ETag out of the
     cache envelope (``build/nginx/lua/valkey_handler.lua.template``), where the
     Valkey adapter put one computed by ``compute_etag`` over the bytes it stored.
+    That path carries the identical client-declaration gate, keyed off the same
+    ``settings.conditional_get_header``.
 
     Those two bytestreams are not always identical. FastAPI renders through the
     ``response_model``, which reorders and completes fields; the cache holds the
@@ -67,6 +81,7 @@ class ETagMiddleware(BaseHTTPMiddleware):
         if (
             response.status_code != HTTPStatus.OK
             or "X-Cache-Status" not in response.headers
+            or settings.conditional_get_header not in request.headers
         ):
             return response
 
