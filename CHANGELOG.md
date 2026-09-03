@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v4.17.2 (2026-09-03)
+
+### Bug Fixes
+
+- **cache**: Gate ETag/304 on a client declaring conditional-GET support
+  ([`43823e9`](https://github.com/danielsogl/overfast-api/commit/43823e9143b501ff9334749f3b8263bde40df0af))
+
+### Documentation
+
+- **vps**: Record why the host fetches over SSH
+  ([`e96840c`](https://github.com/danielsogl/overfast-api/commit/e96840c097cccdf798b2a0dc033221722d27b33a))
+
+
 ## v4.17.1 (2026-09-02)
 
 ### Documentation
