@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v4.17.3 (2026-09-07)
+
+### Bug Fixes
+
+- **ci**: Stop the smoke test tripping its own rate limit
+  ([#40](https://github.com/danielsogl/overfast-api/pull/40),
+  [`cf573d3`](https://github.com/danielsogl/overfast-api/commit/cf573d3b0a10029a988eba29d0373e264137fa97))
+
+### Continuous Integration
+
+- Cancel superseded PR builds
+  ([`1819641`](https://github.com/danielsogl/overfast-api/commit/181964171d1997b32c377dc4afc5a5b54b70ec6e))
+
+### Documentation
+
+- **cache**: Correct why the conditional-GET gate exists
+  ([`ad8c71d`](https://github.com/danielsogl/overfast-api/commit/ad8c71d95a512fdddbdf19ea8ed5efb380d7b4e4))
+
+
 ## v4.17.2 (2026-09-03)
 
 ### Bug Fixes
