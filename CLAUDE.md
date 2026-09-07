@@ -78,10 +78,20 @@ Both run in CI on every PR. Running the suite outside Docker needs `POSTGRES_PAS
   2. **The Overwatch wiki infobox** (`overwatch.weirdgloop.org/api.php?action=parse&page=<Hero>`,
      needs a real User-Agent) is the fallback where Blizzard is silent — a new hero's launch values.
      Tanks store the *base* value there; our CSV holds base + 150 for the role-queue passive.
-  3. Nothing else. Do not sync from the wiki automatically: it was measurably **stale** (still 250
-     for Junkrat two months after Blizzard published 200) and its infoboxes are **incomplete**
-     (Sigma, Zarya and Zenyatta carry no `shields` field at all). An auto-sync would have reverted
-     a correct value and zeroed three real shield pools.
+  3. Nothing else. Do not sync from the wiki automatically: it is measurably **stale**. Still true
+     on 2026-09-07 — Junkrat reads 250 there against Blizzard's published 200, our value.
+
+     The *incompleteness* half of this argument has expired, and saying so is the point of
+     writing it down: on 2026-09-07 all 53 heroes carried health, armor and shield in the
+     infobox, Sigma, Zarya and Zenyatta included, where the 2026-08-29 audit found those three
+     with no `shields` field at all. All 53 matched our CSV exactly, Junkrat excepted. That
+     makes rung 2 a better *cross-check* than it was — one pass, one difference, and the
+     difference was the wiki's — but not an auto-sync: a source that agrees 52 times and is
+     silently wrong the 53rd is precisely the one a sync ruins you with.
+
+     If you re-run that audit, parse the infobox by brace depth. Several pages nest a
+     `{{VA stack}}` whose closing braces sit on their own line; stopping at the first `}}`
+     truncates every field below it and reports 36 present fields as absent.
 
   A value that was never right *and* never changed in a patch is invisible to every gate — D.Mon
   shipped with D.Va's numbers because the row was copy-pasted. Check a new hero against rung 2.
