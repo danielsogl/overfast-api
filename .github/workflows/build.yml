@@ -4,6 +4,12 @@ on:
   pull_request:
     branches: ["main"]
 
+# Only the newest push to a PR is worth building; the older run is answering a
+# question nobody is asking any more.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: ruff, ty & pytest
