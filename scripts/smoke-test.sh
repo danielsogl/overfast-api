@@ -41,8 +41,16 @@ if [ -f .env ]; then
 fi
 # One non-in-place pass: `sed -i'' -e` is read by BSD sed (macOS) as a backup
 # suffix of "-e", which left a credential-carrying .env-e behind on every run.
+#
+# The burst is raised because this script is one IP firing a scripted sweep of
+# the whole API back to back — nothing like the traffic the limiter exists to
+# shape. At the shipped burst=5 the ETag section ran out of tokens and got a
+# 429 instead of a 304, intermittently, depending on how fast the runner
+# answered the preceding requests. Nothing here asserts the limiter, so the
+# number is free to move.
 sed -e "s/^APP_PORT=.*/APP_PORT=$APP_PORT/" \
     -e 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=ci-test-password/' \
+    -e 's/^RATE_LIMIT_PER_IP_BURST=.*/RATE_LIMIT_PER_IP_BURST=200/' \
     .env.dist > .env
 
 # ── Step 2: Build and start ──────────────────────────────────────────────────
@@ -277,8 +285,7 @@ check_conditional_request() {
 }
 
 # Only what pytest cannot reach is asserted here. That the tag tracks the
-# payload is app logic and is covered in tests/api/test_etag.py; keeping it out
-# also keeps this section inside the burst allowance of the nginx rate limit.
+# payload is app logic and is covered in tests/api/test_etag.py.
 check_no_etag_without_header "cache hit (nginx/Lua)" "/heroes"
 check_no_etag_without_header "cache miss (FastAPI)" "/heroes?etag-smoke=1"
 check_conditional_request "cache hit (nginx/Lua)" "/heroes"
