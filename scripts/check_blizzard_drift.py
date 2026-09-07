@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 import httpx2
 
 from app.config import settings
-from app.domain.enums import HeroGamemode, HeroKey, Role
+from app.domain.enums import CompetitiveDivisionFilter, HeroGamemode, HeroKey, Role
 from app.domain.parsers.hero import parse_hero_html
 from app.domain.parsers.heroes import parse_heroes_html
 from app.domain.parsers.roles import parse_roles_html
@@ -398,11 +398,11 @@ def parse_rotation_maps(html: str) -> dict[str, tuple[str, str]]:
     return maps
 
 
-def check_maps_in_rotation() -> None:
+def check_maps_in_rotation(html: str) -> None:
     """Every map Blizzard currently rotates must exist in maps.csv."""
     print("=== maps in live rotation ===")
 
-    live = parse_rotation_maps(fetch(RATES_PATH))
+    live = parse_rotation_maps(html)
     if not live:
         warn("could not read the map dropdown — the rates page layout may have changed")
         return
@@ -425,6 +425,74 @@ def check_maps_in_rotation() -> None:
             warn(f"map {key!r} is named {name!r} on Blizzard, {row['name']!r} here")
 
     print(f"  checked {len(live)} maps in rotation against {len(ours)} known")
+
+
+# ── Competitive divisions ────────────────────────────────────────────────────
+#
+# get_division_from_icon does a bare ``CompetitiveDivision(division_name)``, so
+# a rank Blizzard adds and this repo does not know raises ValueError on every
+# profile that holds it. That is the one piece of Blizzard content where being
+# a day late is an outage rather than a gap, and until now nothing watched it.
+#
+# The tier dropdown on the rates page is the same server-rendered page the map
+# check already reads, so this costs no extra request.
+#
+# Read ``value`` (title-cased, "Grandmaster"), not ``data-title``. data-title
+# looks like the machine key on most options but the last one carries
+# "grandmaster_and_champion" — a label for the enum's own note that grandmaster
+# includes champion, not a division. Parsing it reported a new Blizzard rank
+# that does not exist.
+#
+# Compared against CompetitiveDivisionFilter, not CompetitiveDivision: the rates
+# page has no ULTIMATE, which is deliberate upstream (see enums.py) and would
+# otherwise warn every single day.
+
+_TIER_SELECT = re.compile(r'<select[^>]*id="filter-tier-select".*?</select>', re.DOTALL)
+_TIER_OPTION = re.compile(r'<option[^>]*value="([A-Za-z]+)"')
+
+# The "All Tiers" entry is a sentinel, not a division.
+_TIER_SENTINEL = "all"
+
+
+def parse_rotation_tiers(html: str) -> set[str]:
+    """Return the competitive divisions offered by the rates page tier dropdown."""
+    select = _TIER_SELECT.search(html)
+    if not select:
+        return set()
+    return {
+        value.casefold()
+        for value in _TIER_OPTION.findall(select.group(0))
+        if value.casefold() != _TIER_SENTINEL
+    }
+
+
+def check_competitive_divisions(html: str) -> None:
+    """Every division Blizzard ranks players into must exist in our enum."""
+    print("=== competitive divisions ===")
+
+    live = parse_rotation_tiers(html)
+    if not live:
+        warn(
+            "could not read the tier dropdown — the rates page layout may have changed"
+        )
+        return
+
+    ours = {division.value for division in CompetitiveDivisionFilter}
+
+    if unknown := sorted(live - ours):
+        fail(
+            f"competitive division(s) {unknown} exist on Blizzard but not in "
+            "CompetitiveDivision — get_division_from_icon raises ValueError on "
+            "every player profile ranked there. Add them to app/domain/enums.py."
+        )
+    # The other direction is not a failure: a division can outlive its presence
+    # in the rates filter, and dropping one we still parse would break profiles
+    # rather than fix anything.
+    if retired := sorted(ours - live):
+        warn(f"we know division(s) {retired} that the rates page no longer offers")
+
+    if not unknown:
+        print(f"  checked {len(live)} divisions against the enum")
 
 
 # ── Hero stats recording ─────────────────────────────────────────────────────
@@ -526,7 +594,11 @@ def main() -> int:
             check_hero_detail(min(h["key"] for h in heroes))
         check_roles()
         check_hitpoints_against_patch_notes()
-        check_maps_in_rotation()
+        # One fetch, two checks: the map dropdown and the tier dropdown are on
+        # the same server-rendered page.
+        rates_html = fetch(RATES_PATH)
+        check_maps_in_rotation(rates_html)
+        check_competitive_divisions(rates_html)
         check_hero_stats_recording()
     except httpx2.HTTPError as exc:
         # Network trouble is not drift; say so rather than reporting a false
