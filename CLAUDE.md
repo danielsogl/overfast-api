@@ -35,6 +35,13 @@ Roughly 20 commits a year are worth taking; the rest of upstream's traffic is de
   VPS. Always work on a branch and open a PR.
 - To redeploy current `main` without a code change, run that workflow manually
   (`workflow_dispatch`) from the Actions tab.
+- **Merge one PR at a time, and wait for its Release & Deploy to finish.** semantic-release
+  computes the version from the commit it checked out, then refuses to push if `origin/main` moved
+  underneath it in the meantime: *"Upstream branch 'origin/main' has changed."* Merging a second PR
+  while the first release is still running is enough to trigger that, and the run goes red without
+  releasing. The workflow's `concurrency` group serialises *runs*, not your merges, so it does not
+  protect against this. Nothing is lost — the next release picks up both commits and still bumps on
+  the earlier `feat:` — but you get a red run and no deploy from that merge.
 - **Never deploy with `docker compose down`.** It drops the containers and with them the caches:
   valkey loses the API cache and every player profile has to be refetched from Blizzard behind the
   throttle. `scripts/deploy.sh` rolls containers instead and reloads nginx rather than restarting it.
