@@ -13,7 +13,10 @@ from scripts.check_blizzard_drift import (
     check_hero_stats_recording,
     hitpoint_findings,
     parse_rotation_maps,
+    parse_rotation_tiers,
 )
+
+from app.domain.enums import CompetitiveDivisionFilter
 
 _ROWS = {
     "Reaper": {"health": "275", "armor": "0", "shields": "0"},
@@ -161,6 +164,93 @@ class TestRotationMapParsing:
         result = parse_rotation_maps("<html><body>no dropdown here</body></html>")
 
         assert result == {}
+
+
+class TestRotationTierParsing:
+    """A division Blizzard adds and the enum lacks is a ValueError on every
+    profile ranked there, so this dropdown is the earliest warning available."""
+
+    # Verbatim from the live page, including the grandmaster data-title.
+    _SELECT = (
+        '<select class="blz-dropdown" data-label="tier" id="filter-tier-select">'
+        '<option class="blz-subheading-text-lg" data-title="all_tiers" '
+        'selected="selected" value="All">All Tiers</option>'
+        '<option class="blz-subheading-text-lg" data-title="bronze" '
+        'value="Bronze">Bronze</option>'
+        '<option class="blz-subheading-text-lg" '
+        'data-title="grandmaster_and_champion" '
+        'value="Grandmaster">Grandmaster</option>'
+        "</select>"
+    )
+
+    def test_divisions_are_read_as_lowercase_keys(self):
+        assert parse_rotation_tiers(self._SELECT) == {"bronze", "grandmaster"}
+
+    def test_grandmaster_is_read_from_value_not_data_title(self):
+        """data-title on that option is "grandmaster_and_champion" — a label for
+        the fact that grandmaster includes champion, not a division. Reading it
+        reported a Blizzard rank that does not exist."""
+        assert "grandmaster_and_champion" not in parse_rotation_tiers(self._SELECT)
+
+    def test_the_all_tiers_sentinel_is_not_a_division(self):
+        assert "all" not in parse_rotation_tiers(self._SELECT)
+
+    def test_shell_page_yields_nothing_rather_than_guessing(self):
+        """Without query parameters Blizzard serves a page with no dropdown.
+        That must warn, not report every division as retired."""
+        assert parse_rotation_tiers("<html><body>no dropdown</body></html>") == set()
+
+    def test_an_unknown_division_fails(self):
+        """The whole reason this check exists: a rank we cannot construct is a
+        ValueError on every profile that holds it."""
+        drift.failures.clear()
+        drift.warnings.clear()
+        html = self._SELECT.replace(
+            "</select>",
+            '<option data-title="champion" value="Champion">Champion</option></select>',
+        )
+
+        drift.check_competitive_divisions(html)
+
+        assert len(drift.failures) == 1
+        assert "champion" in drift.failures[0]
+
+    def test_a_division_missing_from_the_dropdown_only_warns(self):
+        """Dropping one we still parse would break profiles rather than fix
+        anything, so this direction must never fail the run."""
+        drift.failures.clear()
+        drift.warnings.clear()
+
+        drift.check_competitive_divisions(self._SELECT)
+
+        assert drift.failures == []
+        assert len(drift.warnings) == 1
+
+    def test_a_missing_dropdown_warns_rather_than_retiring_every_division(self):
+        drift.failures.clear()
+        drift.warnings.clear()
+
+        drift.check_competitive_divisions("<html><body>no dropdown</body></html>")
+
+        assert drift.failures == []
+        assert len(drift.warnings) == 1
+
+    def test_the_live_dropdown_matches_the_enum(self):
+        """The check compares against CompetitiveDivisionFilter, so the fixture
+        of what Blizzard serves today must be a subset of it — otherwise the
+        daily run is red for a reason that has nothing to do with Blizzard."""
+        blizzard_today = {
+            "bronze",
+            "silver",
+            "gold",
+            "platinum",
+            "emerald",
+            "diamond",
+            "master",
+            "grandmaster",
+        }
+
+        assert blizzard_today <= {d.value for d in CompetitiveDivisionFilter}
 
 
 def _days_ago(days: int) -> str:

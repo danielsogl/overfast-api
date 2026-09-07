@@ -100,6 +100,7 @@ are the ones that say *nothing does*.
 | maps.csv arcade / retired / workshop / Stadium (28) | wiki only | **nothing** — manual |
 | maps.csv location, country_code | wiki infobox `{{flag\|xx}}` | **nothing** — manual, audited once (see below) |
 | gamemodes.csv descriptions | none; Blizzard deleted the source | **nothing** — frozen |
+| `CompetitiveDivision` enum | the rates page tier dropdown | `check_competitive_divisions`, daily |
 | static/maps/*.jpg | none | the route test asserts presence only |
 | CSV/asset internal consistency | ourselves | `tests/domain/test_static_data_integrity.py` |
 
