@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v4.18.0 (2026-09-07)
+
+### Documentation
+
+- **data**: Re-audit the hitpoint fallback source against all 53 heroes
+  ([#42](https://github.com/danielsogl/overfast-api/pull/42),
+  [`89cc8bf`](https://github.com/danielsogl/overfast-api/commit/89cc8bf8981d07169192e8534bffb12ddae6b1a1))
+
+### Features
+
+- **drift**: Watch Blizzard's competitive divisions daily
+  ([#41](https://github.com/danielsogl/overfast-api/pull/41),
+  [`1d898dd`](https://github.com/danielsogl/overfast-api/commit/1d898dd13ad6988b1ef19ced5033f2b1d89070d2))
+
+
 ## v4.17.3 (2026-09-07)
 
 ### Bug Fixes
