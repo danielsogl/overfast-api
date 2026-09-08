@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v4.21.3 (2026-09-08)
+
+### Bug Fixes
+
+- **nginx**: Stop the fallback rewriting every request method to GET
+  ([#44](https://github.com/danielsogl/overfast-api/pull/44),
+  [`10311c2`](https://github.com/danielsogl/overfast-api/commit/10311c29e3b80471cf0c2e4b20717b684a36656b))
+
+
 ## v4.21.2 (2026-09-08)
 
 ### Bug Fixes
