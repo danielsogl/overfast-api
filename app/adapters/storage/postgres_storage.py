@@ -422,6 +422,94 @@ class PostgresStorage(metaclass=Singleton):
     # Maintenance
     # ------------------------------------------------------------------ #
 
+    # ------------------------------------------------------------------ #
+    # Push subscriptions
+    # ------------------------------------------------------------------ #
+
+    async def upsert_push_subscription(
+        self,
+        token: str,
+        platform: str,
+        locale: str,
+        player_ids: list[str],
+    ) -> None:
+        """Register or refresh one device's rank-alert subscription.
+
+        The app re-sends this on every launch, so the write is an upsert and
+        ``updated_at`` doubles as the liveness stamp the pruning job reads.
+        """
+        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+            await conn.execute(
+                """INSERT INTO push_subscriptions
+                       (token, platform, locale, player_ids)
+                   VALUES ($1, $2, $3, $4)
+                   ON CONFLICT (token) DO UPDATE
+                       SET platform   = EXCLUDED.platform,
+                           locale     = EXCLUDED.locale,
+                           player_ids = EXCLUDED.player_ids,
+                           updated_at = NOW()""",
+                token,
+                platform,
+                locale,
+                player_ids,
+            )
+
+    async def delete_push_subscription(self, token: str) -> bool:
+        """Drop one device's subscription. True when a row was removed."""
+        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+            result = await conn.execute(
+                "DELETE FROM push_subscriptions WHERE token = $1", token
+            )
+        return int(result.split()[-1]) > 0
+
+    async def get_push_subscribed_player_ids(self) -> list[str]:
+        """Every player at least one live device watches, de-duplicated.
+
+        This is the poller's work list: exactly the profiles worth refreshing
+        even when nobody has the app open.
+        """
+        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+            rows = await conn.fetch(
+                """SELECT DISTINCT UNNEST(player_ids) AS player_id
+                   FROM push_subscriptions"""
+            )
+        return [row["player_id"] for row in rows]
+
+    async def get_push_subscriptions_for_player(self, player_id: str) -> list[dict]:
+        """Devices watching ``player_id``, as ``{token, platform, locale}``."""
+        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+            rows = await conn.fetch(
+                """SELECT token, platform, locale
+                   FROM push_subscriptions
+                   WHERE player_ids @> ARRAY[$1]::text[]""",
+                player_id,
+            )
+        return [dict(row) for row in rows]
+
+    async def delete_old_push_subscriptions(self, max_age_seconds: int) -> int:
+        """Drop subscriptions no launch has refreshed within max_age_seconds.
+
+        A device that uninstalled the app stops re-upserting, so age is the
+        only signal that it is gone. FCM also reports unregistered tokens on
+        send; this catches the ones that never get sent to.
+
+        Returns:
+            Number of deleted rows.
+        """
+        cutoff = time.time() - max_age_seconds
+        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+            result = await conn.execute(
+                "DELETE FROM push_subscriptions WHERE updated_at < TO_TIMESTAMP($1)",
+                cutoff,
+            )
+        deleted = int(result.split()[-1])
+        logger.info(
+            "Deleted {} stale push subscriptions (max_age={}s)",
+            deleted,
+            max_age_seconds,
+        )
+        return deleted
+
     async def delete_old_player_profiles(self, max_age_seconds: int) -> int:
         """Delete player profiles not updated within max_age_seconds.
 
@@ -483,5 +571,5 @@ class PostgresStorage(metaclass=Singleton):
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             await conn.execute(
                 "TRUNCATE static_data, player_profiles, player_snapshots, "
-                "hero_stats_snapshots"
+                "hero_stats_snapshots, push_subscriptions"
             )

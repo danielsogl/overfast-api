@@ -184,6 +184,17 @@ class PlayerPlatform(StrEnum):
     PC = "pc"
 
 
+class PushPlatform(StrEnum):
+    """Platform an FCM registration token was issued for.
+
+    Deliberately separate from PlayerPlatform, which describes where a player
+    plays Overwatch. A console player carries an iPhone.
+    """
+
+    ANDROID = "android"
+    IOS = "ios"
+
+
 class CompetitiveDivision(StrEnum):
     """Competitive division of a rank"""
 

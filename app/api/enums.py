@@ -11,6 +11,7 @@ class RouteTag(StrEnum):
     MAPS = "🗺️ Maps"
     PLAYERS = "🎮 Players"
     PATCH_NOTES = "📝 Patch Notes"
+    PUSH = "🔔 Push"
 
 
 class Profiler(StrEnum):

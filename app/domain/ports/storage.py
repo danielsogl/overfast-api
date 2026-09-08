@@ -183,6 +183,52 @@ class StoragePort(Protocol):
         """
         ...
 
+    async def upsert_push_subscription(
+        self,
+        token: str,
+        platform: str,
+        locale: str,
+        player_ids: list[str],
+    ) -> None:
+        """Register or refresh one device's rank-alert subscription"""
+        ...
+
+    async def delete_push_subscription(self, token: str) -> bool:
+        """
+        Drop one device's subscription.
+
+        Returns:
+            True when a row was removed
+        """
+        ...
+
+    async def get_push_subscribed_player_ids(self) -> list[str]:
+        """
+        Every player at least one live device watches, de-duplicated.
+
+        Returns:
+            Player identifiers worth refreshing without an incoming request
+        """
+        ...
+
+    async def get_push_subscriptions_for_player(self, player_id: str) -> list[dict]:
+        """
+        Devices watching a given player.
+
+        Returns:
+            One ``{token, platform, locale}`` per subscribed device
+        """
+        ...
+
+    async def delete_old_push_subscriptions(self, max_age_seconds: int) -> int:
+        """
+        Drop subscriptions no launch has refreshed within max_age_seconds.
+
+        Returns:
+            Number of deleted rows
+        """
+        ...
+
     async def delete_old_player_profiles(self, max_age_seconds: int) -> int:
         """
         Delete player profiles not updated within max_age_seconds.

@@ -112,3 +112,7 @@ GamemodeServiceDep = Annotated[GamemodeService, Depends(get_gamemode_service)]
 RoleServiceDep = Annotated[RoleService, Depends(get_role_service)]
 PatchNotesServiceDep = Annotated[PatchNotesService, Depends(get_patch_notes_service)]
 PlayerServiceDep = Annotated[PlayerService, Depends(get_player_service)]
+# Push subscriptions are a plain row with no domain logic around them, so the
+# router talks to storage directly rather than through a service that would
+# only forward five calls.
+StorageDep = Annotated[StoragePort, Depends(get_storage)]

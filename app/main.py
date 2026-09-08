@@ -16,6 +16,7 @@ from app.api.routers.heroes import router as heroes
 from app.api.routers.maps import router as maps
 from app.api.routers.patch_notes import router as patch_notes
 from app.api.routers.players import router as players
+from app.api.routers.push import router as push
 from app.api.routers.roles import router as roles
 from app.config import settings
 from app.infrastructure.logger import logger
@@ -139,6 +140,7 @@ app.include_router(gamemodes, prefix="/gamemodes")
 app.include_router(maps, prefix="/maps")
 app.include_router(patch_notes, prefix="/patch-notes")
 app.include_router(players, prefix="/players")
+app.include_router(push, prefix="/push")
 
 logger.info("OverFast API... Online !")
 logger.info("Version : {}", settings.app_version)

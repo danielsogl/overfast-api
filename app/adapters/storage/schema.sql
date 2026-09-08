@@ -137,3 +137,33 @@ CREATE TABLE IF NOT EXISTS hero_stats_snapshots (
 -- existing rows simply upgrade themselves the first time they are served.
 ALTER TABLE static_data     ADD COLUMN IF NOT EXISTS parsed JSONB;
 ALTER TABLE player_profiles ADD COLUMN IF NOT EXISTS parsed JSONB;
+
+-- Push subscriptions: one row per device, listing the players it wants rank
+-- alerts for.
+--
+-- This is the first table here that Blizzard cannot hand back, which the note
+-- at the top of this file names as the condition for revisiting the
+-- no-migration-tool decision. It does not, because the rows stay regenerable
+-- from the other side: the app re-upserts its subscription on every launch, so
+-- a DROP TABLE costs at most one notification per device and repairs itself
+-- as people open the app. Rows nobody refreshes are pruned by age, which is
+-- also how a device that uninstalled the app leaves.
+--
+-- The token is an FCM registration id. It is a device identifier, so it is
+-- never logged in full and never returned by any read path.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    token       TEXT        PRIMARY KEY,
+    platform    TEXT        NOT NULL,
+    locale      TEXT        NOT NULL,
+    player_ids  TEXT[]      NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- The poller asks "who watches this player" once per changed rank, and "which
+-- players does anyone watch" once per run. Both are covered by the GIN index.
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_player_ids
+    ON push_subscriptions USING GIN (player_ids);
+
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_updated_at
+    ON push_subscriptions (updated_at);

@@ -33,6 +33,8 @@ class FakeStorage:
         # (taken_on, platform, gamemode, region) -> payload, again mirroring the
         # real primary key.
         self._hero_stats: dict[tuple[date, str, str, str], list[dict]] = {}
+        # token -> {platform, locale, player_ids, updated_at}
+        self._push: dict[str, dict] = {}
 
     async def initialize(self) -> None:
         pass
@@ -250,9 +252,44 @@ class FakeStorage:
             del self._hero_stats[key]
         return len(stale)
 
+    async def upsert_push_subscription(
+        self,
+        token: str,
+        platform: str,
+        locale: str,
+        player_ids: list[str],
+    ) -> None:
+        self._push[token] = {
+            "platform": platform,
+            "locale": locale,
+            "player_ids": list(player_ids),
+            "updated_at": time.time(),
+        }
+
+    async def delete_push_subscription(self, token: str) -> bool:
+        return self._push.pop(token, None) is not None
+
+    async def get_push_subscribed_player_ids(self) -> list[str]:
+        return sorted({pid for row in self._push.values() for pid in row["player_ids"]})
+
+    async def get_push_subscriptions_for_player(self, player_id: str) -> list[dict]:
+        return [
+            {"token": token, "platform": row["platform"], "locale": row["locale"]}
+            for token, row in self._push.items()
+            if player_id in row["player_ids"]
+        ]
+
+    async def delete_old_push_subscriptions(self, max_age_seconds: int) -> int:
+        cutoff = time.time() - max_age_seconds
+        stale = [t for t, row in self._push.items() if row["updated_at"] < cutoff]
+        for token in stale:
+            del self._push[token]
+        return len(stale)
+
     async def clear_all_data(self) -> None:
         self._static.clear()
         self._profiles.clear()
         self._battletag_index.clear()
         self._snapshots.clear()
         self._hero_stats.clear()
+        self._push.clear()
