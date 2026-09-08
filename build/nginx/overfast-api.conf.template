@@ -92,7 +92,7 @@ server {
     # Handle OPTIONS method here
     if ($request_method = OPTIONS) {
       add_header Access-Control-Allow-Origin "*" always;
-      add_header Access-Control-Allow-Methods "GET, HEAD, OPTIONS";
+      add_header Access-Control-Allow-Methods "GET, HEAD, OPTIONS, PUT, DELETE";
       add_header Access-Control-Allow-Headers "*";
       return 204;
     }
@@ -136,8 +136,21 @@ server {
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_pass_request_headers on;
 
-    # Ensure HEAD requests are passed as GET
-    proxy_method GET;
+    # HEAD is rewritten to GET so the fallback renders a body; every other
+    # method has to reach FastAPI unchanged.
+    #
+    # This was a bare `proxy_method GET`, written when every route in this API
+    # was a GET and HEAD was the only method that needed rewriting. It rewrote
+    # the method on *every* fallback request, so PUT /push/subscriptions
+    # arrived at FastAPI as GET /push/subscriptions and came back 405. The
+    # push routes are the first non-GET routes here, and they were dead in
+    # production from the day they shipped with the whole suite green: pytest
+    # talks to FastAPI directly and never crosses nginx.
+    set $upstream_method $request_method;
+    if ($request_method = HEAD) {
+      set $upstream_method GET;
+    }
+    proxy_method $upstream_method;
 
     # Tight connect timeout so a dead-instance attempt fails quickly
     # and clients that hit a stale DNS answer get retried by Caddy.

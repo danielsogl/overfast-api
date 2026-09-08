@@ -217,6 +217,36 @@ DIRECT_COUNT=$(fetch "/heroes?role=damage" | jq 'length')
     || fail "redirect changed the result: $REDIRECTED_COUNT vs $DIRECT_COUNT heroes"
 echo "  $DIRECT_COUNT heroes, filter survives the redirect"
 
+# ── Non-GET methods survive nginx ────────────────────────────────────────────
+#
+# @fallback carried a bare `proxy_method GET` for years, which was harmless
+# while every route was a GET. It rewrote the method on every fallback
+# request, so the push routes — the first non-GET routes in this API — reached
+# FastAPI as GETs and answered 405 in production while pytest stayed green:
+# the test client talks to FastAPI directly and never crosses nginx.
+#
+# The assertion is the method, not the push feature. Any future POST/PUT/PATCH
+# route is covered by the same two requests.
+echo "=== Non-GET methods through nginx ==="
+SMOKE_TOKEN="smoke-test-token-$$"
+PUT_BODY=$(mktemp)
+CODE=$(curl -s -o "$PUT_BODY" -w "%{http_code}" -X PUT \
+    -H 'content-type: application/json' \
+    -d "{\"token\":\"$SMOKE_TOKEN\",\"platform\":\"ios\",\"locale\":\"en\",\"environment\":\"sandbox\",\"player_ids\":[\"TeKrop-2217\"]}" \
+    "$BASE_URL/push/subscriptions")
+if [ "$CODE" = "200" ]; then
+    WATCHED=$(jq -r '.watched_players' "$PUT_BODY")
+    [ "$WATCHED" = "1" ] || fail "PUT /push/subscriptions returned watched_players=$WATCHED"
+else
+    fail "PUT /push/subscriptions -> HTTP $CODE $(cat "$PUT_BODY")"
+fi
+rm -f "$PUT_BODY"
+
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+    "$BASE_URL/push/subscriptions/$SMOKE_TOKEN")
+[ "$CODE" = "204" ] || fail "DELETE /push/subscriptions/{token} -> HTTP $CODE"
+echo "  PUT and DELETE reach FastAPI unrewritten"
+
 # ── Conditional requests (ETag / If-None-Match) ──────────────────────────────
 #
 # Two different pieces of software answer a request here, and only one of them
