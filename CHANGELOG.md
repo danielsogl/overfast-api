@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v4.21.0 (2026-09-08)
+
+### Features
+
+- **push**: Deliver rank alerts to APNs and FCM
+  ([`cc03fbc`](https://github.com/danielsogl/overfast-api/commit/cc03fbce780e835a18974a9e8e88cf804e2d76da))
+
+- **push**: Poll watched players and route by APNs environment
+  ([`2b0a6f8`](https://github.com/danielsogl/overfast-api/commit/2b0a6f85531d4c4e912fa2e6db3df537cfb5f092))
+
+### Testing
+
+- **push**: Cover the poller, and carry the token environment through it
+  ([`5d075ed`](https://github.com/danielsogl/overfast-api/commit/5d075ed8d756877342739714350f7624acd4a68c))
+
+
 ## v4.20.0 (2026-09-08)
 
 ### Bug Fixes
