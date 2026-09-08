@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v4.21.1 (2026-09-08)
+
+### Bug Fixes
+
+- **push**: Give the subscription routes explicit operation ids
+  ([`72ac48a`](https://github.com/danielsogl/overfast-api/commit/72ac48a0315acc60491d39eb9fa4462ca39210b5))
+
+
 ## v4.21.0 (2026-09-08)
 
 ### Features
