@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v4.21.2 (2026-09-08)
+
+### Bug Fixes
+
+- **push**: Stop a malformed message from deleting every subscription
+  ([`1c032e4`](https://github.com/danielsogl/overfast-api/commit/1c032e4d138c21facae5ca722d5d4d8407678ced))
+
+
 ## v4.21.1 (2026-09-08)
 
 ### Bug Fixes
