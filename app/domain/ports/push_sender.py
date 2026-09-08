@@ -17,6 +17,8 @@ class PushMessage:
     platform: str
     title: str
     body: str
+    # Which APNs host and key may deliver this. Ignored on Android.
+    environment: str = "production"
 
 
 class PushSenderPort(Protocol):

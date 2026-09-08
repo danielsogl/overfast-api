@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field
 
-from app.domain.enums import PushPlatform
+from app.domain.enums import PushEnvironment, PushPlatform
 
 # One row per device, and the app caps a free user at 5 followed players and a
 # subscriber at 50. Anything past that is not a real roster.
@@ -37,6 +37,17 @@ class PushSubscription(BaseModel):
         pattern=r"^[a-z]{2}(-[A-Za-z]{2,4})?$",
         max_length=10,
         examples=["de", "zh-Hans"],
+    )
+    environment: PushEnvironment = Field(
+        PushEnvironment.PRODUCTION,
+        description=(
+            "Which APNs environment the token belongs to. A property of the "
+            "build : a development-provisioned binary registers against "
+            "sandbox, a TestFlight or App Store one against production, and "
+            "APNs rejects a token on the host it does not belong to. Ignored "
+            "for Android, where FCM has one environment."
+        ),
+        examples=["production"],
     )
     player_ids: list[str] = Field(
         ...,

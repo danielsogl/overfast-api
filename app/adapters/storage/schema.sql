@@ -156,6 +156,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
     platform    TEXT        NOT NULL,
     locale      TEXT        NOT NULL,
     player_ids  TEXT[]      NOT NULL,
+    environment TEXT        NOT NULL DEFAULT 'production',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -167,3 +168,7 @@ CREATE INDEX IF NOT EXISTS idx_push_subscriptions_player_ids
 
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_updated_at
     ON push_subscriptions (updated_at);
+
+-- Added after the table shipped: existing rows are production, which is what
+-- every store build registers as.
+ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS environment TEXT NOT NULL DEFAULT 'production';

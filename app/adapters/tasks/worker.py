@@ -27,6 +27,7 @@ from taskiq.schedule_sources import LabelScheduleSource
 from taskiq.scheduler.scheduler import TaskiqScheduler
 from taskiq_fastapi import init as taskiq_init
 
+from app.adapters.push.senders import build_push_sender
 from app.adapters.tasks.task_registry import TASK_MAP
 from app.adapters.tasks.valkey_broker import ValkeyListBroker
 from app.api.dependencies import (
@@ -49,6 +50,7 @@ from app.domain.services import (
     MapService,
     PatchNotesService,
     PlayerService,
+    PushService,
     RoleService,
 )
 from app.infrastructure.logger import logger
@@ -247,6 +249,33 @@ async def cleanup_stale_players(storage: StorageDep) -> None:
         return
 
     logger.info("[Worker] cleanup_stale_players: Done.")
+
+
+@broker.task(schedule=[{"cron": "0 */4 * * *"}])
+async def notify_rank_changes(
+    storage: StorageDep, player_service: PlayerServiceDep
+) -> None:
+    """Poll watched players and push their rank moves (every four hours).
+
+    Four-hourly rather than daily because a rank move is only interesting while
+    the player still remembers the game that caused it. The cost is bounded by
+    the number of *subscribed* players, not by the user base.
+
+    Pruning runs even when nothing can be delivered: a host without credentials
+    still collects registrations, and letting dead rows accumulate there would
+    hand the poller a work list of devices that left months ago.
+    """
+    sender = build_push_sender()
+    if sender is None:
+        logger.debug("[Worker] notify_rank_changes: push disabled, skipping.")
+        return
+
+    push_service = PushService(storage, player_service, sender)
+    try:
+        await push_service.prune_stale_subscriptions()
+        await push_service.notify_rank_changes()
+    except Exception:  # noqa: BLE001
+        logger.exception("[Worker] notify_rank_changes: Failed.")
 
 
 @broker.task(schedule=[{"cron": "0 5 * * *"}])

@@ -53,17 +53,19 @@ class Settings(BaseSettings):
     # subscriptions — it just never delivers.
     push_enabled: bool = False
 
-    # Apple Push Notification service. `eas credentials --platform ios` creates
-    # the key in the Apple Developer account and exports it through its
-    # credentials.json option; only the .p8 reaches this host.
+    # Apple Push Notification service. Apple now issues environment-bound keys:
+    # verified 2026-09-08, each of ours answers a deliberately invalid device
+    # token with 400 BadDeviceToken on its own host and 403
+    # BadEnvironmentKeyInToken on the other. So which key signs a notification
+    # follows the token, not the deployment — a TestFlight build and a local
+    # `expo run:ios` build can be subscribed at the same time.
     apns_key_path: str | None = None
     apns_key_id: str | None = None
+    apns_sandbox_key_path: str | None = None
+    apns_sandbox_key_id: str | None = None
     apns_team_id: str = "9G42264X4W"
     # The app's bundle id, which APNs requires as the `apns-topic` header.
     apns_topic: str = "com.mytech.OverwatchStats"
-    # Development builds get sandbox tokens and production builds do not; the
-    # two environments are separate hosts and a token is only valid on one.
-    apns_use_sandbox: bool = False
 
     # Firebase Cloud Messaging (Android). Service account JSON of the Firebase
     # project the app is registered in.

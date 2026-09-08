@@ -195,6 +195,19 @@ class PushPlatform(StrEnum):
     IOS = "ios"
 
 
+class PushEnvironment(StrEnum):
+    """Which APNs host and signing key a device token belongs to.
+
+    A property of the build, not the device: a development-provisioned binary
+    registers against APNs sandbox and an App Store one against production,
+    and a token is rejected by the host it does not belong to. Meaningless on
+    Android, where FCM has one environment.
+    """
+
+    PRODUCTION = "production"
+    SANDBOX = "sandbox"
+
+
 class CompetitiveDivision(StrEnum):
     """Competitive division of a rank"""
 

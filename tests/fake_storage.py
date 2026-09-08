@@ -258,10 +258,12 @@ class FakeStorage:
         platform: str,
         locale: str,
         player_ids: list[str],
+        environment: str = "production",
     ) -> None:
         self._push[token] = {
             "platform": platform,
             "locale": locale,
+            "environment": environment,
             "player_ids": list(player_ids),
             "updated_at": time.time(),
         }
@@ -274,7 +276,12 @@ class FakeStorage:
 
     async def get_push_subscriptions_for_player(self, player_id: str) -> list[dict]:
         return [
-            {"token": token, "platform": row["platform"], "locale": row["locale"]}
+            {
+                "token": token,
+                "platform": row["platform"],
+                "locale": row["locale"],
+                "environment": row["environment"],
+            }
             for token, row in self._push.items()
             if player_id in row["player_ids"]
         ]

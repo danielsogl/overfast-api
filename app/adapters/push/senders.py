@@ -20,7 +20,7 @@ import httpx2
 
 from app.adapters.push.token_source import ApnsTokenSource, GoogleTokenSource
 from app.config import settings
-from app.domain.enums import PushPlatform
+from app.domain.enums import PushEnvironment, PushPlatform
 from app.infrastructure.logger import logger
 
 if TYPE_CHECKING:
@@ -28,8 +28,13 @@ if TYPE_CHECKING:
 
     from app.domain.ports.push_sender import PushMessage, PushSenderPort
 
-_APNS_HOST = "https://api.push.apple.com"
-_APNS_SANDBOX_HOST = "https://api.sandbox.push.apple.com"
+# Apple issues environment-bound keys, and each host accepts only its own.
+# Verified 2026-09-08: the other host answers 403 BadEnvironmentKeyInToken for
+# a token that its own host merely calls a bad device token.
+_APNS_HOSTS = {
+    PushEnvironment.PRODUCTION.value: "https://api.push.apple.com",
+    PushEnvironment.SANDBOX.value: "https://api.sandbox.push.apple.com",
+}
 
 # APNs says a token is dead with 410 Gone, and 400 BadDeviceToken for one that
 # was never valid. Anything else (429, 5xx) is transient and keeps the row.
@@ -54,9 +59,8 @@ def _redact(token: str) -> str:
 class ApnsSender:
     """Sends to Apple Push Notification service over HTTP/2."""
 
-    def __init__(self, key_path: str, key_id: str) -> None:
-        self._tokens = ApnsTokenSource(key_path, key_id, settings.apns_team_id)
-        self._host = _APNS_SANDBOX_HOST if settings.apns_use_sandbox else _APNS_HOST
+    def __init__(self, tokens_by_environment: dict[str, ApnsTokenSource]) -> None:
+        self._tokens = tokens_by_environment
 
     async def send(self, messages: Sequence[PushMessage]) -> list[str]:
         if not messages:
@@ -71,11 +75,19 @@ class ApnsSender:
 
     async def _send_one(self, client: httpx2.AsyncClient, message: PushMessage) -> bool:
         """True when the token should be dropped."""
+        tokens = self._tokens.get(message.environment)
+        host = _APNS_HOSTS.get(message.environment)
+        if tokens is None or host is None:
+            # A build registered against an environment this deployment has no
+            # key for. Not the device's fault, so the row stays.
+            logger.warning("[push] No APNs key for environment {}", message.environment)
+            return False
+
         try:
             response = await client.post(
-                f"{self._host}/3/device/{message.token}",
+                f"{host}/3/device/{message.token}",
                 headers={
-                    "authorization": f"bearer {self._tokens.get()}",
+                    "authorization": f"bearer {tokens.get()}",
                     "apns-topic": settings.apns_topic,
                     "apns-push-type": "alert",
                     "apns-priority": "10",
@@ -230,9 +242,18 @@ def build_push_sender() -> PushSender | None:
     if not settings.push_enabled:
         return None
 
-    apns = None
+    apns_tokens: dict[str, ApnsTokenSource] = {}
     if settings.apns_key_path and settings.apns_key_id:
-        apns = ApnsSender(settings.apns_key_path, settings.apns_key_id)
+        apns_tokens[PushEnvironment.PRODUCTION.value] = ApnsTokenSource(
+            settings.apns_key_path, settings.apns_key_id, settings.apns_team_id
+        )
+    if settings.apns_sandbox_key_path and settings.apns_sandbox_key_id:
+        apns_tokens[PushEnvironment.SANDBOX.value] = ApnsTokenSource(
+            settings.apns_sandbox_key_path,
+            settings.apns_sandbox_key_id,
+            settings.apns_team_id,
+        )
+    apns = ApnsSender(apns_tokens) if apns_tokens else None
 
     fcm = None
     if settings.fcm_service_account_path:

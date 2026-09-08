@@ -15,6 +15,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 from app.adapters.push.senders import ApnsSender, FcmSender, PushSender
+from app.adapters.push.token_source import ApnsTokenSource
+from app.domain.enums import PushEnvironment
 from app.domain.ports.push_sender import PushMessage
 
 if TYPE_CHECKING:
@@ -58,6 +60,13 @@ def service_account_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return path
 
 
+def _apns(key_path: Path, environment: str = PushEnvironment.PRODUCTION.value):
+    """An ApnsSender holding one real signing key for `environment`."""
+    return ApnsSender(
+        {environment: ApnsTokenSource(str(key_path), "ABC1234567", "9G42264X4W")}
+    )
+
+
 def _transport(handler) -> httpx2.MockTransport:
     return httpx2.MockTransport(handler)
 
@@ -90,7 +99,7 @@ class TestApnsSender:
             monkeypatch, lambda _: httpx2.Response(httpx2.codes.OK, json={})
         )
 
-        gone = await ApnsSender(str(apns_key_path), "ABC1234567").send([IOS])
+        gone = await _apns(apns_key_path).send([IOS])
 
         assert gone == []
         request = seen[0]
@@ -110,7 +119,7 @@ class TestApnsSender:
             lambda _: httpx2.Response(httpx2.codes.GONE, json={"reason": reason}),
         )
 
-        gone = await ApnsSender(str(apns_key_path), "ABC1234567").send([IOS])
+        gone = await _apns(apns_key_path).send([IOS])
 
         assert gone == [IOS.token]
 
@@ -126,7 +135,7 @@ class TestApnsSender:
             ),
         )
 
-        gone = await ApnsSender(str(apns_key_path), "ABC1234567").send([IOS])
+        gone = await _apns(apns_key_path).send([IOS])
 
         assert gone == []
 
@@ -139,9 +148,42 @@ class TestApnsSender:
         )
         messages = [PushMessage(f"token-{i:08d}", "ios", "T", "B") for i in range(3)]
 
-        await ApnsSender(str(apns_key_path), "ABC1234567").send(messages)
+        await _apns(apns_key_path).send(messages)
 
         assert len({r.headers["authorization"] for r in seen}) == 1
+
+    @pytest.mark.asyncio
+    async def test_keeps_a_token_whose_environment_has_no_key(
+        self, apns_key_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A sandbox build on a production-only deployment is not a dead device."""
+
+        def handler(_: httpx2.Request) -> httpx2.Response:
+            pytest.fail("must not send without a key for the environment")
+
+        _patch_client(monkeypatch, handler)
+        sandbox = PushMessage(
+            "apns-token-cccccccc", "ios", "T", "B", PushEnvironment.SANDBOX.value
+        )
+
+        gone = await _apns(apns_key_path).send([sandbox])
+
+        assert gone == []
+
+    @pytest.mark.asyncio
+    async def test_picks_the_host_matching_the_token_environment(
+        self, apns_key_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        seen = _patch_client(
+            monkeypatch, lambda _: httpx2.Response(httpx2.codes.OK, json={})
+        )
+        sandbox = PushMessage(
+            "apns-token-cccccccc", "ios", "T", "B", PushEnvironment.SANDBOX.value
+        )
+
+        await _apns(apns_key_path, PushEnvironment.SANDBOX.value).send([sandbox])
+
+        assert seen[0].url.host == "api.sandbox.push.apple.com"
 
 
 class TestFcmSender:

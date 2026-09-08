@@ -6,6 +6,7 @@ from .hero_service import HeroService
 from .map_service import MapService
 from .patch_notes_service import PatchNotesService
 from .player_service import PlayerService
+from .push_service import PushService
 from .role_service import RoleService
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "MapService",
     "PatchNotesService",
     "PlayerService",
+    "PushService",
     "RoleService",
     "SwrResult",
 ]

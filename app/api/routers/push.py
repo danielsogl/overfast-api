@@ -44,6 +44,7 @@ async def register_push_subscription(
         subscription.platform.value,
         subscription.locale,
         subscription.player_ids,
+        subscription.environment.value,
     )
     return PushSubscriptionAck(watched_players=len(subscription.player_ids))
 

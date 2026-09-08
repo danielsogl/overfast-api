@@ -189,6 +189,7 @@ class StoragePort(Protocol):
         platform: str,
         locale: str,
         player_ids: list[str],
+        environment: str = "production",
     ) -> None:
         """Register or refresh one device's rank-alert subscription"""
         ...
@@ -216,7 +217,7 @@ class StoragePort(Protocol):
         Devices watching a given player.
 
         Returns:
-            One ``{token, platform, locale}`` per subscribed device
+            One ``{token, platform, locale, environment}`` per device
         """
         ...
 

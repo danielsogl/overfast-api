@@ -432,6 +432,7 @@ class PostgresStorage(metaclass=Singleton):
         platform: str,
         locale: str,
         player_ids: list[str],
+        environment: str = "production",
     ) -> None:
         """Register or refresh one device's rank-alert subscription.
 
@@ -441,17 +442,19 @@ class PostgresStorage(metaclass=Singleton):
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             await conn.execute(
                 """INSERT INTO push_subscriptions
-                       (token, platform, locale, player_ids)
-                   VALUES ($1, $2, $3, $4)
+                       (token, platform, locale, player_ids, environment)
+                   VALUES ($1, $2, $3, $4, $5)
                    ON CONFLICT (token) DO UPDATE
-                       SET platform   = EXCLUDED.platform,
-                           locale     = EXCLUDED.locale,
-                           player_ids = EXCLUDED.player_ids,
-                           updated_at = NOW()""",
+                       SET platform    = EXCLUDED.platform,
+                           locale      = EXCLUDED.locale,
+                           player_ids  = EXCLUDED.player_ids,
+                           environment = EXCLUDED.environment,
+                           updated_at  = NOW()""",
                 token,
                 platform,
                 locale,
                 player_ids,
+                environment,
             )
 
     async def delete_push_subscription(self, token: str) -> bool:
@@ -476,10 +479,11 @@ class PostgresStorage(metaclass=Singleton):
         return [row["player_id"] for row in rows]
 
     async def get_push_subscriptions_for_player(self, player_id: str) -> list[dict]:
-        """Devices watching ``player_id``, as ``{token, platform, locale}``."""
+        """Devices watching ``player_id``, as ``{token, platform, locale,
+        environment}``."""
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             rows = await conn.fetch(
-                """SELECT token, platform, locale
+                """SELECT token, platform, locale, environment
                    FROM push_subscriptions
                    WHERE player_ids @> ARRAY[$1]::text[]""",
                 player_id,
