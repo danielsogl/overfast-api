@@ -48,7 +48,15 @@ services:
       # Push credentials, read-only. APNS_KEY_PATH / FCM_SERVICE_ACCOUNT_PATH in .env
       # point into this mount. Absent on a host that has not provisioned them,
       # which simply leaves push disabled.
-      - ${APP_VOLUME_PATH:-/tmp}/secrets:/code/secrets:ro
+      #
+      # Defaults to the project directory, not /tmp, and deliberately differs
+      # from the log mounts above. APP_VOLUME_PATH is unset on the production
+      # host -- `env_file: ${APP_VOLUME_PATH:-.}/.env` is what proves it, since
+      # the API would have no configuration at all otherwise -- so a /tmp
+      # default is not a fallback here, it is the live path. Logs may be lost
+      # to a reboot; signing keys becoming unreadable would silently disable
+      # push until someone re-copied them.
+      - ${APP_VOLUME_PATH:-.}/secrets:/code/secrets:ro
     depends_on:
       valkey:
         condition: service_healthy
@@ -76,7 +84,15 @@ services:
       # Push credentials, read-only. APNS_KEY_PATH / FCM_SERVICE_ACCOUNT_PATH in .env
       # point into this mount. Absent on a host that has not provisioned them,
       # which simply leaves push disabled.
-      - ${APP_VOLUME_PATH:-/tmp}/secrets:/code/secrets:ro
+      #
+      # Defaults to the project directory, not /tmp, and deliberately differs
+      # from the log mounts above. APP_VOLUME_PATH is unset on the production
+      # host -- `env_file: ${APP_VOLUME_PATH:-.}/.env` is what proves it, since
+      # the API would have no configuration at all otherwise -- so a /tmp
+      # default is not a fallback here, it is the live path. Logs may be lost
+      # to a reboot; signing keys becoming unreadable would silently disable
+      # push until someone re-copied them.
+      - ${APP_VOLUME_PATH:-.}/secrets:/code/secrets:ro
     depends_on:
       valkey:
         condition: service_healthy
