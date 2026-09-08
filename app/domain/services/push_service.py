@@ -100,6 +100,7 @@ class PushService:
                     platform=subscription["platform"],
                     title=title,
                     body=body,
+                    environment=subscription["environment"],
                 )
             )
         return messages
