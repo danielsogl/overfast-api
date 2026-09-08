@@ -15,9 +15,13 @@ docker_run := "BUILD_TARGET=dev " + docker_compose + " run \
     --volume ${PWD}/htmlcov:/code/htmlcov \
     --volume ${PWD}/logs:/code/logs \
     --volume ${PWD}/static:/code/static \
-    --publish 8000:8000 \
     --rm \
     app"
+
+# Only `start` serves HTTP. Publishing the port on every `run` meant a leftover
+# container — or a second `just test` — failed the suite with "port is already
+# allocated", a message about nothing the tests do.
+docker_run_served := docker_run + " --publish 8000:8000"
 
 # print recipe names and comments as help
 help:
@@ -31,7 +35,7 @@ build:
 # run OverFastAPI application (dev mode)
 start:
     @echo "Launching OverFastAPI in dev mode with autoreload..."
-    {{ docker_run }} uv run fastapi dev app/main.py --host 0.0.0.0
+    {{ docker_run_served }} uv run fastapi dev app/main.py --host 0.0.0.0
 
 # run OverFastAPI application (testing mode)
 start_testing:

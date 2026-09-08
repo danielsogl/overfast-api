@@ -24,9 +24,13 @@ DOCKER_RUN := BUILD_TARGET=dev $(DOCKER_COMPOSE) run \
 	--volume ${PWD}/htmlcov:/code/htmlcov \
 	--volume ${PWD}/logs:/code/logs \
     --volume ${PWD}/static:/code/static \
-	--publish 8000:8000 \
 	--rm \
 	app
+
+# Only `start` serves HTTP. Publishing the port on every `run` meant a leftover
+# container -- or a second `make test` -- failed the suite with "port is
+# already allocated", a message about nothing the tests do.
+DOCKER_RUN_SERVED := $(DOCKER_RUN) --publish 8000:8000
 
 help: ## Show this help message
 	@echo "Usage: make <command>"
@@ -40,7 +44,7 @@ build: ## Build project images
 
 start: ## Run OverFastAPI application (dev mode)
 	@echo "Launching OverFastAPI (dev mode with autoreload)..."
-	$(DOCKER_RUN) uv run fastapi dev app/main.py --host 0.0.0.0
+	$(DOCKER_RUN_SERVED) uv run fastapi dev app/main.py --host 0.0.0.0
 
 start_testing: ## Run OverFastAPI application (testing mode)
 	@echo "Launching OverFastAPI (testing mode with reverse proxy)..."
