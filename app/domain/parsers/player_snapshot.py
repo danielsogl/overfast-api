@@ -1,11 +1,17 @@
 """Stateless builders for player snapshot history.
 
-A snapshot is the small, differenceable part of a parsed profile: competitive
-ranks, endorsement level, and the three *cumulative* per-hero counters Blizzard
-exposes on the career page. Everything else on that page is either a static
-asset URL or an average, and an average cannot be differenced meaningfully —
-subtracting two "eliminations per 10 minutes" values says nothing about what
-happened in between.
+A snapshot is the small, replayable part of a parsed profile: competitive
+ranks, endorsement level, the three *cumulative* per-hero counters Blizzard
+exposes on the career page, and the aggregate career totals per platform and
+gamemode. Everything else on that page is a static asset URL or a per-10-minute
+average, which carries no information a later reader can use.
+
+Averages were originally left out wholesale because ``diff_player_snapshots``
+cannot subtract them meaningfully — the difference of two "eliminations per 10
+minutes" values says nothing about what happened in between. The series has a
+second reader though: a chart plots the value *at* each point rather than the
+difference between two, and winrate and KDA are exactly what a stat-tracking
+view draws. Both live in ``general`` for that reader and stay out of the diff.
 
 Rows are stored once per profile version and kept for a year, so the payload is
 deliberately narrow: icons, labels and averages are all left out.
@@ -15,7 +21,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from app.domain.enums import CareerHeroesComparisonsCategory
+from app.domain.enums import (
+    CareerHeroesComparisonsCategory,
+    PlayerGamemode,
+    PlayerPlatform,
+)
+from app.domain.parsers.player_stats import process_player_stats_summary
 
 if TYPE_CHECKING:
     from app.domain.models.player import CompetitiveRanksData, PlayerProfileData
@@ -37,6 +48,18 @@ _DELTA_KEYS = (
 )
 
 _WIN_PERCENTAGE = CareerHeroesComparisonsCategory.WIN_PERCENTAGE.value
+
+# The scalar career totals kept per platform and gamemode. ``total`` and
+# ``average`` from the same computation are left out: they are an order of
+# magnitude larger than the rest of the row and nothing reads them back.
+SNAPSHOT_GENERAL_KEYS = (
+    "games_played",
+    "games_won",
+    "games_lost",
+    "time_played",
+    "winrate",
+    "kda",
+)
 
 
 def build_player_snapshot(parsed_profile: PlayerProfileData) -> dict | None:
@@ -61,7 +84,35 @@ def build_player_snapshot(parsed_profile: PlayerProfileData) -> dict | None:
         "endorsement": endorsement.get("level"),
         "competitive": competitive,
         "heroes": heroes,
+        "general": _build_general(parsed_profile),
     }
+
+
+def _build_general(parsed_profile: PlayerProfileData) -> dict:
+    """Aggregate career totals, keyed platform → gamemode.
+
+    Reuses the same computation the ``/stats/summary`` route serves, so a
+    stored point and a live read of the same profile version cannot disagree.
+    It runs over already-parsed data — no extra Blizzard request — and a
+    platform or gamemode the player never touched is simply absent.
+    """
+    general: dict[str, dict] = {}
+
+    for platform in PlayerPlatform:
+        platform_entry: dict[str, dict] = {}
+        for gamemode in PlayerGamemode:
+            stats = (
+                process_player_stats_summary(parsed_profile, gamemode, platform) or {}
+            ).get("general")
+            if not stats:
+                continue
+            platform_entry[gamemode.value] = {
+                key: stats[key] for key in SNAPSHOT_GENERAL_KEYS if key in stats
+            }
+        if platform_entry:
+            general[platform.value] = platform_entry
+
+    return general
 
 
 def _build_competitive(competitive: CompetitiveRanksData | None) -> dict:

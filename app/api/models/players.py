@@ -724,6 +724,33 @@ class SnapshotData(BaseModel):
             }
         ],
     )
+    general: dict[str, dict[str, dict[str, StrictInt | StrictFloat]]] = Field(
+        default_factory=dict,
+        description=(
+            "Aggregate career totals at the time of the snapshot, keyed by "
+            "platform then by gamemode : `games_played`, `games_won`, "
+            "`games_lost`, `time_played` (seconds), `winrate` and `kda`. Same "
+            "values the `/stats/summary` route computes. `winrate` and `kda` "
+            "are ratios, so they are not differenced by `/stats/diff` — they "
+            "are recorded for readers that plot a series rather than compare "
+            "its ends. A platform or gamemode the player never touched is "
+            "absent."
+        ),
+        examples=[
+            {
+                "pc": {
+                    "competitive": {
+                        "games_played": 240,
+                        "games_won": 128,
+                        "games_lost": 112,
+                        "time_played": 604800,
+                        "winrate": 53.33,
+                        "kda": 2.71,
+                    }
+                }
+            }
+        ],
+    )
 
 
 class PlayerSnapshot(BaseModel):

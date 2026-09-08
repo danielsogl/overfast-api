@@ -4,11 +4,14 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from app.domain.enums import PlayerGamemode, PlayerPlatform
 from app.domain.parsers.player_profile import parse_player_profile_html
 from app.domain.parsers.player_snapshot import (
+    SNAPSHOT_GENERAL_KEYS,
     build_player_snapshot,
     diff_player_snapshots,
 )
+from app.domain.parsers.player_stats import process_player_stats_summary
 from tests.helpers import players_ids, read_html_file
 
 if TYPE_CHECKING:
@@ -79,8 +82,36 @@ class TestBuildPlayerSnapshot:
         result = build_player_snapshot(parsed)
 
         assert result is not None
-        assert set(result) == {"endorsement", "competitive", "heroes"}
+        assert set(result) == {"endorsement", "competitive", "heroes", "general"}
         assert result["heroes"]
+
+    @pytest.mark.parametrize("player_id", players_ids)
+    def test_general_totals_match_the_stats_summary_route(self, player_id: str):
+        """The stored totals must equal a live read of the same version.
+
+        Both go through `process_player_stats_summary`, so this pins the
+        snapshot to that computation rather than to a copy of its output.
+        """
+        html = read_html_file(f"players/{player_id}.html") or ""
+        parsed = parse_player_profile_html(html, {"lastUpdated": 1700000000})
+
+        general = (build_player_snapshot(parsed) or {})["general"]
+
+        for platform, gamemodes in general.items():
+            for gamemode, stats in gamemodes.items():
+                expected = process_player_stats_summary(
+                    parsed, PlayerGamemode(gamemode), PlayerPlatform(platform)
+                )["general"]
+                assert set(stats) == set(SNAPSHOT_GENERAL_KEYS)
+                for key in SNAPSHOT_GENERAL_KEYS:
+                    assert stats[key] == expected[key]
+
+    def test_general_is_empty_without_stats(self):
+        parsed = _profile(
+            competitive={"pc": {"tank": {"division": "gold", "tier": 3}}}, stats=None
+        )
+
+        assert (build_player_snapshot(parsed) or {})["general"] == {}
 
     def test_returns_none_for_a_private_profile(self):
         parsed = _profile(competitive=None, stats=None)
@@ -118,6 +149,7 @@ class TestBuildPlayerSnapshot:
             "endorsement": 3,
             "competitive": {"pc": {"tank": {"division": "diamond", "tier": 3}}},
             "heroes": {},
+            "general": {},
         }
 
     def test_keeps_only_the_cumulative_hero_counters(self):
