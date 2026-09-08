@@ -13,6 +13,7 @@ import asyncpg
 
 from app.config import settings
 from app.domain.parsers import PARSER_VERSION
+from app.domain.parsers.utils import normalize_player_id
 from app.infrastructure.logger import logger
 from app.infrastructure.metaclasses import Singleton
 
@@ -211,6 +212,7 @@ class PostgresStorage(metaclass=Singleton):
         'battletag', 'name', 'last_updated_blizzard', 'updated_at' (Unix int),
         'data_version' or None if not found.
         """
+        player_id = normalize_player_id(player_id)
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             row = await conn.fetchrow(
                 """SELECT battletag, name, html_compressed, parsed, summary,
@@ -243,7 +245,10 @@ class PostgresStorage(metaclass=Singleton):
                 "SELECT player_id FROM player_profiles WHERE battletag = $1",
                 battletag,
             )
-        return row["player_id"] if row else None
+        # Normalized on the way out too: rows written before this existed can
+        # still hold the encoded spelling, and this id goes straight on to key
+        # snapshots and profiles.
+        return normalize_player_id(row["player_id"]) if row else None
 
     async def set_player_profile(
         self,
@@ -261,6 +266,7 @@ class PostgresStorage(metaclass=Singleton):
         ``parsed`` is the parsed profile for that same HTML. See
         :meth:`set_static_data` for why ``None`` is a safe value to write.
         """
+        player_id = normalize_player_id(player_id)
         if summary and last_updated_blizzard is None:
             last_updated_blizzard = summary.get("lastUpdated")
 
@@ -302,6 +308,7 @@ class PostgresStorage(metaclass=Singleton):
         Same reasoning as :meth:`set_static_data_parsed`: ``updated_at`` is the
         age of the Blizzard profile, not of our parse of it.
         """
+        player_id = normalize_player_id(player_id)
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             await conn.execute(
                 """UPDATE player_profiles
@@ -323,6 +330,7 @@ class PostgresStorage(metaclass=Singleton):
         data: dict,
     ) -> None:
         """Append one snapshot, ignoring a version already recorded."""
+        player_id = normalize_player_id(player_id)
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             await conn.execute(
                 """INSERT INTO player_snapshots
@@ -341,6 +349,7 @@ class PostgresStorage(metaclass=Singleton):
         limit: int = 100,
     ) -> list[dict]:
         """Return a player's snapshots, newest first."""
+        player_id = normalize_player_id(player_id)
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             rows = await conn.fetch(
                 """SELECT taken_at, last_updated_blizzard, data
@@ -438,7 +447,14 @@ class PostgresStorage(metaclass=Singleton):
 
         The app re-sends this on every launch, so the write is an upsert and
         ``updated_at`` doubles as the liveness stamp the pruning job reads.
+
+        The roster is normalized and de-duplicated here rather than trusted as
+        sent. A client that holds one player under both Blizzard-ID spellings
+        submits both, and the poller then refreshes that player twice and
+        sends two identical notifications for one rank move. Order is kept so
+        the stored array still reads the way the app composed it.
         """
+        player_ids = list(dict.fromkeys(normalize_player_id(p) for p in player_ids))
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             await conn.execute(
                 """INSERT INTO push_subscriptions
@@ -476,17 +492,33 @@ class PostgresStorage(metaclass=Singleton):
                 """SELECT DISTINCT UNNEST(player_ids) AS player_id
                    FROM push_subscriptions"""
             )
-        return [row["player_id"] for row in rows]
+        # SQL DISTINCT only collapses identical strings, so rows written before
+        # the upsert normalized them can still yield both spellings of one
+        # player. De-duplicate again on the normalized form.
+        return list(dict.fromkeys(normalize_player_id(r["player_id"]) for r in rows))
 
     async def get_push_subscriptions_for_player(self, player_id: str) -> list[dict]:
         """Devices watching ``player_id``, as ``{token, platform, locale,
-        environment}``."""
+        environment}``.
+
+        Matches either Blizzard-ID spelling. The caller now always asks with
+        the normalized one, but a row written before that still stores the
+        encoded form, and an exact match would silently find no devices for
+        it — a missing notification, which looks like nothing at all. Rows
+        heal on the subscribing app's next launch; until then this overlap
+        keeps them working.
+
+        ``DISTINCT`` because a row holding both spellings would otherwise
+        match twice and notify the device twice.
+        """
+        player_id = normalize_player_id(player_id)
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             rows = await conn.fetch(
-                """SELECT token, platform, locale, environment
+                """SELECT DISTINCT token, platform, locale, environment
                    FROM push_subscriptions
-                   WHERE player_ids @> ARRAY[$1]::text[]""",
+                   WHERE player_ids && ARRAY[$1, $2]::text[]""",
                 player_id,
+                player_id.replace("|", "%7C"),
             )
         return [dict(row) for row in rows]
 
