@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v4.20.0 (2026-09-08)
+
+### Bug Fixes
+
+- **dev**: Publish port 8000 only for the recipe that serves HTTP
+  ([`9cb0502`](https://github.com/danielsogl/overfast-api/commit/9cb0502ed86cf3bfaa8a70cc5e576769a95a8292))
+
+### Features
+
+- **push**: Decide which rank change is worth a notification
+  ([`69ba39f`](https://github.com/danielsogl/overfast-api/commit/69ba39fb6310b3b561603714256f5d6b4d6f8861))
+
+
 ## v4.19.0 (2026-09-08)
 
 ### Bug Fixes
