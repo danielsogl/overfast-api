@@ -2,6 +2,28 @@
 
 <!-- version list -->
 
+## v4.19.0 (2026-09-08)
+
+### Bug Fixes
+
+- **dev**: Make the containerised test target actually run the dev image
+  ([`7f55eb4`](https://github.com/danielsogl/overfast-api/commit/7f55eb4dd232e9d0c6ea241fd5878c620122193e))
+
+### Documentation
+
+- **deploy**: Merging a second PR mid-release turns the run red
+  ([#43](https://github.com/danielsogl/overfast-api/pull/43),
+  [`c5b510e`](https://github.com/danielsogl/overfast-api/commit/c5b510ebe86e9824c08e4576fdbf95a787d983b9))
+
+### Features
+
+- **players**: Record aggregate career totals in each snapshot
+  ([`c9c053a`](https://github.com/danielsogl/overfast-api/commit/c9c053a2b22091584fca5df4472ca8e071e117bd))
+
+- **push**: Register devices for rank alerts
+  ([`b427776`](https://github.com/danielsogl/overfast-api/commit/b42777646b52313f83903c6bb4a90d2b495b4b1c))
+
+
 ## v4.18.0 (2026-09-07)
 
 ### Documentation
