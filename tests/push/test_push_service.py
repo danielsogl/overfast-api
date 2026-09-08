@@ -159,3 +159,63 @@ async def test_falls_back_to_the_id_when_no_profile_is_stored(
     await service.notify_rank_changes()
 
     assert sender.sent[0].body.startswith(PLAYER)
+
+
+@pytest.mark.asyncio
+async def test_announces_a_rank_once_even_when_the_snapshots_stop_moving(
+    storage_db: FakeStorage,
+):
+    """The repeat this guards against is the common case, not an edge one.
+
+    `rank_alert` reads the two newest snapshots and has no memory. A player who
+    climbs and then stops playing produces no newer snapshot, so that pair stays
+    the newest and every four-hourly run reaches the same conclusion. Before the
+    announced-rank record, that resent the same notification indefinitely.
+    """
+    await storage_db.upsert_push_subscription("tok-de-1234", "ios", "de", [PLAYER])
+    await _seed(storage_db, _snapshot("gold", 1, 1), _snapshot("platinum", 5, 2))
+    sender = _Sender()
+    service, _ = _service(storage_db, sender)
+
+    assert await service.notify_rank_changes() == 1
+    assert len(sender.sent) == 1
+
+    # Same data, same comparison, three more runs.
+    for _ in range(3):
+        assert await service.notify_rank_changes() == 0
+    assert len(sender.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_announces_a_return_to_a_previous_rank(storage_db: FakeStorage):
+    """Storing the rank, not a "seen" flag, is what makes this work.
+
+    Gold 3 -> Platinum 5 -> Gold 3 is two pieces of news. A boolean "already
+    notified about this player" would swallow the second.
+    """
+    await storage_db.upsert_push_subscription("tok-de-1234", "ios", "de", [PLAYER])
+    await _seed(storage_db, _snapshot("gold", 3, 1), _snapshot("platinum", 5, 2))
+    sender = _Sender()
+    service, _ = _service(storage_db, sender)
+
+    assert await service.notify_rank_changes() == 1
+
+    await _seed(storage_db, _snapshot("gold", 3, 3))
+    assert await service.notify_rank_changes() == 1
+    assert [m.body.split()[-2:] for m in sender.sent] == [
+        ["Platinum", "5"],
+        ["Gold", "3"],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_carries_the_player_id_into_the_message(storage_db: FakeStorage):
+    """The payload is what lets a tap open the right profile."""
+    await storage_db.upsert_push_subscription("tok-de-1234", "ios", "de", [PLAYER])
+    await _seed(storage_db, _snapshot("gold", 1, 1), _snapshot("platinum", 5, 2))
+    sender = _Sender()
+    service, _ = _service(storage_db, sender)
+
+    await service.notify_rank_changes()
+
+    assert sender.sent[0].player_id == PLAYER

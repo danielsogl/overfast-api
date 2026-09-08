@@ -22,8 +22,20 @@ from app.domain.ports.push_sender import PushMessage
 if TYPE_CHECKING:
     from pathlib import Path
 
-IOS = PushMessage("apns-token-aaaaaaaa", "ios", "Rank Update", "X is now Diamond 2")
-ANDROID = PushMessage("fcm-token-bbbbbbbb", "android", "Rank Update", "X is now Gold 1")
+IOS = PushMessage(
+    token="apns-token-aaaaaaaa",
+    platform="ios",
+    title="Rank Update",
+    body="X is now Diamond 2",
+    player_id="Foo-1234",
+)
+ANDROID = PushMessage(
+    token="fcm-token-bbbbbbbb",
+    platform="android",
+    title="Rank Update",
+    body="X is now Gold 1",
+    player_id="Foo-1234",
+)
 
 
 @pytest.fixture(scope="session")
@@ -106,8 +118,12 @@ class TestApnsSender:
         assert request.url.path.endswith(f"/3/device/{IOS.token}")
         assert request.headers["apns-topic"] == "com.mytech.OverwatchStats"
         assert request.headers["authorization"].startswith("bearer ey")
-        alert = json.loads(request.content)["aps"]["alert"]
-        assert alert == {"title": IOS.title, "body": IOS.body}
+        payload = json.loads(request.content)
+        assert payload["aps"]["alert"] == {"title": IOS.title, "body": IOS.body}
+        # Beside `aps`, not inside it: APNs passes every other top-level key
+        # through to the app, and anything added under `aps` would instead be
+        # interpreted as a system field.
+        assert payload["player_id"] == IOS.player_id
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("reason", ["Unregistered", "BadDeviceToken"])
@@ -162,7 +178,16 @@ class TestApnsSender:
         seen = _patch_client(
             monkeypatch, lambda _: httpx2.Response(httpx2.codes.OK, json={})
         )
-        messages = [PushMessage(f"token-{i:08d}", "ios", "T", "B") for i in range(3)]
+        messages = [
+            PushMessage(
+                token=f"token-{i:08d}",
+                platform="ios",
+                title="T",
+                body="B",
+                player_id="Foo-1234",
+            )
+            for i in range(3)
+        ]
 
         await _apns(apns_key_path).send(messages)
 
@@ -179,7 +204,12 @@ class TestApnsSender:
 
         _patch_client(monkeypatch, handler)
         sandbox = PushMessage(
-            "apns-token-cccccccc", "ios", "T", "B", PushEnvironment.SANDBOX.value
+            token="apns-token-cccccccc",
+            platform="ios",
+            title="T",
+            body="B",
+            player_id="Foo-1234",
+            environment=PushEnvironment.SANDBOX.value,
         )
 
         gone = await _apns(apns_key_path).send([sandbox])
@@ -194,7 +224,12 @@ class TestApnsSender:
             monkeypatch, lambda _: httpx2.Response(httpx2.codes.OK, json={})
         )
         sandbox = PushMessage(
-            "apns-token-cccccccc", "ios", "T", "B", PushEnvironment.SANDBOX.value
+            token="apns-token-cccccccc",
+            platform="ios",
+            title="T",
+            body="B",
+            player_id="Foo-1234",
+            environment=PushEnvironment.SANDBOX.value,
         )
 
         await _apns(apns_key_path, PushEnvironment.SANDBOX.value).send([sandbox])
@@ -228,7 +263,11 @@ class TestFcmSender:
         token_request, send_request = seen
         assert "oauth2" in str(token_request.url)
         assert send_request.headers["authorization"] == "Bearer ya29.test"
-        assert json.loads(send_request.content)["message"]["token"] == ANDROID.token
+        message = json.loads(send_request.content)["message"]
+        assert message["token"] == ANDROID.token
+        # FCM `data` values must be strings, and this is what the tap handler
+        # reads to open the right profile.
+        assert message["data"] == {"player_id": ANDROID.player_id}
 
     @pytest.mark.asyncio
     async def test_keeps_the_token_on_invalid_argument(
@@ -319,7 +358,15 @@ class TestPushSender:
     @pytest.mark.asyncio
     async def test_ignores_a_message_for_an_unknown_platform(self):
         gone = await PushSender(None, None).send(
-            [PushMessage("t-12345678", "windows", "T", "B")]
+            [
+                PushMessage(
+                    token="t-12345678",
+                    platform="windows",
+                    title="T",
+                    body="B",
+                    player_id="Foo-1234",
+                )
+            ]
         )
 
         assert gone == []

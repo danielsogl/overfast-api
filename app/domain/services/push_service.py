@@ -86,9 +86,29 @@ class PushService:
         if rank is None:
             return []
 
+        # The comparison above has no memory: it reads the two newest
+        # snapshots and nothing else. While those two stay the newest and
+        # differ, every run reaches the same conclusion — so a player who
+        # earns a rank and then stops playing produces no newer snapshot, the
+        # pair never moves, and the same notification goes out every four
+        # hours until they play again.
+        #
+        # Announcing a rank only once closes that. Comparing the rank rather
+        # than storing a "seen" flag keeps a genuine move back to a previous
+        # rank notifiable: Gold 3 -> Plat 1 -> Gold 3 is two announcements,
+        # because the second Gold 3 differs from the Plat 1 in between.
+        if await self.storage.get_last_announced_rank(player_id) == rank:
+            logger.debug("[push] {} still at {}, already announced", player_id, rank)
+            return []
+
         subscriptions = await self.storage.get_push_subscriptions_for_player(player_id)
         if not subscriptions:
             return []
+
+        # Recorded before delivery, not after. A send that fails is retried by
+        # nothing, so the alternative is a partial failure re-announcing to
+        # everyone who did receive it on the next run.
+        await self.storage.set_last_announced_rank(player_id, rank)
 
         name = await self._display_name(player_id)
         messages = []
@@ -100,6 +120,7 @@ class PushService:
                     platform=subscription["platform"],
                     title=title,
                     body=body,
+                    player_id=player_id,
                     environment=subscription["environment"],
                 )
             )

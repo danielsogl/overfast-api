@@ -9,7 +9,12 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 
-@dataclass(frozen=True, slots=True)
+# kw_only because the fields are six strings in a row, several of them
+# interchangeable to the type checker. Adding `player_id` ahead of
+# `environment` would otherwise have silently shifted every positional
+# construction by one and put an environment into the player id — accepted by
+# every check, wrong at runtime.
+@dataclass(frozen=True, slots=True, kw_only=True)
 class PushMessage:
     """One notification, already composed in the recipient's language."""
 
@@ -17,6 +22,10 @@ class PushMessage:
     platform: str
     title: str
     body: str
+    # The player the alert is about, carried into the payload so tapping the
+    # notification can open that profile. Without it the tap can only open the
+    # app, which drops the reader exactly where they were not looking.
+    player_id: str
     # Which APNs host and key may deliver this. Ignored on Android.
     environment: str = "production"
 
