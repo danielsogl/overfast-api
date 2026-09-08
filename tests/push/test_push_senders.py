@@ -124,6 +124,22 @@ class TestApnsSender:
         assert gone == [IOS.token]
 
     @pytest.mark.asyncio
+    async def test_keeps_the_token_when_the_topic_does_not_match(
+        self, apns_key_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A mistyped bundle id returns this for every device at once."""
+        _patch_client(
+            monkeypatch,
+            lambda _: httpx2.Response(
+                httpx2.codes.BAD_REQUEST, json={"reason": "DeviceTokenNotForTopic"}
+            ),
+        )
+
+        gone = await _apns(apns_key_path).send([IOS])
+
+        assert gone == []
+
+    @pytest.mark.asyncio
     async def test_keeps_the_token_on_a_transient_failure(
         self, apns_key_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
@@ -213,6 +229,29 @@ class TestFcmSender:
         assert "oauth2" in str(token_request.url)
         assert send_request.headers["authorization"] == "Bearer ya29.test"
         assert json.loads(send_request.content)["message"]["token"] == ANDROID.token
+
+    @pytest.mark.asyncio
+    async def test_keeps_the_token_on_invalid_argument(
+        self, service_account_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """FCM returns this for a bad payload too, and cannot tell us which.
+
+        Dropping on it would let one malformed message shape delete every
+        subscription in a single poll.
+        """
+        _patch_client(
+            monkeypatch,
+            self._handler(
+                httpx2.Response(
+                    httpx2.codes.BAD_REQUEST,
+                    json={"error": {"status": "INVALID_ARGUMENT"}},
+                )
+            ),
+        )
+
+        gone = await FcmSender(str(service_account_path), "proj").send([ANDROID])
+
+        assert gone == []
 
     @pytest.mark.asyncio
     async def test_reports_an_unregistered_token(

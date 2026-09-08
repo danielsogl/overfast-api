@@ -36,15 +36,26 @@ _APNS_HOSTS = {
     PushEnvironment.SANDBOX.value: "https://api.sandbox.push.apple.com",
 }
 
-# APNs says a token is dead with 410 Gone, and 400 BadDeviceToken for one that
-# was never valid. Anything else (429, 5xx) is transient and keeps the row.
-_APNS_GONE_REASONS = frozenset(
-    {"Unregistered", "BadDeviceToken", "DeviceTokenNotForTopic"}
-)
+# Only reasons that can mean nothing but "this device is gone". 410
+# Unregistered is unambiguous; BadDeviceToken also covers a token sent to the
+# wrong environment, which the routing above prevents and which a re-launch
+# repairs anyway.
+#
+# `DeviceTokenNotForTopic` is deliberately absent. It fires when the topic does
+# not match the token, so a mistyped `apns_topic` would return it for *every*
+# device and one poll would delete every subscription we have. A wrong config
+# must cost notifications, never the rows needed to resume them.
+_APNS_GONE_REASONS = frozenset({"Unregistered", "BadDeviceToken"})
 
-# FCM reports the same two conditions as an UNREGISTERED status or an
-# INVALID_ARGUMENT on the token field.
-_FCM_GONE_STATUSES = frozenset({"UNREGISTERED", "INVALID_ARGUMENT"})
+# UNREGISTERED means the token is gone; SENDER_ID_MISMATCH means it belongs to
+# a different Firebase project and never will be ours.
+#
+# INVALID_ARGUMENT is deliberately absent even though a malformed token
+# produces it: so does a malformed *payload*, and FCM does not distinguish the
+# two in the status. Treating it as a dead device would let one bad message
+# shape wipe every subscription in a single poll. A genuinely broken token
+# instead ages out through the liveness window.
+_FCM_GONE_STATUSES = frozenset({"UNREGISTERED", "SENDER_ID_MISMATCH"})
 
 # One connection, many notifications: both services are HTTP/2 and expect the
 # stream to be reused rather than reconnected per device.
