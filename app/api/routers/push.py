@@ -24,6 +24,7 @@ router = APIRouter()
 @router.put(
     "/subscriptions",
     response_model=PushSubscriptionAck,
+    operation_id="register_push_subscription",
     tags=[RouteTag.PUSH],
     summary="Register a device for rank alerts",
     description=(
@@ -52,6 +53,7 @@ async def register_push_subscription(
 @router.delete(
     "/subscriptions/{token}",
     status_code=status.HTTP_204_NO_CONTENT,
+    operation_id="delete_push_subscription",
     tags=[RouteTag.PUSH],
     summary="Unregister a device",
     description=(
