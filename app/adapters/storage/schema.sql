@@ -172,3 +172,24 @@ CREATE INDEX IF NOT EXISTS idx_push_subscriptions_updated_at
 -- Added after the table shipped: existing rows are production, which is what
 -- every store build registers as.
 ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS environment TEXT NOT NULL DEFAULT 'production';
+
+-- The last rank we told anyone about, per player.
+--
+-- The comparison that decides whether to notify reads the two newest
+-- snapshots, and it has no memory of its own: while those two stay the newest
+-- and differ, every four-hourly run reaches the same conclusion and sends the
+-- same notification again. A player who earns a rank and then stops playing
+-- produces no newer snapshot, so the pair never moves — the exact case that
+-- keeps notifying, and the exact user least interested in hearing it again.
+--
+-- Keyed on the player rather than on (device, player): the alert text is the
+-- same for everyone watching, and a device that subscribes later should not
+-- receive an announcement that already went out.
+--
+-- Regenerable like everything else here. Losing it costs one repeated
+-- notification per watched player, not correctness.
+CREATE TABLE IF NOT EXISTS player_rank_alerts (
+    player_id           TEXT        PRIMARY KEY,
+    last_announced_rank TEXT        NOT NULL,
+    announced_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

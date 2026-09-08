@@ -103,11 +103,15 @@ class ApnsSender:
                     "apns-push-type": "alert",
                     "apns-priority": "10",
                 },
+                # `player_id` sits beside `aps`, not inside it: APNs treats
+                # every top-level key other than `aps` as the app's own
+                # payload and hands it to the client untouched.
                 json={
                     "aps": {
                         "alert": {"title": message.title, "body": message.body},
                         "sound": "default",
-                    }
+                    },
+                    "player_id": message.player_id,
                 },
             )
         except httpx2.HTTPError as error:
@@ -165,6 +169,9 @@ class FcmSender:
             response = await client.post(
                 self._url,
                 headers={"authorization": f"Bearer {access_token}"},
+                # FCM `data` values must be strings, and the block is
+                # delivered alongside the notification so the tap handler can
+                # read it.
                 json={
                     "message": {
                         "token": message.token,
@@ -172,6 +179,7 @@ class FcmSender:
                             "title": message.title,
                             "body": message.body,
                         },
+                        "data": {"player_id": message.player_id},
                     }
                 },
             )

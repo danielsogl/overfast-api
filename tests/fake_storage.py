@@ -35,6 +35,7 @@ class FakeStorage:
         self._hero_stats: dict[tuple[date, str, str, str], list[dict]] = {}
         # token -> {platform, locale, player_ids, updated_at}
         self._push: dict[str, dict] = {}
+        self._rank_alerts: dict[str, str] = {}
 
     async def initialize(self) -> None:
         pass
@@ -285,6 +286,12 @@ class FakeStorage:
             for token, row in self._push.items()
             if player_id in row["player_ids"]
         ]
+
+    async def get_last_announced_rank(self, player_id: str) -> str | None:
+        return self._rank_alerts.get(player_id)
+
+    async def set_last_announced_rank(self, player_id: str, rank: str) -> None:
+        self._rank_alerts[player_id] = rank
 
     async def delete_old_push_subscriptions(self, max_age_seconds: int) -> int:
         cutoff = time.time() - max_age_seconds

@@ -522,6 +522,31 @@ class PostgresStorage(metaclass=Singleton):
             )
         return [dict(row) for row in rows]
 
+    async def get_last_announced_rank(self, player_id: str) -> str | None:
+        """The rank last announced for this player, or None."""
+        player_id = normalize_player_id(player_id)
+        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+            row = await conn.fetchrow(
+                "SELECT last_announced_rank FROM player_rank_alerts WHERE player_id = $1",
+                player_id,
+            )
+        return row["last_announced_rank"] if row else None
+
+    async def set_last_announced_rank(self, player_id: str, rank: str) -> None:
+        """Record the rank just announced for this player."""
+        player_id = normalize_player_id(player_id)
+        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+            await conn.execute(
+                """INSERT INTO player_rank_alerts
+                       (player_id, last_announced_rank, announced_at)
+                   VALUES ($1, $2, NOW())
+                   ON CONFLICT (player_id) DO UPDATE
+                       SET last_announced_rank = EXCLUDED.last_announced_rank,
+                           announced_at        = NOW()""",
+                player_id,
+                rank,
+            )
+
     async def delete_old_push_subscriptions(self, max_age_seconds: int) -> int:
         """Drop subscriptions no launch has refreshed within max_age_seconds.
 

@@ -221,6 +221,19 @@ class StoragePort(Protocol):
         """
         ...
 
+    async def get_last_announced_rank(self, player_id: str) -> str | None:
+        """
+        The rank last announced for a player, or None if never announced.
+
+        Returns:
+            The formatted rank string, e.g. ``"Diamond 2"``
+        """
+        ...
+
+    async def set_last_announced_rank(self, player_id: str, rank: str) -> None:
+        """Record the rank just announced for a player."""
+        ...
+
     async def delete_old_push_subscriptions(self, max_age_seconds: int) -> int:
         """
         Drop subscriptions no launch has refreshed within max_age_seconds.
