@@ -45,6 +45,36 @@ class Settings(BaseSettings):
     new_route_path: str | None = None
 
     ############
+    # PUSH NOTIFICATIONS
+    ############
+
+    # Rank alerts are off until both credentials are configured. Everything
+    # below is read at send time, so a deployment without them still records
+    # subscriptions — it just never delivers.
+    push_enabled: bool = False
+
+    # Apple Push Notification service. `eas credentials --platform ios` creates
+    # the key in the Apple Developer account and exports it through its
+    # credentials.json option; only the .p8 reaches this host.
+    apns_key_path: str | None = None
+    apns_key_id: str | None = None
+    apns_team_id: str = "9G42264X4W"
+    # The app's bundle id, which APNs requires as the `apns-topic` header.
+    apns_topic: str = "com.mytech.OverwatchStats"
+    # Development builds get sandbox tokens and production builds do not; the
+    # two environments are separate hosts and a token is only valid on one.
+    apns_use_sandbox: bool = False
+
+    # Firebase Cloud Messaging (Android). Service account JSON of the Firebase
+    # project the app is registered in.
+    fcm_service_account_path: str | None = None
+    fcm_project_id: str = "mercy-9dc97"
+
+    # A device that keeps missing this window has uninstalled the app or
+    # revoked notifications; its row is dropped rather than kept forever.
+    push_subscription_max_age_seconds: int = 60 * 60 * 24 * 60
+
+    ############
     # PERSISTENT STORAGE CONFIGURATION (PostgreSQL)
     ############
 

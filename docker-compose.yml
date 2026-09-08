@@ -45,6 +45,10 @@ services:
           memory: 1g
     volumes:
       - ${APP_VOLUME_PATH:-/tmp}/worker-logs:/code/logs
+      # Push credentials, read-only. APNS_KEY_PATH / FCM_SERVICE_ACCOUNT_PATH in .env
+      # point into this mount. Absent on a host that has not provisioned them,
+      # which simply leaves push disabled.
+      - ${APP_VOLUME_PATH:-/tmp}/secrets:/code/secrets:ro
     depends_on:
       valkey:
         condition: service_healthy
@@ -69,6 +73,10 @@ services:
           memory: 256m
     volumes:
       - ${APP_VOLUME_PATH:-/tmp}/worker-logs:/code/logs
+      # Push credentials, read-only. APNS_KEY_PATH / FCM_SERVICE_ACCOUNT_PATH in .env
+      # point into this mount. Absent on a host that has not provisioned them,
+      # which simply leaves push disabled.
+      - ${APP_VOLUME_PATH:-/tmp}/secrets:/code/secrets:ro
     depends_on:
       valkey:
         condition: service_healthy

@@ -142,3 +142,8 @@ dump.rdb
 
 # AI Agents
 .opencode
+
+# Push credentials: the APNs signing key and the FCM service account.
+# Both are mounted into the containers from the host, never built in.
+*.p8
+secrets/
