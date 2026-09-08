@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v4.21.6 (2026-09-08)
+
+### Bug Fixes
+
+- **push**: Announce a rank once, and say which player it is about
+  ([#47](https://github.com/danielsogl/overfast-api/pull/47),
+  [`89a4739`](https://github.com/danielsogl/overfast-api/commit/89a4739e0b2cf178f70bfb813d8d561af3189e88))
+
+
 ## v4.21.5 (2026-09-08)
 
 ### Bug Fixes
