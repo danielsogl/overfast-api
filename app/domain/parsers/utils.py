@@ -131,6 +131,43 @@ def is_blizzard_id(player_id: str) -> bool:
     return ("%7C" in player_id or "|" in player_id) and "-" not in player_id
 
 
+def normalize_player_id(player_id: str) -> str:
+    """The one spelling a Blizzard ID is stored under.
+
+    A Blizzard ID separates its two halves with a pipe, and the same player
+    reaches us under both spellings. The search endpoint hands clients the
+    percent-encoded ``%7C`` form, and a client that puts that straight into a
+    URL path gets it decoded back to ``|`` by the time a handler sees it —
+    while one that encodes it again sends ``%257C``, which decodes to a
+    literal ``%7C``. Both are the same player and neither is wrong.
+
+    Left alone they become two keys. ``player_snapshots`` collected both, so a
+    single player's history was split across two rows sets: the rank
+    comparison reads the two newest snapshots *of one key* and therefore
+    compared against a stale half, and ``push_subscriptions.player_ids`` held
+    both spellings at once, which polled the player twice and sent two
+    identical notifications for one rank move.
+
+    Decoded is the canonical form: it is what a handler receives for the
+    spelling the search endpoint publishes, so it is the majority already.
+    The replacement is spelled out rather than done with ``unquote`` because
+    only this one sequence may change — ``unquote`` would also rewrite a
+    ``%2D`` a BattleTag is entitled to carry, and is not idempotent here:
+    a second pass turns ``%257C`` into a pipe rather than leaving it alone.
+
+    Examples:
+        >>> normalize_player_id("abc%7Cdef")
+        'abc|def'
+        >>> normalize_player_id("abc%7cdef")
+        'abc|def'
+        >>> normalize_player_id("abc|def")
+        'abc|def'
+        >>> normalize_player_id("TeKrop-2217")
+        'TeKrop-2217'
+    """
+    return player_id.replace("%7C", "|").replace("%7c", "|")
+
+
 def match_player_by_blizzard_id(
     search_results: list[dict], blizzard_id: str
 ) -> dict | None:

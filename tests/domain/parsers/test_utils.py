@@ -4,7 +4,47 @@ from app.domain.parsers.utils import (
     extract_blizzard_id_from_url,
     is_blizzard_id,
     match_player_by_blizzard_id,
+    normalize_player_id,
 )
+
+
+class TestNormalizePlayerId:
+    """Test normalize_player_id function"""
+
+    def test_encoded_pipe_becomes_a_pipe(self):
+        """Should decode %7C, in either letter case"""
+        assert normalize_player_id("abc%7Cdef") == "abc|def"
+        assert normalize_player_id("abc%7cdef") == "abc|def"
+
+    def test_both_spellings_collapse_to_one_key(self):
+        """The whole point: one player, one key.
+
+        These two reach us from the same player — the search endpoint hands
+        clients the encoded form, and a URL path decodes it back to a pipe.
+        """
+        encoded = "f85bbfc7e222cefb%7C8edc6e128e377086393104fbee9aa0b5"
+        decoded = "f85bbfc7e222cefb|8edc6e128e377086393104fbee9aa0b5"
+
+        assert normalize_player_id(encoded) == normalize_player_id(decoded)
+
+    def test_idempotent(self):
+        """Applying it twice must not differ from applying it once.
+
+        `unquote` would fail this: it turns %257C into %7C on the first pass
+        and into a pipe on the second.
+        """
+        for player_id in ("abc%7Cdef", "abc|def", "TeKrop-2217", "abc%257Cdef"):
+            once = normalize_player_id(player_id)
+            assert normalize_player_id(once) == once
+
+    def test_double_encoded_is_left_alone(self):
+        """%257C is not %7C — it decodes to one at the HTTP layer, not here."""
+        assert normalize_player_id("abc%257Cdef") == "abc%257Cdef"
+
+    def test_battletag_untouched(self):
+        """BattleTags carry no pipe and must survive unchanged"""
+        assert normalize_player_id("TeKrop-2217") == "TeKrop-2217"
+        assert normalize_player_id("Kindness-11556") == "Kindness-11556"
 
 
 class TestIsBlizzardId:
