@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v4.21.4 (2026-09-08)
+
+### Bug Fixes
+
+- **push**: Keep the signing keys off /tmp
+  ([#45](https://github.com/danielsogl/overfast-api/pull/45),
+  [`d2b5429`](https://github.com/danielsogl/overfast-api/commit/d2b54291178aff82a288feef6136a5b59f48baa5))
+
+
 ## v4.21.3 (2026-09-08)
 
 ### Bug Fixes
