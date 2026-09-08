@@ -10,9 +10,17 @@ RESET := \033[0m
 # Aliases
 DOCKER_COMPOSE := docker compose
 
-DOCKER_RUN := $(DOCKER_COMPOSE) run \
+# `--build` with an explicit dev target on every interactive run. Both build
+# targets tag the same image (`overfast-api-app:latest`), so whichever was
+# built last wins — and a `main` image has no pytest, at which point `uv run`
+# tries to install the dev group inside a container whose build-base was
+# already removed. That surfaces as a CMake error about a missing `gcc` while
+# building memray, which names neither the image nor the target.
+DOCKER_RUN := BUILD_TARGET=dev $(DOCKER_COMPOSE) run \
+	--build \
 	--volume ${PWD}/app:/code/app \
 	--volume ${PWD}/tests:/code/tests \
+	--volume ${PWD}/scripts:/code/scripts \
 	--volume ${PWD}/htmlcov:/code/htmlcov \
 	--volume ${PWD}/logs:/code/logs \
     --volume ${PWD}/static:/code/static \

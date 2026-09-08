@@ -43,4 +43,9 @@ FROM main AS dev
 # This image is never deployed — production builds the `main` target.
 RUN apk add --no-cache build-base pkgconf libunwind-dev lz4-dev elfutils-dev \
     && LDFLAGS="-Wl,--no-as-needed -lstdc++" uv sync --frozen --no-cache
+# `tests/scripts/` imports `scripts.` directly, so the helper scripts are part
+# of the dev image's test surface. CI runs pytest on the runner where the
+# whole repo is present, so a missing copy here only ever broke the Docker
+# path — as a collection ImportError naming the test, not the layout.
 COPY ./tests /code/tests
+COPY ./scripts /code/scripts
