@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v4.21.5 (2026-09-08)
+
+### Bug Fixes
+
+- **storage**: Key players on one spelling of their Blizzard ID
+  ([#46](https://github.com/danielsogl/overfast-api/pull/46),
+  [`002686d`](https://github.com/danielsogl/overfast-api/commit/002686d3cdd267438acb720fbbd8ab20a2ab9112))
+
+
 ## v4.21.4 (2026-09-08)
 
 ### Bug Fixes
