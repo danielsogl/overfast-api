@@ -157,6 +157,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
     locale      TEXT        NOT NULL,
     player_ids  TEXT[]      NOT NULL,
     environment TEXT        NOT NULL DEFAULT 'production',
+    last_patch_alert TEXT,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -172,6 +173,23 @@ CREATE INDEX IF NOT EXISTS idx_push_subscriptions_updated_at
 -- Added after the table shipped: existing rows are production, which is what
 -- every store build registers as.
 ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS environment TEXT NOT NULL DEFAULT 'production';
+
+-- The date of the last patch this *device* was told about, as the parser
+-- writes it (``YYYY-MM-DD``); equality is the only comparison made on it.
+--
+-- On the device rather than on the player, unlike ``player_rank_alerts``
+-- below, and that divergence is the point: a rank alert names one player, so
+-- per-player is its natural key, but a hero alert names *heroes*. One device
+-- following three players who all main D.Va would get three near-identical
+-- pushes under a per-player key; per-token collapses them into one message
+-- per patch per device.
+--
+-- A column rather than its own table so it cannot outlive the subscription:
+-- the token is the key either way, and both the age pruning and the
+-- gone-token drop already delete the row. NULL means "never told", which the
+-- service's patch age guard keeps from announcing week-old news on a fresh
+-- install.
+ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS last_patch_alert TEXT;
 
 -- The last rank we told anyone about, per player.
 --

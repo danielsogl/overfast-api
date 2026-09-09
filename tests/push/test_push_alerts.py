@@ -1,9 +1,20 @@
-"""Tests for the rank-alert decision and its message catalogue"""
+"""Tests for the push-alert decisions and their message catalogues"""
 
 import pytest
 
-from app.domain.push_alerts import format_rank, highest_rank, rank_alert
-from app.domain.push_messages import RANK_ALERT_MESSAGES, rank_alert_text
+from app.domain.push_alerts import (
+    changed_heroes,
+    format_rank,
+    hero_alert,
+    highest_rank,
+    rank_alert,
+)
+from app.domain.push_messages import (
+    HERO_ALERT_MESSAGES,
+    RANK_ALERT_MESSAGES,
+    hero_alert_text,
+    rank_alert_text,
+)
 
 
 def _snapshot(competitive: dict, taken_at: int = 0) -> dict:
@@ -102,3 +113,104 @@ class TestMessages:
 
     def test_falls_back_to_english_for_an_unknown_locale(self):
         assert rank_alert_text("cy", "X", "Gold 3")[0] == "Rank Update"
+
+
+def _entry(hero: str | None, *, details=None, abilities=None) -> dict:
+    return {
+        "title": hero or "Map",
+        "hero": hero,
+        "details": details or [],
+        "abilities": abilities or [],
+    }
+
+
+def _patch(*entries: dict) -> dict:
+    return {"date": "2026-09-08", "sections": [{"entries": list(entries)}]}
+
+
+def _played(**by_hero: int) -> dict:
+    """One snapshot whose pc/quickplay heroes carry the given time_played."""
+    return {
+        "data": {
+            "heroes": {
+                "pc": {
+                    "quickplay": {
+                        hero: {"time_played": seconds}
+                        for hero, seconds in by_hero.items()
+                    }
+                }
+            }
+        }
+    }
+
+
+class TestChangedHeroes:
+    def test_collects_heroes_with_details_or_abilities(self):
+        patch = _patch(
+            _entry("ana", details=["Biotic Rifle damage reduced."]),
+            _entry("dva", abilities=[{"name": "Boosters", "details": ["Faster."]}]),
+        )
+
+        assert changed_heroes(patch) == {"ana", "dva"}
+
+    def test_ignores_an_entry_the_parser_could_not_resolve(self):
+        """A hero released the same day has no key yet — never badge a guess."""
+        assert changed_heroes(_patch(_entry(None, details=["New hero!"]))) == set()
+
+    def test_ignores_an_entry_with_no_text(self):
+        """A map update is a pair of screenshots; it changes no hero."""
+        assert changed_heroes(_patch(_entry("ana"))) == set()
+
+    def test_a_patch_with_no_sections_changes_nothing(self):
+        assert changed_heroes({"date": "2026-09-08"}) == set()
+
+
+class TestHeroAlert:
+    def test_names_the_changed_heroes_most_played_first(self):
+        heroes = hero_alert({"ana", "dva"}, [_played(ana=100, dva=900, genji=9999)])
+
+        assert heroes == ["dva", "ana"]
+
+    def test_sums_playtime_across_players_platforms_and_gamemodes(self):
+        """One device, two watched players who share a main: one ranked list."""
+        console = {
+            "data": {
+                "heroes": {"console": {"competitive": {"ana": {"time_played": 50}}}}
+            }
+        }
+
+        heroes = hero_alert({"ana", "dva"}, [_played(ana=30, dva=60), console])
+
+        assert heroes == ["ana", "dva"]
+
+    def test_caps_the_list(self):
+        changed = {"ana", "dva", "genji", "mercy"}
+
+        heroes = hero_alert(changed, [_played(ana=4, dva=3, genji=2, mercy=1)], limit=3)
+
+        assert heroes == ["ana", "dva", "genji"]
+
+    def test_says_nothing_when_the_player_plays_none_of_them(self):
+        assert hero_alert({"ana"}, [_played(genji=900)]) == []
+
+    def test_says_nothing_without_a_snapshot(self):
+        assert hero_alert({"ana"}, []) == []
+
+
+class TestHeroMessages:
+    def test_every_shipped_locale_carries_the_placeholder(self):
+        for locale, (title, body) in HERO_ALERT_MESSAGES.items():
+            assert title, locale
+            assert "{heroes}" in body, locale
+
+    def test_the_two_catalogues_ship_the_same_locales(self):
+        assert HERO_ALERT_MESSAGES.keys() == RANK_ALERT_MESSAGES.keys()
+
+    def test_joins_the_hero_names(self):
+        title, body = hero_alert_text("en-US", ["D.Va", "Ana"])
+
+        assert title == "Hero Update"
+        assert body == "Changes to D.Va, Ana in the latest patch"
+
+    def test_falls_back_to_english_for_an_unknown_locale(self):
+        assert hero_alert_text("cy", ["Ana"])[0] == "Hero Update"

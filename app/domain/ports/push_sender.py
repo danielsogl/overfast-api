@@ -1,4 +1,4 @@
-"""Port for delivering a rank alert to a device"""
+"""Port for delivering a push alert to a device"""
 
 from __future__ import annotations
 
@@ -22,10 +22,13 @@ class PushMessage:
     platform: str
     title: str
     body: str
-    # The player the alert is about, carried into the payload so tapping the
-    # notification can open that profile. Without it the tap can only open the
-    # app, which drops the reader exactly where they were not looking.
-    player_id: str
+    # Where tapping the notification should land. Exactly one is set: a rank
+    # alert is about a player, a hero alert about a hero. Without either the
+    # tap can only open the app, which drops the reader exactly where they
+    # were not looking — so the senders omit the key rather than send a null,
+    # which the app would read as a destination.
+    player_id: str | None = None
+    hero_key: str | None = None
     # Which APNs host and key may deliver this. Ignored on Android.
     environment: str = "production"
 

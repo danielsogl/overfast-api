@@ -221,6 +221,20 @@ class StoragePort(Protocol):
         """
         ...
 
+    async def get_push_subscriptions(self) -> list[dict]:
+        """
+        Every live device subscription, with the players it watches.
+
+        Returns:
+            One ``{token, platform, locale, environment, player_ids,
+            last_patch_alert}`` per device
+        """
+        ...
+
+    async def set_last_announced_patch(self, token: str, patch_date: str) -> None:
+        """Record the patch date just announced to one device."""
+        ...
+
     async def get_last_announced_rank(self, player_id: str) -> str | None:
         """
         The rank last announced for a player, or None if never announced.
