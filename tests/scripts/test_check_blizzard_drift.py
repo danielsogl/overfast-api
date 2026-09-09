@@ -11,6 +11,7 @@ import pytest
 import scripts.check_blizzard_drift as drift
 from scripts.check_blizzard_drift import (
     check_hero_stats_recording,
+    hero_sections,
     hitpoint_findings,
     parse_rotation_maps,
     parse_rotation_tiers,
@@ -19,21 +20,27 @@ from scripts.check_blizzard_drift import (
 from app.domain.enums import CompetitiveDivisionFilter
 
 _ROWS = {
-    "Reaper": {"health": "275", "armor": "0", "shields": "0"},
-    "Sigma": {"health": "350", "armor": "0", "shields": "250"},
-    "Junkrat": {"health": "200", "armor": "0", "shields": "0"},
-    "Reinhardt": {"health": "400", "armor": "300", "shields": "0"},
+    "Reaper": {"role": "damage", "health": "275", "armor": "0", "shields": "0"},
+    "Sigma": {"role": "tank", "health": "350", "armor": "0", "shields": "250"},
+    "Junkrat": {"role": "damage", "health": "200", "armor": "0", "shields": "0"},
+    "Reinhardt": {"role": "tank", "health": "400", "armor": "300", "shields": "0"},
 }
 
 # Verbatim from https://overwatch.blizzard.com/en-us/news/patch-notes/live/2026/
 _REAPER = (
-    "Reaper Dire Triggers has increased Reaper's strengths across many "
-    "matchups. Reducing his health lowers his survivability while preserving "
-    "the lethality Dire Triggers provides. Health reduced from 300 to 275."
+    "Reaper",
+    (
+        "Dire Triggers has increased Reaper's strengths across many matchups. "
+        "Reducing his health lowers his survivability while preserving the "
+        "lethality Dire Triggers provides. Health reduced from 300 to 275."
+    ),
 )
 _SIGMA = (
-    "Sigma Sigma remains durable when successfully rotating through his "
-    "defensive tools. Shield health reduced from 275 to 250."
+    "Sigma",
+    (
+        "Sigma remains durable when successfully rotating through his defensive "
+        "tools. Shield health reduced from 275 to 250."
+    ),
 )
 
 
@@ -47,7 +54,7 @@ class TestStaleValueIsAFailure:
     def test_stale_health_fails(self):
         rows = {**_ROWS, "Reaper": {**_ROWS["Reaper"], "health": "300"}}
 
-        findings = hitpoint_findings(_REAPER, rows)
+        findings = hitpoint_findings([_REAPER], rows)
 
         assert _levels(findings) == ["fail"]
         assert "Reaper health is 300" in findings[0][1]
@@ -56,18 +63,34 @@ class TestStaleValueIsAFailure:
     def test_stale_shields_fails(self):
         rows = {**_ROWS, "Sigma": {**_ROWS["Sigma"], "shields": "275"}}
 
-        findings = hitpoint_findings(_SIGMA, rows)
+        findings = hitpoint_findings([_SIGMA], rows)
 
         assert _levels(findings) == ["fail"]
         assert "Sigma shields is 275" in findings[0][1]
+
+    def test_tank_health_is_compared_in_role_passive_space(self):
+        """Tanks carry +150 from the role passive and heroes.csv stores the
+        total, so a note's base value must be lifted before comparing. Without
+        this D.Va's 175 -> 200 only warned, and the row stayed stale."""
+        rows = {
+            "D.Va": {"role": "tank", "health": "325", "armor": "325", "shields": "0"}
+        }
+        section = ("D.Va", "Mech base health increased from 175 to 200.")
+
+        findings = hitpoint_findings([section], rows)
+
+        assert _levels(findings) == ["fail"]
+        assert "D.Va health is 325" in findings[0][1]
+        assert "changed it to 350" in findings[0][1]
+        assert "175 to 200" in findings[0][1]
 
 
 class TestCurrentValueIsSilent:
     """A run that reports nothing is the normal state; noise gets ignored."""
 
-    @pytest.mark.parametrize("text", [_REAPER, _SIGMA])
-    def test_up_to_date_value_produces_no_finding(self, text: str):
-        findings = hitpoint_findings(text, _ROWS)
+    @pytest.mark.parametrize("section", [_REAPER, _SIGMA])
+    def test_up_to_date_value_produces_no_finding(self, section: tuple[str, str]):
+        findings = hitpoint_findings([section], _ROWS)
 
         assert findings == []
 
@@ -76,53 +99,85 @@ class TestImplausibleDeltasAreIgnored:
     def test_barrier_health_is_not_hero_health(self):
         """Reinhardt's barrier is described as "Health" too, but 1500 is not a
         number any hero row holds, so it must not produce noise."""
-        text = (
-            "Reinhardt Barrier Field is too forgiving at the current value. "
-            "Health reduced from 1500 to 1100."
+        section = (
+            "Reinhardt",
+            (
+                "Barrier Field is too forgiving at the current value. "
+                "Health reduced from 1500 to 1100."
+            ),
         )
 
-        findings = hitpoint_findings(text, _ROWS)
+        findings = hitpoint_findings([section], _ROWS)
 
         assert findings == []
 
     def test_ability_shields_are_not_hero_shields(self):
-        text = "Sigma Kinetic Grasp Shields reduced from 25 to 15."
+        section = ("Sigma", "Kinetic Grasp Shields reduced from 25 to 15.")
 
-        findings = hitpoint_findings(text, _ROWS)
+        findings = hitpoint_findings([section], _ROWS)
 
         assert findings == []
 
 
 class TestAmbiguousDeltasWarnRatherThanFail:
     def test_value_matching_neither_side_warns(self):
-        """Could be a misattributed ability, or a value that was already wrong
-        before the patch — worth a look, not a red run."""
-        text = "Junkrat Frag Launcher Health increased from 250 to 300."
+        """Could be an ability inside the hero's own section, or a value that
+        was already wrong before the patch — worth a look, not a red run."""
+        section = ("Junkrat", "Frag Launcher Health increased from 250 to 300.")
         rows = {**_ROWS, "Junkrat": {**_ROWS["Junkrat"], "health": "200"}}
 
-        findings = hitpoint_findings(text, rows)
+        findings = hitpoint_findings([section], rows)
 
         assert _levels(findings) == ["warn"]
 
 
 class TestAttribution:
-    def test_delta_is_attributed_to_the_nearest_preceding_hero(self):
+    def test_delta_belongs_to_its_heading_not_a_hero_named_in_the_prose(self):
+        """The regression that cost a day of red runs: D.Mon's section opens
+        "to match D.Va's", and attributing to the nearest name in the flattened
+        prose blamed D.Va — whose armor was the same 325 — for D.Mon's change."""
         rows = {
-            **_ROWS,
-            "Reaper": {**_ROWS["Reaper"], "health": "300"},
-            "Sigma": {**_ROWS["Sigma"], "shields": "275"},
+            "D.Mon": {"role": "tank", "health": "425", "armor": "325", "shields": "0"},
+            "D.Va": {"role": "tank", "health": "350", "armor": "325", "shields": "0"},
         }
+        section = (
+            "D.Mon",
+            (
+                "We are reducing Call Mech's transformation time to match "
+                "D.Va's while adjusting Portable Fusion Repeater. "
+                "Armor reduced from 325 to 300."
+            ),
+        )
 
-        findings = hitpoint_findings(f"{_SIGMA} {_REAPER}", rows)
+        findings = hitpoint_findings([section], rows)
 
-        assert _levels(findings) == ["fail", "fail"]
-        assert "Sigma" in findings[0][1]
-        assert "Reaper" in findings[1][1]
+        assert _levels(findings) == ["fail"]
+        assert findings[0][1].startswith("D.Mon armor is 325")
 
-    def test_no_known_hero_name_warns_instead_of_guessing(self):
-        findings = hitpoint_findings("Health reduced from 300 to 275.", _ROWS)
+    def test_unknown_hero_heading_is_skipped(self):
+        """A hero we do not carry yet is the heroes-index check's business."""
+        findings = hitpoint_findings(
+            [("Nobody", "Health reduced from 300 to 275.")], _ROWS
+        )
 
-        assert _levels(findings) == ["warn"]
+        assert findings == []
+
+
+class TestHeroSections:
+    def test_headings_split_the_page_and_survive_blizzards_own_typos(self):
+        html = (
+            '<h4 class="PatchNotes-sectionTitle">Tank</h4>'
+            '<h5 class="PatchNotesHeroUpdate-name">D.Mon</h5>'
+            "<p>Armor reduced from 325 to 300.</p>"
+            '<h5 class="PatchNotesHeroUpdate-name">wrecking Ball</h5>'
+            "<p>Adaptive Shield duration reduced from 7 to 6 seconds.</p>"
+        )
+
+        sections = hero_sections(html)
+
+        assert [hero for hero, _ in sections] == ["D.Mon", "wrecking Ball"]
+        assert "Armor reduced from 325 to 300." in sections[0][1]
+        assert "Armor" not in sections[1][1]
 
 
 class TestRotationMapParsing:
