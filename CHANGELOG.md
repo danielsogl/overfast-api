@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v4.21.7 (2026-09-09)
+
+### Bug Fixes
+
+- **data**: Attribute patch-note hitpoint deltas by hero heading
+  ([#48](https://github.com/danielsogl/overfast-api/pull/48),
+  [`e11c71b`](https://github.com/danielsogl/overfast-api/commit/e11c71b5f0c007d7e27703eb25896f40135d3038))
+
+
 ## v4.21.6 (2026-09-08)
 
 ### Bug Fixes
