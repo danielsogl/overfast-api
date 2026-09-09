@@ -278,6 +278,45 @@ async def notify_rank_changes(
         logger.exception("[Worker] notify_rank_changes: Failed.")
 
 
+@broker.task(schedule=[{"cron": "0 7 * * *"}])
+async def notify_hero_changes(
+    storage: StorageDep,
+    player_service: PlayerServiceDep,
+    service: PatchNotesServiceDep,
+) -> None:
+    """Announce the newest patch to the devices whose heroes it changed.
+
+    Daily rather than four-hourly: a patch is news for a day, and one run a day
+    bounds the blast radius to one push per patch per device on top of the
+    per-device dedup. 07:00 sits after ``snapshot_hero_stats`` at 05:00 and
+    lands mid-morning in Europe. There is no globally civil hour for a fixed
+    UTC send; a timezone column on the subscription is the upgrade path if it
+    ever matters.
+
+    English only. ``entry.hero`` resolves most reliably there and the hero
+    *keys* are locale-independent — only the message text is localised, per
+    device.
+    """
+    sender = build_push_sender()
+    if sender is None:
+        logger.debug("[Worker] notify_hero_changes: push disabled, skipping.")
+        return
+
+    try:
+        patch_notes, _, _ = await service.list_patch_notes(
+            Locale.ENGLISH_US, cache_key="/patch-notes", limit=1
+        )
+        if not patch_notes:
+            logger.warning("[Worker] notify_hero_changes: no patch notes.")
+            return
+
+        await PushService(storage, player_service, sender).notify_hero_changes(
+            patch_notes[0]
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("[Worker] notify_hero_changes: Failed.")
+
+
 @broker.task(schedule=[{"cron": "0 5 * * *"}])
 async def snapshot_hero_stats(service: HeroServiceDep) -> None:
     """Record the daily hero stats reading (runs daily at 05:00 UTC).

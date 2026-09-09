@@ -36,6 +36,20 @@ ANDROID = PushMessage(
     body="X is now Gold 1",
     player_id="Foo-1234",
 )
+IOS_HERO = PushMessage(
+    token="apns-token-cccccccc",
+    platform="ios",
+    title="Hero Update",
+    body="Changes to D.Va in the latest patch",
+    hero_key="dva",
+)
+ANDROID_HERO = PushMessage(
+    token="fcm-token-dddddddd",
+    platform="android",
+    title="Hero Update",
+    body="Changes to D.Va in the latest patch",
+    hero_key="dva",
+)
 
 
 @pytest.fixture(scope="session")
@@ -124,6 +138,22 @@ class TestApnsSender:
         # through to the app, and anything added under `aps` would instead be
         # interpreted as a system field.
         assert payload["player_id"] == IOS.player_id
+        assert "hero_key" not in payload
+
+    @pytest.mark.asyncio
+    async def test_a_hero_alert_carries_no_player_id(
+        self, apns_key_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A null would read as a destination; the key is omitted instead."""
+        seen = _patch_client(
+            monkeypatch, lambda _: httpx2.Response(httpx2.codes.OK, json={})
+        )
+
+        await _apns(apns_key_path).send([IOS_HERO])
+
+        payload = json.loads(seen[0].content)
+        assert payload["hero_key"] == "dva"
+        assert "player_id" not in payload
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("reason", ["Unregistered", "BadDeviceToken"])
@@ -268,6 +298,21 @@ class TestFcmSender:
         # FCM `data` values must be strings, and this is what the tap handler
         # reads to open the right profile.
         assert message["data"] == {"player_id": ANDROID.player_id}
+
+    @pytest.mark.asyncio
+    async def test_a_hero_alert_sends_a_string_only_data_block(
+        self, service_account_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """FCM rejects a non-string `data` value, so an unset key is omitted."""
+        seen = _patch_client(
+            monkeypatch, self._handler(httpx2.Response(httpx2.codes.OK, json={}))
+        )
+
+        await FcmSender(str(service_account_path), "proj").send([ANDROID_HERO])
+
+        message = json.loads(seen[1].content)["message"]
+        assert message["data"] == {"hero_key": "dva"}
+        assert all(isinstance(value, str) for value in message["data"].values())
 
     @pytest.mark.asyncio
     async def test_keeps_the_token_on_invalid_argument(

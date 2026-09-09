@@ -466,6 +466,10 @@ class PostgresStorage(metaclass=Singleton):
                            player_ids  = EXCLUDED.player_ids,
                            environment = EXCLUDED.environment,
                            updated_at  = NOW()""",
+                # `last_patch_alert` is deliberately absent from that SET
+                # list: it is ours, not the client's. Adding it would reset on
+                # every launch, so opening the app after a patch alert would
+                # earn the same alert again on the next run.
                 token,
                 platform,
                 locale,
@@ -521,6 +525,38 @@ class PostgresStorage(metaclass=Singleton):
                 player_id.replace("|", "%7C"),
             )
         return [dict(row) for row in rows]
+
+    async def get_push_subscriptions(self) -> list[dict]:
+        """Every device with its watched players and last announced patch.
+
+        The hero-change poller works per device, not per player: one device
+        watching three players who share a main must get one notification, not
+        three.
+        """
+        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+            rows = await conn.fetch(
+                """SELECT token, platform, locale, environment, player_ids,
+                          last_patch_alert
+                   FROM push_subscriptions"""
+            )
+        return [
+            {
+                **dict(row),
+                "player_ids": list(
+                    dict.fromkeys(normalize_player_id(p) for p in row["player_ids"])
+                ),
+            }
+            for row in rows
+        ]
+
+    async def set_last_announced_patch(self, token: str, patch_date: str) -> None:
+        """Record the patch date just announced to this device."""
+        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+            await conn.execute(
+                "UPDATE push_subscriptions SET last_patch_alert = $2 WHERE token = $1",
+                token,
+                patch_date,
+            )
 
     async def get_last_announced_rank(self, player_id: str) -> str | None:
         """The rank last announced for this player, or None."""

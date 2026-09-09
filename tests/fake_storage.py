@@ -266,6 +266,7 @@ class FakeStorage:
             "locale": locale,
             "environment": environment,
             "player_ids": list(player_ids),
+            "last_patch_alert": self._push.get(token, {}).get("last_patch_alert"),
             "updated_at": time.time(),
         }
 
@@ -286,6 +287,23 @@ class FakeStorage:
             for token, row in self._push.items()
             if player_id in row["player_ids"]
         ]
+
+    async def get_push_subscriptions(self) -> list[dict]:
+        return [
+            {
+                "token": token,
+                "platform": row["platform"],
+                "locale": row["locale"],
+                "environment": row["environment"],
+                "player_ids": list(row["player_ids"]),
+                "last_patch_alert": row["last_patch_alert"],
+            }
+            for token, row in self._push.items()
+        ]
+
+    async def set_last_announced_patch(self, token: str, patch_date: str) -> None:
+        if token in self._push:
+            self._push[token]["last_patch_alert"] = patch_date
 
     async def get_last_announced_rank(self, player_id: str) -> str | None:
         return self._rank_alerts.get(player_id)

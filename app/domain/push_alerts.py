@@ -1,4 +1,4 @@
-"""Deciding which rank change is worth a notification.
+"""Deciding which change is worth a notification.
 
 The app shows one rank per player -- the best across tank, damage and support,
 PC preferred over console -- and its local alert fires when that string
@@ -7,9 +7,14 @@ locally-composed one can never disagree about what "your rank" means.
 
 The comparison is between the two most recent snapshots, not between the ends
 of a window: a rank that moved and moved back is not news.
+
+The hero half is simpler: a patch says which heroes changed, the snapshot
+series says which of those the player actually plays.
 """
 
 from __future__ import annotations
+
+from collections import Counter
 
 from app.domain.enums import CompetitiveDivision
 
@@ -70,3 +75,40 @@ def rank_alert(snapshots: list[dict]) -> str | None:
         return None
 
     return format_rank(after)
+
+
+def changed_heroes(patch: dict) -> set[str]:
+    """Hero keys a patch touched, from one parsed ``/patch-notes`` entry.
+
+    Mirrors the app's own `heroChanges` join exactly: only entries the parser
+    resolved to a key (a hero shipped the same day is `None`), and only those
+    carrying actual text — a map update is a pair of screenshots with no
+    details, and must not badge or announce anything.
+    """
+    return {
+        entry["hero"]
+        for section in patch.get("sections") or []
+        for entry in section.get("entries") or []
+        if entry.get("hero") and (entry.get("details") or entry.get("abilities"))
+    }
+
+
+def hero_alert(changed: set[str], snapshots: list[dict], limit: int = 3) -> list[str]:
+    """The changed heroes a device's watched players play most, most first.
+
+    *snapshots* is the newest snapshot of each watched player; their playtime
+    is summed, so one device following three players gets one ranked list.
+
+    No minimum playtime: sorting by time played already means "their mains",
+    and a hero with a single game only ever surfaces when nothing else did.
+    """
+    played: Counter[str] = Counter()
+    for snapshot in snapshots:
+        heroes = ((snapshot.get("data") or {}).get("heroes")) or {}
+        for platform in heroes.values():
+            for gamemode in platform.values():
+                for hero, stats in gamemode.items():
+                    if hero in changed:
+                        played[hero] += stats.get("time_played") or 0
+
+    return [hero for hero, _ in played.most_common(limit)]

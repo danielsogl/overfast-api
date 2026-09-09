@@ -62,6 +62,22 @@ _FCM_GONE_STATUSES = frozenset({"UNREGISTERED", "SENDER_ID_MISMATCH"})
 _TIMEOUT = httpx2.Timeout(10.0)
 
 
+def _destination(message: PushMessage) -> dict[str, str]:
+    """The deep-link keys that are actually set.
+
+    Omitted rather than sent as null: FCM rejects a non-string `data` value
+    outright, and the app reads a present key as "open this".
+    """
+    return {
+        key: value
+        for key, value in (
+            ("player_id", message.player_id),
+            ("hero_key", message.hero_key),
+        )
+        if value
+    }
+
+
 def _redact(token: str) -> str:
     """Device tokens are identifiers; logs get enough to correlate, no more."""
     return f"{token[:8]}…"
@@ -103,15 +119,15 @@ class ApnsSender:
                     "apns-push-type": "alert",
                     "apns-priority": "10",
                 },
-                # `player_id` sits beside `aps`, not inside it: APNs treats
-                # every top-level key other than `aps` as the app's own
+                # The destination sits beside `aps`, not inside it: APNs
+                # treats every top-level key other than `aps` as the app's own
                 # payload and hands it to the client untouched.
                 json={
                     "aps": {
                         "alert": {"title": message.title, "body": message.body},
                         "sound": "default",
                     },
-                    "player_id": message.player_id,
+                    **_destination(message),
                 },
             )
         except httpx2.HTTPError as error:
@@ -179,7 +195,7 @@ class FcmSender:
                             "title": message.title,
                             "body": message.body,
                         },
-                        "data": {"player_id": message.player_id},
+                        "data": _destination(message),
                     }
                 },
             )

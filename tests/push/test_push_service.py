@@ -1,7 +1,8 @@
-"""Tests for the rank-alert poller"""
+"""Tests for the rank-alert poller and the hero-change announcer"""
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
@@ -219,3 +220,153 @@ async def test_carries_the_player_id_into_the_message(storage_db: FakeStorage):
     await service.notify_rank_changes()
 
     assert sender.sent[0].player_id == PLAYER
+
+
+# ─── Hero change announcements ────────────────────────────────────────────────
+
+OTHER_PLAYER = "Player-4242"
+
+
+def _today(days_ago: int = 0) -> str:
+    return (datetime.now(tz=UTC).date() - timedelta(days=days_ago)).isoformat()
+
+
+def _patch(*heroes: str, days_ago: int = 0) -> dict:
+    return {
+        "date": _today(days_ago),
+        "sections": [
+            {
+                "entries": [
+                    {"hero": hero, "details": ["Nerfed."], "abilities": []}
+                    for hero in heroes
+                ]
+            }
+        ],
+    }
+
+
+def _hero_snapshot(**by_hero: int) -> dict:
+    return {
+        "competitive": {},
+        "heroes": {
+            "pc": {
+                "quickplay": {
+                    hero: {"time_played": seconds} for hero, seconds in by_hero.items()
+                }
+            }
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_names_the_changed_heroes_the_device_plays_most(storage_db: FakeStorage):
+    await storage_db.upsert_push_subscription("tok-de-1234", "ios", "de", [PLAYER])
+    await storage_db.add_player_snapshot(PLAYER, 1, _hero_snapshot(ana=10, dva=900))
+    sender = _Sender()
+
+    service, _ = _service(storage_db, sender)
+    sent = await service.notify_hero_changes(_patch("ana", "dva"))
+
+    assert sent == 1
+    message = sender.sent[0]
+    assert message.title == "Helden-Update"
+    assert message.body == "Änderungen an D.Va, Ana im neuesten Patch"
+    # The deep link is the hero the body names first, so tap and text agree.
+    assert message.hero_key == "dva"
+    assert message.player_id is None
+
+
+@pytest.mark.asyncio
+async def test_one_device_watching_two_players_gets_one_message(
+    storage_db: FakeStorage,
+):
+    await storage_db.upsert_push_subscription(
+        "tok-en-5678", "android", "en-US", [PLAYER, OTHER_PLAYER]
+    )
+    await storage_db.add_player_snapshot(PLAYER, 1, _hero_snapshot(dva=500))
+    await storage_db.add_player_snapshot(OTHER_PLAYER, 1, _hero_snapshot(dva=500))
+    sender = _Sender()
+
+    service, _ = _service(storage_db, sender)
+    sent = await service.notify_hero_changes(_patch("dva"))
+
+    assert sent == 1
+    assert sender.sent[0].body == "Changes to D.Va in the latest patch"
+
+
+@pytest.mark.asyncio
+async def test_announces_a_patch_once_per_device(storage_db: FakeStorage):
+    await storage_db.upsert_push_subscription("tok-en-5678", "ios", "en-US", [PLAYER])
+    await storage_db.add_player_snapshot(PLAYER, 1, _hero_snapshot(dva=500))
+    sender = _Sender()
+
+    service, _ = _service(storage_db, sender)
+    patch = _patch("dva")
+    assert await service.notify_hero_changes(patch) == 1
+    assert await service.notify_hero_changes(patch) == 0
+
+
+@pytest.mark.asyncio
+async def test_a_relaunch_does_not_re_arm_the_announcement(storage_db: FakeStorage):
+    """The app re-upserts on every launch; that write is the client's, not ours."""
+    await storage_db.upsert_push_subscription("tok-en-5678", "ios", "en-US", [PLAYER])
+    await storage_db.add_player_snapshot(PLAYER, 1, _hero_snapshot(dva=500))
+    sender = _Sender()
+
+    service, _ = _service(storage_db, sender)
+    patch = _patch("dva")
+    await service.notify_hero_changes(patch)
+    await storage_db.upsert_push_subscription("tok-en-5678", "ios", "en-US", [PLAYER])
+
+    assert await service.notify_hero_changes(patch) == 0
+
+
+@pytest.mark.asyncio
+async def test_never_announces_a_stale_patch(storage_db: FakeStorage):
+    """The first run after a deploy must not blast week-old news."""
+    await storage_db.upsert_push_subscription("tok-en-5678", "ios", "en-US", [PLAYER])
+    await storage_db.add_player_snapshot(PLAYER, 1, _hero_snapshot(dva=500))
+    sender = _Sender()
+
+    service, _ = _service(storage_db, sender)
+
+    assert await service.notify_hero_changes(_patch("dva", days_ago=7)) == 0
+    assert sender.sent == []
+
+
+@pytest.mark.asyncio
+async def test_says_nothing_about_heroes_the_device_does_not_play(
+    storage_db: FakeStorage,
+):
+    await storage_db.upsert_push_subscription("tok-en-5678", "ios", "en-US", [PLAYER])
+    await storage_db.add_player_snapshot(PLAYER, 1, _hero_snapshot(genji=900))
+    sender = _Sender()
+
+    service, _ = _service(storage_db, sender)
+
+    assert await service.notify_hero_changes(_patch("dva")) == 0
+
+
+@pytest.mark.asyncio
+async def test_a_patch_touching_no_hero_sends_nothing(storage_db: FakeStorage):
+    await storage_db.upsert_push_subscription("tok-en-5678", "ios", "en-US", [PLAYER])
+    await storage_db.add_player_snapshot(PLAYER, 1, _hero_snapshot(dva=500))
+    sender = _Sender()
+
+    service, _ = _service(storage_db, sender)
+
+    assert await service.notify_hero_changes({"date": _today(), "sections": []}) == 0
+
+
+@pytest.mark.asyncio
+async def test_drops_the_devices_the_service_reported_gone_on_a_hero_alert(
+    storage_db: FakeStorage,
+):
+    await storage_db.upsert_push_subscription("tok-en-5678", "ios", "en-US", [PLAYER])
+    await storage_db.add_player_snapshot(PLAYER, 1, _hero_snapshot(dva=500))
+    sender = _Sender(gone=["tok-en-5678"])
+
+    service, _ = _service(storage_db, sender)
+    await service.notify_hero_changes(_patch("dva"))
+
+    assert await storage_db.get_push_subscriptions() == []
