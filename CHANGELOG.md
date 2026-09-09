@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v4.21.8 (2026-09-09)
+
+### Bug Fixes
+
+- **scripts**: Put the developer's .env back after a smoke test
+  ([#50](https://github.com/danielsogl/overfast-api/pull/50),
+  [`65917ca`](https://github.com/danielsogl/overfast-api/commit/65917ca091ded9e9e22b4b3051b2dd229a07f0fd))
+
+
 ## v4.21.7 (2026-09-09)
 
 ### Bug Fixes
