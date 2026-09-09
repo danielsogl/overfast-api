@@ -7,7 +7,8 @@
 # apart — the release copy was missing the POSTGRES_PASSWORD line, which let a
 # credential mismatch reach the deploy gate unnoticed.
 #
-# Runnable locally: `bash scripts/smoke-test.sh` (overwrites .env).
+# Runnable locally: `bash scripts/smoke-test.sh`. An existing .env is put back
+# on exit; the compose stack is left up on purpose, for inspection.
 set -euo pipefail
 
 # Port is overridable because this script advertises itself as runnable by
@@ -33,11 +34,33 @@ fail() {
 # .env.dist ships POSTGRES_PASSWORD empty on purpose
 # (docker-compose.yml requires it via ${VAR:?}), so supply a test value.
 echo "=== Creating .env from defaults ==="
-# Keep a local developer .env recoverable — this script is runnable by hand.
+
+# Put a developer's .env back whatever happens. A backup alone was not enough:
+# nothing ever read it again, so a hand-run left the machine pointing at
+# ci-test-password until someone noticed. Both files are gitignored, so
+# `git status` stays clean and the damage is invisible to the usual checks.
+#
+# EXIT rather than a line at the end, because `set -e` makes the abort the
+# likely path: a Docker daemon that is not running fails `compose build` two
+# steps below, which is *after* the overwrite. The trap fires there too.
+#
+# `mv` rather than `cp`: it restores and removes the backup in one step, so a
+# second run cannot find a stale one and restore last week's file.
+restore_env() {
+    [ -f .env.smoke-backup ] && mv -f .env.smoke-backup .env
+    # Never let the trap decide the script's exit code.
+    return 0
+}
+
+# Armed only when there was something to save. CI checks out a tree with no
+# .env — nothing to restore there, and the generated one is wanted by any
+# `docker compose` step the workflow runs after this script.
+#
 # Plain `[ -f .env ] && ...` would abort under `set -e` when no .env exists.
 if [ -f .env ]; then
     cp .env .env.smoke-backup
-    echo "  existing .env saved to .env.smoke-backup"
+    trap restore_env EXIT
+    echo "  existing .env saved to .env.smoke-backup, restored on exit"
 fi
 # One non-in-place pass: `sed -i'' -e` is read by BSD sed (macOS) as a backup
 # suffix of "-e", which left a credential-carrying .env-e behind on every run.
