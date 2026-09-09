@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v4.22.0 (2026-09-09)
+
+### Features
+
+- **push**: Announce a patch's hero changes to the devices that play them
+  ([#49](https://github.com/danielsogl/overfast-api/pull/49),
+  [`4a4207c`](https://github.com/danielsogl/overfast-api/commit/4a4207c03e195f7f9775f4890fda446eac5415da))
+
+
 ## v4.21.8 (2026-09-09)
 
 ### Bug Fixes
