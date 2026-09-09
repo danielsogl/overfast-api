@@ -238,7 +238,7 @@ _DELTA_PATTERN = re.compile(
 
 
 def _fetch_patch_notes(months: int) -> str:
-    """Return the flattened text of the last *months* patch-note pages."""
+    """Return the raw HTML of the last *months* patch-note pages."""
     now = datetime.now(UTC)
     pages = []
     for offset in range(months):
@@ -249,31 +249,48 @@ def _fetch_patch_notes(months: int) -> str:
         except httpx2.HTTPError:
             # A month with no notes 404s; that is not drift.
             continue
-    text = re.sub(r"<[^>]+>", " ", "\n".join(pages))
-    return re.sub(r"\s+", " ", text)
+    return "\n".join(pages)
+
+
+# Blizzard wraps each hero's changes in its own heading. Attributing a delta to
+# the nearest hero name in the flattened prose looked cheaper, but the prose
+# names other heroes — D.Mon's section opens "to match D.Va's" — and that blamed
+# D.Va for D.Mon's armor change for a full day of red runs.
+_HERO_HEADING = re.compile(
+    r'<h\d[^>]*class="[^"]*PatchNotesHeroUpdate-name[^"]*"[^>]*>([^<]+)</h\d>'
+)
+
+# Tanks get +150 health from the role passive; heroes.csv stores the total while
+# the patch notes publish the base. Without this every tank health change lands
+# as a warning rather than a failure — silent rot in the column the guard exists
+# to protect. Armor and shields take no passive.
+_TANK_ROLE_PASSIVE = 150
+
+
+def hero_sections(html: str) -> list[tuple[str, str]]:
+    """Split patch-note HTML into (hero, flattened body) pairs."""
+    parts = _HERO_HEADING.split(html)
+    return [
+        (hero.strip(), re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", body)))
+        for hero, body in zip(parts[1::2], parts[2::2], strict=True)
+    ]
 
 
 def hitpoint_findings(
-    text: str, rows: dict[str, dict[str, str]]
+    sections: list[tuple[str, str]], rows: dict[str, dict[str, str]]
 ) -> list[tuple[str, str]]:
     """Classify every published hitpoint delta against heroes.csv.
 
+    Takes the ``(hero, body)`` pairs of Blizzard's own per-hero headings: the
+    heading is the subject of everything under it, and nothing else is.
+
     Returns ``(level, message)`` pairs so this stays pure and testable; the
     caller dispatches them to fail()/warn().
-
-    Deltas are attributed to the most recent hero name preceding them: Blizzard
-    lays the notes out as "<Hero> <rationale> <change>", so the nearest
-    preceding name is the subject.
     """
     findings: list[tuple[str, str]] = []
 
-    name_positions = sorted(
-        (m.start(), name)
-        for name in rows
-        for m in re.finditer(rf"\b{re.escape(name)}\b", text)
-    )
-    if not name_positions:
-        return [("warn", "no hero names found in the patch notes")]
+    # Blizzard typos its own headings ("wrecking Ball"), so match loosely.
+    by_heading = {name.lower(): name for name in rows}
 
     # Self-calibrating plausibility bound. "Health reduced from 1500 to 1100" is
     # Reinhardt's barrier, not Reinhardt; "from 25 to 15" is some ability's
@@ -290,46 +307,57 @@ def hitpoint_findings(
         for column in ("health", "armor", "shields")
     }
 
-    for match in _DELTA_PATTERN.finditer(text):
-        column = _HITPOINT_FIELDS[match["field"].lower()]
-        before, after = match["before"], match["after"]
-
-        known = plausible[column]
-        if known and not (min(known) <= int(before) <= max(known)):
+    for heading, body in sections:
+        hero = by_heading.get(heading.lower())
+        if hero is None:
+            # A hero we do not carry yet; the heroes index check reports that.
             continue
+        row = rows[hero]
 
-        preceding = [name for pos, name in name_positions if pos < match.start()]
-        if not preceding:
-            continue
-        hero = preceding[-1]
-        ours = rows[hero][column]
-
-        if ours == after:
-            continue
-        if ours == before:
-            # Unambiguous: we still hold the pre-patch value.
-            findings.append(
-                (
-                    "fail",
-                    (
-                        f"{hero} {column} is {ours}, but Blizzard changed it to "
-                        f"{after} (patch note: {column} from {before} to {after})"
-                    ),
-                )
+        for match in _DELTA_PATTERN.finditer(body):
+            column = _HITPOINT_FIELDS[match["field"].lower()]
+            passive = (
+                _TANK_ROLE_PASSIVE
+                if column == "health" and row.get("role") == "tank"
+                else 0
             )
-        else:
-            # Either the delta belongs to something else on the page, or the
-            # value was wrong before the patch too. Worth a look, not a red run.
-            findings.append(
-                (
-                    "warn",
+            before = str(int(match["before"]) + passive)
+            after = str(int(match["after"]) + passive)
+            note = f"patch note: {column} from {match['before']} to {match['after']}"
+            if passive:
+                note += f", +{passive} tank passive"
+
+            known = plausible[column]
+            if known and not (min(known) <= int(before) <= max(known)):
+                continue
+
+            ours = row[column]
+            if ours == after:
+                continue
+            if ours == before:
+                # Unambiguous: we still hold the pre-patch value.
+                findings.append(
                     (
-                        f"{hero} {column} is {ours}; a patch note says {before} "
-                        f"-> {after}. Check whether the note refers to this "
-                        f"hero's own hitpoints."
-                    ),
+                        "fail",
+                        (
+                            f"{hero} {column} is {ours}, but Blizzard changed it "
+                            f"to {after} ({note})"
+                        ),
+                    )
                 )
-            )
+            else:
+                # Either the delta belongs to something else in the hero's
+                # section — an ability, a barrier — or the value was wrong before
+                # the patch too. Worth a look, not a red run.
+                findings.append(
+                    (
+                        "warn",
+                        (
+                            f"{hero} {column} is {ours}; {note}. Check whether "
+                            f"the note refers to this hero's own hitpoints."
+                        ),
+                    )
+                )
 
     return findings
 
@@ -339,16 +367,26 @@ def check_hitpoints_against_patch_notes() -> None:
     print("=== hitpoints vs patch notes ===")
 
     rows = {row["name"]: row for row in read_csv_file("heroes")}
-    text = _fetch_patch_notes(PATCH_NOTE_MONTHS)
-    if not text.strip():
+    html = _fetch_patch_notes(PATCH_NOTE_MONTHS)
+    if not html.strip():
         warn("no patch notes could be fetched — hitpoints not verified")
         return
 
-    findings = hitpoint_findings(text, rows)
+    sections = hero_sections(html)
+    if not sections:
+        # The heading class is the whole attribution; if Blizzard renames it,
+        # every hero goes unchecked and this must say so rather than pass.
+        warn("no hero sections found in the patch notes — hitpoints not verified")
+        return
+
+    findings = hitpoint_findings(sections, rows)
     for level, message in findings:
         (fail if level == "fail" else warn)(message)
 
-    print(f"  checked {len(_DELTA_PATTERN.findall(text))} published change(s)")
+    changes = sum(len(_DELTA_PATTERN.findall(body)) for _, body in sections)
+    print(
+        f"  checked {changes} published change(s) across {len(sections)} hero section(s)"
+    )
 
 
 # ── Maps ─────────────────────────────────────────────────────────────────────
