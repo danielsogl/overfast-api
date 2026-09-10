@@ -3,7 +3,8 @@
 Everything here runs **on the VPS itself**, outside Docker. Until now these
 files existed only at `/opt` on the host and nowhere else — if the machine were
 lost, the deploy wrapper, the health check, the Caddy rebuild procedure and the
-log rotation would have gone with it, and each is load-bearing.
+log rotation would have gone with it. All but the Caddy rebuild are load-bearing;
+that one is kept as a record of a setup no longer in force.
 
 This directory is the canonical copy. `/opt` holds the deployed copies.
 
@@ -13,7 +14,7 @@ This directory is the canonical copy. `/opt` holds the deployed copies.
 |---|---|---|
 | `deploy-wrapper.sh` | `/opt/deploy-overfast.sh` | GitHub Actions over SSH |
 | `healthcheck.sh` | run from this repo path | cron, every 5 min |
-| `rebuild-caddy.sh` | `/opt/rebuild-caddy.sh` | manual, after a Caddy release |
+| `rebuild-caddy.sh` | `/opt/rebuild-caddy.sh` | **not applied** — see the header |
 | `logrotate-overfast` | `/etc/logrotate.d/overfast` | logrotate, weekly |
 | `../backup-postgres.sh` | run from this repo path | cron, 04:00 UTC |
 
@@ -28,7 +29,6 @@ so a deploy updates them. That is the point: versioned *and* deployed.
 
 ```bash
 install -m 0755 scripts/vps/deploy-wrapper.sh /opt/deploy-overfast.sh
-install -m 0755 scripts/vps/rebuild-caddy.sh  /opt/rebuild-caddy.sh
 install -m 0644 scripts/vps/logrotate-overfast /etc/logrotate.d/overfast
 
 crontab -l 2>/dev/null | { cat; cat <<'CRON'; } | crontab -
