@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v4.22.1 (2026-09-10)
+
+### Bug Fixes
+
+- **nginx**: Stop push registration losing the race with cold-start reads
+  ([`8e9ca32`](https://github.com/danielsogl/overfast-api/commit/8e9ca3268159e081905730e5e669951700442d79))
+
+
 ## v4.22.0 (2026-09-09)
 
 ### Features
