@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v4.22.2 (2026-09-10)
+
+### Bug Fixes
+
+- **nginx**: Export the entrypoint defaults so they actually apply
+  ([`635ba15`](https://github.com/danielsogl/overfast-api/commit/635ba1532fe0c9e2ea265a3c154cbd230664946d))
+
+### Documentation
+
+- **vps**: Record that the custom Caddy build is not in force
+  ([`1a0cd20`](https://github.com/danielsogl/overfast-api/commit/1a0cd201841134d71395db57b73ef572fc613b5f))
+
+
 ## v4.22.1 (2026-09-10)
 
 ### Bug Fixes
