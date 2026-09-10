@@ -141,8 +141,17 @@ class Settings(BaseSettings):
     # Global rate limit of requests per second per ip to apply on the API
     rate_limit_per_second_per_ip: int = 30
 
-    # Global burst value to apply on rate limit before rejecting requests
-    rate_limit_per_ip_burst: int = 5
+    # Global burst value to apply on rate limit before rejecting requests.
+    #
+    # nginx measures arrival *spacing*, not requests per second: rate=30r/s
+    # admits one request every 33ms and `burst` is the only slack for a client
+    # that fires a batch at once. A mobile app fanning out its cold start —
+    # one /heroes/<key> per rendered row — arrives as ~30 simultaneous
+    # requests, so a burst of 5 rejected most of them and produced ~240 429s a
+    # day across 40+ client IPs. The rate still caps sustained throughput, so
+    # raising only the burst absorbs legitimate batches without widening the
+    # abuse ceiling.
+    rate_limit_per_ip_burst: int = 50
 
     # Global maximum number of connection/simultaneous requests per ip
     max_connections_per_ip: int = 10

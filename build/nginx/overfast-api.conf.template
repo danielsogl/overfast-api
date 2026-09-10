@@ -16,6 +16,22 @@ limit_conn_status 429;
 limit_req_zone $binary_remote_addr zone=ofreq:10m rate=${RATE_LIMIT_PER_SECOND_PER_IP}r/s;
 limit_req_status 429;
 
+# Separate bucket for the push routes, hardcoded because nobody tunes these per
+# environment — unlike the read limits above, which are in the OpenAPI
+# description because clients need them.
+#
+# A device registers a handful of times a day, but it does so in the same
+# instant as its cold-start read fan-out, and both zones key on the client IP
+# alone. Sharing ofreq meant the registration competed with ~30 simultaneous
+# reads and was rejected on arrival order alone — a coin flip. The consequence
+# is asymmetric: a rejected /heroes/<key> costs a retry, a rejected
+# registration costs every rank notification until the next cold start.
+#
+# This also covers what neither a bigger burst nor a client-side fix can:
+# several users behind one CGNAT egress share a bucket, so their reads alone
+# can exhaust ofreq no matter how well any single app behaves.
+limit_req_zone $binary_remote_addr zone=ofpush:10m rate=5r/s;
+
 # Docker DNS for both Lua and proxy_pass dynamic resolution.
 # valid=1s gives near-instant pickup of new container IPs during rolling
 # deploys without needing a config reload. The DNS query overhead is
@@ -75,6 +91,47 @@ server {
   location ~ (?<no_slash>.+)/$ {
     absolute_redirect off;
     return 301 $no_slash$is_args$args;
+  }
+
+  # Push routes: own bucket, and no Valkey lookup — these are writes, so the
+  # cache handler in `location /` can only ever miss on them.
+  #
+  # Prefix match, so this wins over `location /` for /push/* regardless of
+  # order. The trailing-slash regex above cannot steal it: these URIs never end
+  # in a slash.
+  location /push/ {
+    # Connection zone stays shared with the read API on purpose: limit_conn has
+    # never fired here (0 events against 430 limit_req events over 72h), so a
+    # second zone would be untested config for no measured benefit.
+    limit_conn ofconn ${MAX_CONNECTIONS_PER_IP};
+    # Burst is generous against a 5r/s drip on purpose. A device legitimately
+    # calls this about three times a day, so it costs nothing here, and it is
+    # what absorbs a whole CGNAT block registering at once.
+    limit_req zone=ofpush burst=20 nodelay;
+
+    error_page 429 = @limit_reached;
+
+    add_header Access-Control-Allow-Origin "*" always;
+
+    if ($request_method = OPTIONS) {
+      add_header Access-Control-Allow-Origin "*" always;
+      add_header Access-Control-Allow-Methods "GET, HEAD, OPTIONS, PUT, DELETE";
+      add_header Access-Control-Allow-Headers "*";
+      return 204;
+    }
+
+    # Jump straight to the app. Reusing @fallback rather than repeating its
+    # proxy block keeps the $upstream_method handling below in one place — the
+    # bare `proxy_method GET` that broke exactly these routes lived there.
+    #
+    # try_files, not `error_page 418 = @fallback; return 418;`. `return` runs in
+    # the rewrite phase, which is *before* the preaccess phase where limit_req
+    # is evaluated, so that version jumped to @fallback with the limiter never
+    # running and left these routes entirely unthrottled. try_files runs in the
+    # precontent phase, after preaccess, so the bucket above applies.
+    # The first argument is a path that cannot exist; only the fallback is ever
+    # taken.
+    try_files /nonexistent-push-placeholder @fallback;
   }
 
   # Main route
