@@ -4,6 +4,20 @@
 set -eu
 set -o pipefail 2>/dev/null || true
 
+# `set -a` covers every default below, and it is load-bearing rather than
+# stylistic: envsubst reads the *environment*, so a variable defaulted here but
+# not exported is substituted as the empty string and the default silently does
+# nothing. NGINX_WORKER_CONNECTIONS was the visible case — without it in .env
+# nginx died on `worker_connections ;` — but RETRY_AFTER_HEADER,
+# CONDITIONAL_GET_HEADER, UNKNOWN_PLAYER_COOLDOWN_KEY_PREFIX and
+# UNKNOWN_PLAYERS_CACHE_ENABLED had the same hole, the last one blanking a
+# truthiness check in the Lua handler rather than failing loudly.
+#
+# In production every one of these comes from .env, so the gap only showed up
+# outside it. That is exactly what makes it worth closing: the defaults exist
+# so the image runs without a full .env, and until now they never did.
+set -a
+
 # Set defaults for nginx tuning variables if not provided
 : "${NGINX_WORKER_PROCESSES:=0}"
 : "${NGINX_WORKER_CONNECTIONS:=1024}"
@@ -27,6 +41,8 @@ set -o pipefail 2>/dev/null || true
 : "${CONDITIONAL_GET_HEADER:=X-Conditional-Get}"
 : "${UNKNOWN_PLAYER_COOLDOWN_KEY_PREFIX:=unknown-player:cooldown}"
 : "${UNKNOWN_PLAYERS_CACHE_ENABLED:=true}"
+
+set +a
 
 # Convert NGINX_WORKER_PROCESSES: 0 → "auto" (nginx auto-detect syntax)
 if [ "$NGINX_WORKER_PROCESSES" = "0" ]; then
