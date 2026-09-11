@@ -18,7 +18,7 @@ class InterceptHandler(logging.Handler):
         try:
             level = logger.level(record.levelname).name
         except AttributeError:
-            level = logging.getLevelName(record.levelno)
+            level = record.levelno
 
         frame, depth = logging.currentframe(), 2
         while frame is not None and frame.f_code.co_filename == logging.__file__:
