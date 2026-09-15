@@ -11,6 +11,7 @@ import pytest
 import scripts.check_blizzard_drift as drift
 from scripts.check_blizzard_drift import (
     check_hero_stats_recording,
+    check_upstream_heroes,
     hero_sections,
     hitpoint_findings,
     parse_rotation_maps,
@@ -365,6 +366,56 @@ class TestHeroStatsRecording:
         """The canary being unreachable is not recording having stopped."""
         with patch("httpx2.get", side_effect=httpx2.ConnectError("no route to host")):
             check_hero_stats_recording()
+
+        assert drift.failures == []
+        assert len(drift.warnings) == 1
+
+
+class TestUpstreamHeroes:
+    """Upstream adds heroes before Blizzard publishes their page, so it is the
+    earliest signal a release is coming."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_findings(self):
+        drift.failures.clear()
+        drift.warnings.clear()
+
+    @staticmethod
+    def _csv(*extra: str) -> MagicMock:
+        response = MagicMock()
+        response.text = "\n".join(
+            ["key,name,role,health,armor,shields", "ana,Ana,support,250,0,0", *extra]
+        )
+        return response
+
+    def test_known_heroes_pass(self):
+        with patch("httpx2.get", return_value=self._csv()):
+            check_upstream_heroes()
+
+        assert drift.failures == []
+
+    def test_new_upstream_hero_fails_and_fix_zeroes_hitpoints(self):
+        response = self._csv("newhero,New Hero,damage,999,0,0")
+
+        with (
+            patch("httpx2.get", return_value=response),
+            patch.object(drift, "FIX", new=True),
+            patch.object(drift, "add_heroes_to_csv") as add,
+        ):
+            check_upstream_heroes()
+
+        assert len(drift.failures) == 1
+        assert "newhero" in drift.failures[0]
+        (added,) = add.call_args.args[0]
+        assert (added["key"], added["name"], added["role"]) == (
+            "newhero",
+            "New Hero",
+            "damage",
+        )
+
+    def test_unreachable_upstream_warns_rather_than_fails(self):
+        with patch("httpx2.get", side_effect=httpx2.ConnectError("no route to host")):
+            check_upstream_heroes()
 
         assert drift.failures == []
         assert len(drift.warnings) == 1

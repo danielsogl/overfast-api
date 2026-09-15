@@ -67,11 +67,16 @@ jobs:
             exit 0
           fi
 
-          BRANCH="chore/blizzard-data-$(date -u +%Y%m%d)"
-          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-            echo "Branch $BRANCH already exists — a PR is already open for today."
+          # An upstream hero can sit here for days before Blizzard releases it;
+          # without this every run would open another PR for the same hero.
+          OPEN=$(gh pr list --state open --json headRefName \
+            --jq '[.[] | select(.headRefName | startswith("chore/blizzard-data-"))] | length')
+          if [ "$OPEN" != "0" ]; then
+            echo "A chore/blizzard-data-* PR is already open — update that one."
             exit 0
           fi
+
+          BRANCH="chore/blizzard-data-$(date -u +%Y%m%d)"
 
           git config user.name "github-actions"
           git config user.email "actions@users.noreply.github.com"
@@ -80,10 +85,11 @@ jobs:
           git commit -m "chore(data): add new Blizzard hero(es) to heroes.csv
 
           Opened automatically by the Blizzard drift check. key, name and role
-          are taken from the live heroes page; health, armor and shields are
-          published nowhere by Blizzard and are left at 0 deliberately.
+          are taken from the live heroes page or upstream's heroes.csv; health,
+          armor and shields are published nowhere by Blizzard and are left at 0
+          deliberately.
 
-          Fill them in from the in-game hero screen before merging — the drift
+          Fill them in from the Overwatch wiki infobox before merging — the drift
           check fails while any hero has health=0."
           git push origin "$BRANCH"
 
@@ -91,8 +97,8 @@ jobs:
             --title "chore(data): new Blizzard hero(es) detected" \
             --body "$(printf '%s\n' \
               'Opened automatically by the daily Blizzard drift check.' '' \
-              '`key`, `name` and `role` come from the live heroes page.' '' \
-              '⚠️ **`health`, `armor` and `shields` are set to 0** and must be filled in from the in-game hero screen — Blizzard publishes them nowhere, so they cannot be scraped. The drift check stays red while any hero has `health=0`, so this cannot be forgotten silently.' '' \
+              '`key`, `name` and `role` come from the live heroes page or upstream'"'"'s `heroes.csv` (upstream adds heroes before Blizzard publishes them).' '' \
+              '⚠️ **`health`, `armor` and `shields` are set to 0** and must be filled in from the Overwatch wiki infobox (tanks: base + 150) — Blizzard publishes them nowhere, so they cannot be scraped. The drift check stays red while any hero has `health=0`, so this cannot be forgotten silently.' '' \
               'Draft on purpose: mark it ready once the hitpoints are in.')"
 
       - name: Report drift verdict
