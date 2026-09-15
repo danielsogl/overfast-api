@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v4.23.0 (2026-09-15)
+
+### Features
+
+- Add Doctrine and watch upstream heroes.csv in the drift check
+  ([#51](https://github.com/danielsogl/overfast-api/pull/51),
+  [`0c9bd06`](https://github.com/danielsogl/overfast-api/commit/0c9bd0640534eddd75c4fa4a2b4515681aaabe97))
+
+
 ## v4.22.2 (2026-09-10)
 
 ### Bug Fixes
