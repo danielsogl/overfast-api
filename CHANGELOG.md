@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v4.24.0 (2026-09-15)
+
+### Features
+
+- **drift**: Catch heroes Blizzard moves to another role
+  ([#52](https://github.com/danielsogl/overfast-api/pull/52),
+  [`562cb52`](https://github.com/danielsogl/overfast-api/commit/562cb5274a9705c31f909c6014a10495b2608b10))
+
+
 ## v4.23.0 (2026-09-15)
 
 ### Features
