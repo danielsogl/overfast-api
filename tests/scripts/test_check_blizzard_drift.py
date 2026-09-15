@@ -10,6 +10,7 @@ import httpx2
 import pytest
 import scripts.check_blizzard_drift as drift
 from scripts.check_blizzard_drift import (
+    check_hero_roles,
     check_hero_stats_recording,
     check_upstream_heroes,
     hero_sections,
@@ -419,3 +420,43 @@ class TestUpstreamHeroes:
 
         assert drift.failures == []
         assert len(drift.warnings) == 1
+
+
+class TestHeroRoleChanges:
+    """Career stats are bucketed by heroes.csv's role, so a hero Blizzard moves
+    to another role must not keep its old one here."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_findings(self):
+        drift.failures.clear()
+        drift.warnings.clear()
+
+    @staticmethod
+    def _run(role: str, *, fix: bool = False) -> MagicMock:
+        live = [{"key": "sombra", "name": "Sombra", "portrait": "x", "role": role}]
+        with (
+            # Pinned rather than the real heroes.csv, which will say "support"
+            # for Sombra once Season 5 ships and would flip these tests.
+            patch.object(
+                drift,
+                "read_csv_file",
+                return_value=[{"key": "sombra", "role": "damage", "health": "225"}],
+            ),
+            patch.object(drift, "FIX", new=fix),
+            patch.object(drift, "set_hero_roles") as set_roles,
+        ):
+            check_hero_roles(live)
+        return set_roles
+
+    def test_matching_role_passes(self):
+        set_roles = self._run("damage")
+
+        assert drift.failures == []
+        set_roles.assert_not_called()
+
+    def test_changed_role_fails_and_fix_rewrites_it(self):
+        set_roles = self._run("support", fix=True)
+
+        assert len(drift.failures) == 1
+        assert "sombra damage -> support" in drift.failures[0]
+        set_roles.assert_called_once_with({"sombra": "support"})
