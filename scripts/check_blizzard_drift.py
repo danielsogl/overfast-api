@@ -39,7 +39,7 @@ from app.domain.parsers.roles import parse_roles_html
 from app.domain.utils.csv_reader import read_csv_file
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
     from app.domain.models.hero import HeroListEntry
 
@@ -78,17 +78,8 @@ def fetch(path: str) -> str:
     return response.text
 
 
-def add_heroes_to_csv(new_heroes: Sequence[Mapping[str, Any]]) -> None:
-    """Insert new heroes into heroes.csv, alphabetically, with zeroed hitpoints.
-
-    Only key/name/role can be filled from the Blizzard page. Hitpoints appear
-    nowhere on the site, so they land as 0 and the check above keeps failing
-    until someone supplies them — the point is to remove the mechanical part of
-    the edit, not to pretend the data is complete.
-
-    Existing rows are left exactly as they are; the file is only nearly sorted
-    and reordering it would bury the real change in noise.
-    """
+def _rewrite_heroes_csv(edit: Callable[[list[dict[str, str]]], None]) -> None:
+    """Apply *edit* to heroes.csv's rows in place and write the file back."""
     path = (
         Path(__file__).parent.parent
         / "app"
@@ -102,21 +93,7 @@ def add_heroes_to_csv(new_heroes: Sequence[Mapping[str, Any]]) -> None:
         fieldnames = reader.fieldnames or []
         rows = list(reader)
 
-    for hero in sorted(new_heroes, key=lambda h: h["key"]):
-        row = {
-            "key": hero["key"],
-            "name": hero["name"],
-            "role": hero["role"],
-            "health": "0",
-            "armor": "0",
-            "shields": "0",
-        }
-        position = next(
-            (i for i, existing in enumerate(rows) if existing["key"] > hero["key"]),
-            len(rows),
-        )
-        rows.insert(position, row)
-        print(f"  added {hero['key']!r} to heroes.csv (hitpoints left at 0)")
+    edit(rows)
 
     with path.open("w", encoding="utf-8", newline="") as csv_file:
         # csv defaults to CRLF, which rewrites every line of a LF file and buries
@@ -127,6 +104,50 @@ def add_heroes_to_csv(new_heroes: Sequence[Mapping[str, Any]]) -> None:
 
     # The cached reader would otherwise hand back the pre-write rows.
     read_csv_file.cache_clear()
+
+
+def add_heroes_to_csv(new_heroes: Sequence[Mapping[str, Any]]) -> None:
+    """Insert new heroes into heroes.csv, alphabetically, with zeroed hitpoints.
+
+    Only key/name/role can be filled from the Blizzard page. Hitpoints appear
+    nowhere on the site, so they land as 0 and the check above keeps failing
+    until someone supplies them — the point is to remove the mechanical part of
+    the edit, not to pretend the data is complete.
+
+    Existing rows are left exactly as they are; the file is only nearly sorted
+    and reordering it would bury the real change in noise.
+    """
+
+    def insert(rows: list[dict[str, str]]) -> None:
+        for hero in sorted(new_heroes, key=lambda h: h["key"]):
+            row = {
+                "key": hero["key"],
+                "name": hero["name"],
+                "role": hero["role"],
+                "health": "0",
+                "armor": "0",
+                "shields": "0",
+            }
+            position = next(
+                (i for i, existing in enumerate(rows) if existing["key"] > hero["key"]),
+                len(rows),
+            )
+            rows.insert(position, row)
+            print(f"  added {hero['key']!r} to heroes.csv (hitpoints left at 0)")
+
+    _rewrite_heroes_csv(insert)
+
+
+def set_hero_roles(roles: Mapping[str, str]) -> None:
+    """Overwrite the role column for the given hero keys, touching nothing else."""
+
+    def update(rows: list[dict[str, str]]) -> None:
+        for row in rows:
+            if row["key"] in roles:
+                print(f"  {row['key']!r}: role {row['role']} -> {roles[row['key']]}")
+                row["role"] = roles[row["key"]]
+
+    _rewrite_heroes_csv(update)
 
 
 def check_heroes() -> list[HeroListEntry]:
@@ -183,6 +204,30 @@ def check_heroes() -> list[HeroListEntry]:
         fail(f"unknown gamemode(s) on the heroes page: {', '.join(unknown)}")
 
     return heroes
+
+
+def check_hero_roles(heroes: Sequence[Mapping[str, Any]]) -> None:
+    """Compare each live hero's role with the one heroes.csv holds."""
+    # The live page is the source of truth for roles, but player career stats
+    # are bucketed by the CSV's role (get_hero_role). A role swap — Sombra moves
+    # from damage to support in Season 5 — would otherwise go on counting that
+    # hero's playtime under the old role with nothing noticing.
+    csv_roles = {row["key"]: row["role"] for row in read_csv_file("heroes")}
+    if moved := {
+        hero["key"]: hero["role"]
+        for hero in heroes
+        if hero["key"] in csv_roles and csv_roles[hero["key"]] != hero["role"]
+    }:
+        fail(
+            "hero role(s) changed on Blizzard: "
+            + ", ".join(
+                f"{key} {csv_roles[key]} -> {role}"
+                for key, role in sorted(moved.items())
+            )
+            + ". Moving to or from tank also changes health by the 150 role passive."
+        )
+        if FIX:
+            set_hero_roles(moved)
 
 
 # Upstream usually adds a hero days before Blizzard publishes its page — Doctrine
@@ -667,6 +712,7 @@ def main() -> int:
 
     try:
         heroes = check_heroes()
+        check_hero_roles(heroes)
         check_upstream_heroes()
         # Pick a hero Blizzard is currently serving, so a rename cannot make
         # this check fail for the wrong reason.
