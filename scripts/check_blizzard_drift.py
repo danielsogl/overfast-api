@@ -22,6 +22,7 @@ Run locally with:
 from __future__ import annotations
 
 import csv
+import io
 import re
 import sys
 from datetime import UTC, date, datetime
@@ -182,6 +183,46 @@ def check_heroes() -> list[HeroListEntry]:
         fail(f"unknown gamemode(s) on the heroes page: {', '.join(unknown)}")
 
     return heroes
+
+
+# Upstream usually adds a hero days before Blizzard publishes its page — Doctrine
+# landed there during its trial weekend while /heroes/doctrine/ still 404'd — so
+# the check above alone learns about a release on launch day at the earliest.
+UPSTREAM_HEROES_URL = (
+    "https://raw.githubusercontent.com/TeKrop/overfast-api/main/"
+    "app/domain/utils/data/heroes.csv"
+)
+
+
+def check_upstream_heroes() -> None:
+    """Report heroes upstream carries that heroes.csv does not.
+
+    Only key/name/role are taken. Upstream's hitpoints are not a source this
+    fork trusts — its D.Mon row still held D.Va's copy-pasted numbers after ours
+    was fixed — so --fix zeroes them exactly like a Blizzard-detected hero.
+    """
+    print("=== upstream heroes.csv ===")
+    try:
+        response = httpx2.get(UPSTREAM_HEROES_URL, timeout=TIMEOUT)
+        response.raise_for_status()
+    except httpx2.HTTPError as exc:
+        # GitHub being down says nothing about Blizzard drift.
+        warn(f"could not read upstream heroes.csv: {exc}")
+        return
+
+    # Read the CSV rather than HeroKey: the enum is built at import, so it would
+    # not see a hero check_heroes() --fix just wrote, and we would add it twice.
+    known = {row["key"] for row in read_csv_file("heroes")}
+    upstream = list(csv.DictReader(io.StringIO(response.text)))
+    if missing := [row for row in upstream if row["key"] not in known]:
+        fail(
+            "hero(es) in upstream heroes.csv missing here: "
+            f"{', '.join(row['key'] for row in missing)}"
+        )
+        if FIX:
+            add_heroes_to_csv(missing)
+    else:
+        print(f"  checked {len(upstream)} upstream heroes")
 
 
 def check_hero_detail(hero_key: str) -> None:
@@ -626,6 +667,7 @@ def main() -> int:
 
     try:
         heroes = check_heroes()
+        check_upstream_heroes()
         # Pick a hero Blizzard is currently serving, so a rename cannot make
         # this check fail for the wrong reason.
         if heroes:
