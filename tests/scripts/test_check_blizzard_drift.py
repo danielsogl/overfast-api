@@ -86,6 +86,21 @@ class TestStaleValueIsAFailure:
         assert "changed it to 350" in findings[0][1]
         assert "175 to 200" in findings[0][1]
 
+    def test_6v6_deltas_are_another_modes_numbers(self):
+        """heroes.csv holds 5v5 values; only the untagged or (5v5) delta counts."""
+        rows = {
+            "D.Mon": {"role": "tank", "health": "425", "armor": "325", "shields": "0"}
+        }
+        body = (
+            "Armor reduced from 325 to 275 (5v5). Armor reduced from 300 to 250 "
+            "(6v6). Armor reduced from 325 to 300. (6v6)"
+        )
+
+        findings = hitpoint_findings([("D.Mon", body)], rows)
+
+        assert _levels(findings) == ["fail"]
+        assert "changed it to 275" in findings[0][1]
+
 
 class TestCurrentValueIsSilent:
     """A run that reports nothing is the normal state; noise gets ignored."""
