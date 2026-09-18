@@ -9,16 +9,22 @@ def parse_heroes_hitpoints() -> dict[str, dict]:
     """Parse heroes hitpoints (health/armor/shields) from the heroes CSV file.
 
     Returns:
-        Dict mapping hero key to hitpoints data.
-        Example: {"ana": {"hitpoints": {"health": 200, "armor": 0, "shields": 0, "total": 200}}}
+        Dict mapping hero key to hitpoints data, 5v5 and 6v6.
+        Example: {"ana": {"hitpoints": {"health": 200, ...}, "hitpoints_6v6": {...}}}
     """
     csv_data = read_csv_file("heroes")
 
-    return {row["key"]: {"hitpoints": _get_hitpoints(row)} for row in csv_data}
+    return {
+        row["key"]: {
+            "hitpoints": _get_hitpoints(row),
+            "hitpoints_6v6": _get_hitpoints(row, suffix="_6v6"),
+        }
+        for row in csv_data
+    }
 
 
-def _get_hitpoints(row: dict) -> dict:
-    """Extract hitpoints data from a hero CSV row."""
-    hitpoints = {hp_key: int(row[hp_key]) for hp_key in HITPOINTS_KEYS}
+def _get_hitpoints(row: dict, suffix: str = "") -> dict:
+    """Extract hitpoints data from a hero CSV row, for the mode ``suffix`` names."""
+    hitpoints = {hp_key: int(row[hp_key + suffix]) for hp_key in HITPOINTS_KEYS}
     hitpoints["total"] = sum(hitpoints.values())
     return hitpoints

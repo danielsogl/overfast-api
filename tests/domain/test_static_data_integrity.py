@@ -112,3 +112,15 @@ class TestAssets:
         present = {path.name for path in (STATIC_DIR / "gamemodes").iterdir()}
 
         assert present - expected == set()
+
+
+def test_6v6_tank_health_never_exceeds_5v5():
+    """6v6 removes the tank passive's +150 health and rebalances some heroes
+    downwards; a 6v6 value above 5v5 is almost certainly a column mix-up."""
+    swapped = [
+        row["key"]
+        for row in _rows("heroes")
+        if row["role"] == "tank" and int(row["health_6v6"]) > int(row["health"])
+    ]
+
+    assert swapped == []

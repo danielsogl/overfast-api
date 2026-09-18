@@ -309,7 +309,16 @@ class Hero(BaseModel):
     hitpoints: HitPoints | None = Field(
         None,
         description=(
-            "Hitpoints of the hero. Can be null if hero data isn't in the CSV."
+            "Hitpoints of the hero in 5v5, the default mode. Can be null if "
+            "hero data isn't in the CSV."
+        ),
+    )
+    hitpoints_6v6: HitPoints | None = Field(
+        None,
+        description=(
+            "Hitpoints of the hero in 6v6. Tanks lose the role passive's +150 "
+            "health there and some heroes are rebalanced. Can be null if hero "
+            "data isn't in the CSV."
         ),
     )
     abilities: list[Ability] = Field(

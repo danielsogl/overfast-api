@@ -158,6 +158,7 @@ def test_get_hero_no_hitpoints(
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["hitpoints"] is None
+    assert response.json()["hitpoints_6v6"] is None
 
 
 def test_get_hero_blizzard_forbidden_error_and_caching(client: TestClient):

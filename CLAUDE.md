@@ -85,6 +85,10 @@ Both run in CI on every PR. Running the suite outside Docker needs `POSTGRES_PAS
   2. **The Overwatch wiki infobox** (`overwatch.weirdgloop.org/api.php?action=parse&page=<Hero>`,
      needs a real User-Agent) is the fallback where Blizzard is silent — a new hero's launch values.
      Tanks store the *base* value there; our CSV holds base + 150 for the role-queue passive.
+     The `_6v6` columns follow the infobox's `health6v6`/`armor6v6`/`shield6v6`
+     fields, which are set only where 6v6 differs. Where one is absent, 6v6 equals
+     the 5v5 value, **except tank health**: 6v6 drops the role passive's +150, so
+     a tank without `health6v6` gets its base health, not our 5v5 column.
   3. Nothing else. Do not sync from the wiki automatically: it is measurably **stale**. Still true
      on 2026-09-07 — Junkrat reads 250 there against Blizzard's published 200, our value.
 
@@ -112,7 +116,7 @@ are the ones that say *nothing does*.
 | Data | Source | Guard |
 |---|---|---|
 | heroes.csv key/name/role | the live heroes page | `check_heroes`, daily |
-| heroes.csv hitpoints | Blizzard patch notes (deltas only) | `check_hitpoints_against_patch_notes`, daily |
+| heroes.csv hitpoints, 5v5 and `_6v6` | Blizzard patch notes (deltas only, tagged per mode) | `check_hitpoints_against_patch_notes`, daily |
 | maps.csv in live rotation (30 of 58) | the rates page map dropdown | `check_maps_in_rotation`, daily |
 | maps.csv arcade / retired / workshop / Stadium (28) | wiki only | **nothing** — manual |
 | maps.csv location, country_code | wiki infobox `{{flag\|xx}}` | **nothing** — manual, audited once (see below) |

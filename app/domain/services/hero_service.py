@@ -466,14 +466,11 @@ def _merge_hero_data(
             working, "role", "portrait", portrait_value
         )
 
-    try:
-        hitpoints = heroes_hitpoints[hero_key]["hitpoints"]
-    except KeyError:
-        hitpoints = None
-    else:
-        working = dict_insert_value_before_key(
-            working, "abilities", "hitpoints", hitpoints
-        )
+    if hero_key in heroes_hitpoints:
+        for mode_key in ("hitpoints", "hitpoints_6v6"):
+            working = dict_insert_value_before_key(
+                working, "abilities", mode_key, heroes_hitpoints[hero_key][mode_key]
+            )
 
     return cast("HeroDetail", working)
 

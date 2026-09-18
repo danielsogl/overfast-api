@@ -129,7 +129,7 @@ class HeroDetail(TypedDict):
     """``parse_hero_html`` merged with the heroes-list portrait and CSV
     hitpoints (see ``_merge_hero_data``). Matches ``Hero`` field-for-field.
 
-    ``portrait``, ``hitpoints`` and ``stadium_powers`` are the only fields
+    ``portrait``, ``hitpoints``, ``hitpoints_6v6`` and ``stadium_powers`` are the only fields
     the parser/merge step can omit outright (as opposed to setting to
     ``None``) — see the ``try/except/else`` branches in ``_merge_hero_data``
     and the ``stadium_wrapper`` walrus in ``parse_hero_html``. Everything
@@ -147,6 +147,7 @@ class HeroDetail(TypedDict):
     birthday: str | None
     age: int | None
     hitpoints: NotRequired[HitPoints]
+    hitpoints_6v6: NotRequired[HitPoints]
     abilities: list[Ability]
     perks: PerksContainer | None
     story: Story | None

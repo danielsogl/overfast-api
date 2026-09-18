@@ -127,6 +127,9 @@ def add_heroes_to_csv(new_heroes: Sequence[Mapping[str, Any]]) -> None:
                 "health": "0",
                 "armor": "0",
                 "shields": "0",
+                "health_6v6": "0",
+                "armor_6v6": "0",
+                "shields_6v6": "0",
             }
             position = next(
                 (i for i, existing in enumerate(rows) if existing["key"] > hero["key"]),
@@ -177,12 +180,14 @@ def check_heroes() -> list[HeroListEntry]:
     # until a human fills them in, so an unfinished row cannot sit in main
     # quietly serving wrong data.
     if unfilled := sorted(
-        row["key"] for row in read_csv_file("heroes") if int(row["health"] or 0) == 0
+        row["key"]
+        for row in read_csv_file("heroes")
+        if 0 in (int(row["health"] or 0), int(row["health_6v6"] or 0))
     ):
         fail(
             f"hero(es) in heroes.csv with health=0: {', '.join(unfilled)}. "
             "These rows were added automatically — fill in health/armor/shields "
-            "from the in-game hero screen."
+            "and their _6v6 columns from the wiki infobox."
         )
 
     # We have heroes Blizzard doesn't. Legitimate for an unreleased hero added
@@ -319,9 +324,10 @@ _DELTA_PATTERN = re.compile(
     r"\b(?P<field>Shield health|Armor health|Health|Armor|Shields)\s+"
     r"(?:was\s+)?(?:reduced|increased|lowered|raised)\s+from\s+"
     r"(?P<before>\d+)\s+to\s+(?P<after>\d+)\b"
-    # heroes.csv holds 5v5 values; a "(6v6)" tag, before or after the period,
-    # is another mode's number. D.Mon's 6v6 armor 300 -> 250 failed the run.
-    r"(?![.\s]*\(6v6\))",
+    # Blizzard tags per-mode values "(5v5)" or "(6v6)", before or after the
+    # period. Untagged means 5v5. Ignoring the tag once compared D.Mon's 6v6
+    # armor 300 -> 250 against the 5v5 column and failed the run.
+    r"(?:[.\s]*\((?P<mode>[56]v6)\))?",
     re.IGNORECASE,
 )
 
@@ -388,12 +394,13 @@ def hitpoint_findings(
     # cannot weaken detection: a mismatch requires our value to equal the
     # "from" value, which is in range by construction.
     plausible = {
-        column: {
-            int(row[column])
+        column + suffix: {
+            int(row[column + suffix])
             for row in rows.values()
-            if row[column] and int(row[column]) > 0
+            if row.get(column + suffix) and int(row[column + suffix]) > 0
         }
         for column in ("health", "armor", "shields")
+        for suffix in ("", "_6v6")
     }
 
     for heading, body in sections:
@@ -404,7 +411,9 @@ def hitpoint_findings(
         row = rows[hero]
 
         for match in _DELTA_PATTERN.finditer(body):
-            column = _HITPOINT_FIELDS[match["field"].lower()]
+            six = (match["mode"] or "").lower() == "6v6"
+            column = _HITPOINT_FIELDS[match["field"].lower()] + ("_6v6" if six else "")
+            # 6v6 drops the passive's health bonus, so its column holds the base.
             passive = (
                 _TANK_ROLE_PASSIVE
                 if column == "health" and row.get("role") == "tank"

@@ -86,20 +86,47 @@ class TestStaleValueIsAFailure:
         assert "changed it to 350" in findings[0][1]
         assert "175 to 200" in findings[0][1]
 
-    def test_6v6_deltas_are_another_modes_numbers(self):
-        """heroes.csv holds 5v5 values; only the untagged or (5v5) delta counts."""
+    def test_6v6_deltas_are_checked_against_the_6v6_columns(self):
+        """Blizzard tags per-mode values; a (6v6) delta must never be compared
+        with the 5v5 column, which once failed the run on D.Mon's armor."""
         rows = {
-            "D.Mon": {"role": "tank", "health": "425", "armor": "325", "shields": "0"}
+            "D.Mon": {
+                "role": "tank",
+                "health": "425",
+                "armor": "275",
+                "shields": "0",
+                "health_6v6": "275",
+                "armor_6v6": "300",
+                "shields_6v6": "0",
+            }
         }
         body = (
-            "Armor reduced from 325 to 275 (5v5). Armor reduced from 300 to 250 "
-            "(6v6). Armor reduced from 325 to 300. (6v6)"
+            "Armor reduced from 325 to 275 (5v5). Armor reduced from 300 to 250 (6v6)."
         )
 
         findings = hitpoint_findings([("D.Mon", body)], rows)
 
         assert _levels(findings) == ["fail"]
-        assert "changed it to 275" in findings[0][1]
+        assert "D.Mon armor_6v6 is 300" in findings[0][1]
+        assert "changed it to 250" in findings[0][1]
+
+    def test_6v6_tank_health_takes_no_role_passive(self):
+        """6v6 drops the passive's +150, so the note's value is the stored one."""
+        rows = {
+            "Reinhardt": {
+                **_ROWS["Reinhardt"],
+                "health_6v6": "350",
+                "armor_6v6": "225",
+                "shields_6v6": "0",
+            }
+        }
+        section = ("Reinhardt", "Health reduced from 350 to 325. (6v6)")
+
+        findings = hitpoint_findings([section], rows)
+
+        assert _levels(findings) == ["fail"]
+        assert "changed it to 325" in findings[0][1]
+        assert "passive" not in findings[0][1]
 
 
 class TestCurrentValueIsSilent:
