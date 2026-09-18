@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v4.25.0 (2026-09-18)
+
+### Features
+
+- **heroes**: Add 6v6 hitpoints
+  ([`10d5a2e`](https://github.com/danielsogl/overfast-api/commit/10d5a2ea531969238b45021983b8fbb9efe9aff3))
+
+
 ## v4.24.1 (2026-09-18)
 
 ### Bug Fixes
