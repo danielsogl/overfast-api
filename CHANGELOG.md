@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v4.25.1 (2026-09-18)
+
+### Bug Fixes
+
+- **storage**: Refetch when a stored Blizzard page no longer parses
+  ([`6e9dfa7`](https://github.com/danielsogl/overfast-api/commit/6e9dfa798e815fd67cb79408967a7de9dfd0055c))
+
+
 ## v4.25.0 (2026-09-18)
 
 ### Features
