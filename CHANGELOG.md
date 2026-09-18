@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v4.24.1 (2026-09-18)
+
+### Bug Fixes
+
+- **drift**: Set D.Mon armor to 275 and skip 6v6 patch-note deltas
+  ([#54](https://github.com/danielsogl/overfast-api/pull/54),
+  [`cd2e61d`](https://github.com/danielsogl/overfast-api/commit/cd2e61de66ce821c9ed1eecc10d4b1f96596088e))
+
+### Build System
+
+- **deps**: Bump astral-sh/setup-uv in the github-actions group
+  ([#53](https://github.com/danielsogl/overfast-api/pull/53),
+  [`43aa44f`](https://github.com/danielsogl/overfast-api/commit/43aa44f7ec49c2a3c78bd85b022a728a23977255))
+
+
 ## v4.24.0 (2026-09-15)
 
 ### Features
