@@ -12,4 +12,4 @@
 # ponytail: one global int, so a change to any parser re-parses everything once.
 # Split it into a per-category mapping only if that single re-parse pass ever
 # shows up as a real cost — at this data volume it is a handful of parses.
-PARSER_VERSION = 1
+PARSER_VERSION = 2

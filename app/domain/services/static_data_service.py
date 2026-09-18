@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from app.config import settings
+from app.domain.exceptions import ParserInternalError, ParserParsingError
 from app.domain.parsers import PARSER_VERSION
 from app.domain.ports.storage import StaticDataCategory
 from app.domain.services import BaseService, SwrResult
@@ -54,7 +55,17 @@ class StaticDataService(BaseService):
         """
         stored = await self._load_from_storage(config.storage_key)
         if stored is not None:
-            return await self._serve_from_storage(stored, config)
+            try:
+                return await self._serve_from_storage(stored, config)
+            except (ParserParsingError, ParserInternalError) as exc:
+                # A re-parse of stored raw fails when Blizzard's layout moved on
+                # since it was fetched; the live page parses. Without this the
+                # row 500s until something else refreshes it (pl-pl heroes did).
+                logger.warning(
+                    "[SWR] {} stored source no longer parses ({}) — refetching",
+                    config.entity_type,
+                    exc,
+                )
 
         return await self._cold_fetch(config)
 

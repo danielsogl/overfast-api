@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.domain.exceptions import ParserParsingError
 from app.domain.parsers import PARSER_VERSION
 from app.domain.services.static_data_service import StaticDataService, StaticFetchConfig
 
@@ -278,6 +279,33 @@ class TestParsedWriteThrough:
         parser.assert_called_once_with("raw-html")
         assert data == parsed
         cast("Any", svc.storage).set_static_data_parsed.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_stored_raw_that_no_longer_parses_is_refetched(self):
+        """Old raw from a previous Blizzard layout must not 500 forever."""
+        svc = _make_service()
+        cast("Any", svc.storage).get_static_data.return_value = {
+            "data": "old-layout-html",
+            "parsed": None,
+            "data_version": PARSER_VERSION - 1,
+            "updated_at": int(time.time()) - 100,
+        }
+
+        parsed = [{"key": "ana"}]
+
+        def parser(raw: str) -> list[dict[str, str]]:
+            if raw == "old-layout-html":
+                msg = "list index out of range"
+                raise ParserParsingError(msg)
+            return parsed
+
+        config = _make_config(fetcher=lambda: "live-html", parser=parser)
+
+        data, is_stale, age = await svc.get_or_fetch(config)
+
+        assert (data, is_stale, age) == (parsed, False, 0)
+        stored_kwargs = cast("Any", svc.storage).set_static_data.call_args.kwargs
+        assert stored_kwargs["data"] == "live-html"
 
     @pytest.mark.asyncio
     async def test_write_back_does_not_change_reported_age(self):
