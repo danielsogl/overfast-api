@@ -318,7 +318,10 @@ _HITPOINT_FIELDS = {
 _DELTA_PATTERN = re.compile(
     r"\b(?P<field>Shield health|Armor health|Health|Armor|Shields)\s+"
     r"(?:was\s+)?(?:reduced|increased|lowered|raised)\s+from\s+"
-    r"(?P<before>\d+)\s+to\s+(?P<after>\d+)",
+    r"(?P<before>\d+)\s+to\s+(?P<after>\d+)\b"
+    # heroes.csv holds 5v5 values; a "(6v6)" tag, before or after the period,
+    # is another mode's number. D.Mon's 6v6 armor 300 -> 250 failed the run.
+    r"(?![.\s]*\(6v6\))",
     re.IGNORECASE,
 )
 
