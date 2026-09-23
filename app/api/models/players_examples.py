@@ -1,6 +1,12 @@
 """Some API result examples, mainly used in the exposed documentation"""
 
-CareerStatsExample = {
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pydantic.config import JsonDict
+
+
+CareerStatsExample: JsonDict = {
     "all-heroes": [
         {
             "category": "best",
@@ -1393,7 +1399,7 @@ CareerStatsExample = {
     "zenyatta": None,
 }
 
-HeroesComparisonsExample = {
+HeroesComparisonsExample: JsonDict = {
     "time_played": {
         "label": "Time Played",
         "values": [
@@ -2026,7 +2032,7 @@ HeroesComparisonsExample = {
     },
 }
 
-PlayerStatsSummaryExample = {
+PlayerStatsSummaryExample: JsonDict = {
     "general": {
         "games_played": 12702,
         "games_won": 6548,
@@ -2869,7 +2875,7 @@ PlayerStatsSummaryExample = {
     },
 }
 
-PlayerCareerStatsExample = {
+PlayerCareerStatsExample: JsonDict = {
     "all-heroes": {
         "assists": {
             "assists": 35,
