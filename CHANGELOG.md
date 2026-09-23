@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v4.25.2 (2026-09-23)
+
+### Bug Fixes
+
+- **deps**: Update python dependencies
+  ([`21aeaf0`](https://github.com/danielsogl/overfast-api/commit/21aeaf0ee59a49601aabbf1758a4f166eaffde08))
+
+
 ## v4.25.1 (2026-09-18)
 
 ### Bug Fixes
