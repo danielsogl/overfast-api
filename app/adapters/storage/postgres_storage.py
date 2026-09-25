@@ -384,19 +384,21 @@ class PostgresStorage(metaclass=Singleton):
         gamemode: str,
         region: str,
         data: list[dict],
+        division: str = "all",
     ) -> None:
         """Record one day's reading, ignoring a day already recorded."""
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             await conn.execute(
                 """INSERT INTO hero_stats_snapshots
-                       (taken_on, platform, gamemode, region, data)
-                   VALUES ($1, $2, $3, $4, $5::jsonb)
-                   ON CONFLICT (taken_on, platform, gamemode, region)
+                       (taken_on, platform, gamemode, region, division, data)
+                   VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+                   ON CONFLICT (taken_on, platform, gamemode, region, division)
                    DO NOTHING""",
                 taken_on,
                 platform,
                 gamemode,
                 region,
+                division,
                 data,
             )
 
@@ -407,6 +409,7 @@ class PostgresStorage(metaclass=Singleton):
         region: str,
         since: int | None = None,
         limit: int = 30,
+        division: str = "all",
     ) -> list[dict]:
         """Return recorded hero stats readings, newest first."""
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
@@ -414,6 +417,7 @@ class PostgresStorage(metaclass=Singleton):
                 """SELECT taken_on, data
                    FROM hero_stats_snapshots
                    WHERE platform = $1 AND gamemode = $2 AND region = $3
+                     AND division = $6
                      AND ($4::double precision IS NULL
                           OR taken_on >= TO_TIMESTAMP($4)::date)
                    ORDER BY taken_on DESC
@@ -423,6 +427,7 @@ class PostgresStorage(metaclass=Singleton):
                 region,
                 None if since is None else float(since),
                 limit,
+                division,
             )
 
         return [{"taken_on": row["taken_on"], "data": row["data"]} for row in rows]
@@ -442,6 +447,8 @@ class PostgresStorage(metaclass=Singleton):
         locale: str,
         player_ids: list[str],
         environment: str = "production",
+        recap_player_id: str | None = None,
+        timezone: str | None = None,
     ) -> None:
         """Register or refresh one device's rank-alert subscription.
 
@@ -455,26 +462,33 @@ class PostgresStorage(metaclass=Singleton):
         the stored array still reads the way the app composed it.
         """
         player_ids = list(dict.fromkeys(normalize_player_id(p) for p in player_ids))
+        if recap_player_id is not None:
+            recap_player_id = normalize_player_id(recap_player_id)
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             await conn.execute(
                 """INSERT INTO push_subscriptions
-                       (token, platform, locale, player_ids, environment)
-                   VALUES ($1, $2, $3, $4, $5)
+                       (token, platform, locale, player_ids, environment,
+                        recap_player_id, timezone)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)
                    ON CONFLICT (token) DO UPDATE
-                       SET platform    = EXCLUDED.platform,
-                           locale      = EXCLUDED.locale,
-                           player_ids  = EXCLUDED.player_ids,
-                           environment = EXCLUDED.environment,
-                           updated_at  = NOW()""",
-                # `last_patch_alert` is deliberately absent from that SET
-                # list: it is ours, not the client's. Adding it would reset on
-                # every launch, so opening the app after a patch alert would
-                # earn the same alert again on the next run.
+                       SET platform        = EXCLUDED.platform,
+                           locale          = EXCLUDED.locale,
+                           player_ids      = EXCLUDED.player_ids,
+                           environment     = EXCLUDED.environment,
+                           recap_player_id = EXCLUDED.recap_player_id,
+                           timezone        = EXCLUDED.timezone,
+                           updated_at      = NOW()""",
+                # `last_patch_alert` and `last_recap` are deliberately absent
+                # from that SET list: they are ours, not the client's. Adding
+                # them would reset on every launch, so opening the app after an
+                # alert would earn the same alert again on the next run.
                 token,
                 platform,
                 locale,
                 player_ids,
                 environment,
+                recap_player_id,
+                timezone,
             )
 
     async def delete_push_subscription(self, token: str) -> bool:
@@ -494,7 +508,11 @@ class PostgresStorage(metaclass=Singleton):
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             rows = await conn.fetch(
                 """SELECT DISTINCT UNNEST(player_ids) AS player_id
-                   FROM push_subscriptions"""
+                   FROM push_subscriptions
+                   UNION
+                   SELECT recap_player_id
+                   FROM push_subscriptions
+                   WHERE recap_player_id IS NOT NULL"""
             )
         # SQL DISTINCT only collapses identical strings, so rows written before
         # the upsert normalized them can still yield both spellings of one
@@ -536,7 +554,7 @@ class PostgresStorage(metaclass=Singleton):
         async with self._pool.acquire() as conn:  # type: ignore[union-attr]
             rows = await conn.fetch(
                 """SELECT token, platform, locale, environment, player_ids,
-                          last_patch_alert
+                          last_patch_alert, recap_player_id, timezone, last_recap
                    FROM push_subscriptions"""
             )
         return [
@@ -548,6 +566,15 @@ class PostgresStorage(metaclass=Singleton):
             }
             for row in rows
         ]
+
+    async def set_last_recap(self, token: str, recap_date: str) -> None:
+        """Record the local date of the recap just sent to this device."""
+        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+            await conn.execute(
+                "UPDATE push_subscriptions SET last_recap = $2 WHERE token = $1",
+                token,
+                recap_date,
+            )
 
     async def set_last_announced_patch(self, token: str, patch_date: str) -> None:
         """Record the patch date just announced to this device."""

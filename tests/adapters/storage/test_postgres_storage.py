@@ -468,9 +468,21 @@ class TestHeroStatsSnapshots:
         await storage.add_hero_stats_snapshot(taken_on, *self._SLICE, [{"v": 1}])
 
         sql, *args = conn.execute.call_args[0]
-        assert "ON CONFLICT (taken_on, platform, gamemode, region)" in sql
+        assert "ON CONFLICT (taken_on, platform, gamemode, region, division)" in sql
         assert "DO NOTHING" in sql
-        assert args == [taken_on, "pc", "competitive", "europe", [{"v": 1}]]
+        assert args == [taken_on, "pc", "competitive", "europe", "all", [{"v": 1}]]
+
+    @pytest.mark.asyncio
+    async def test_insert_passes_the_division(self):
+        taken_on = datetime.date(2026, 8, 29)
+        pool, conn = _make_pool()
+        storage = _make_storage(pool=pool)
+
+        await storage.add_hero_stats_snapshot(
+            taken_on, *self._SLICE, [{"v": 1}], division="gold"
+        )
+
+        assert conn.execute.call_args[0][5] == "gold"
 
     @pytest.mark.asyncio
     async def test_get_maps_rows_newest_first(self):
@@ -495,7 +507,18 @@ class TestHeroStatsSnapshots:
         await storage.get_hero_stats_snapshots(*self._SLICE, since=1700000000, limit=5)
 
         args = conn.fetch.call_args[0][1:]
-        assert args == ("pc", "competitive", "europe", 1700000000.0, 5)
+        assert args == ("pc", "competitive", "europe", 1700000000.0, 5, "all")
+
+    @pytest.mark.asyncio
+    async def test_get_filters_on_the_division(self):
+        pool, conn = _make_pool()
+        storage = _make_storage(pool=pool)
+
+        await storage.get_hero_stats_snapshots(*self._SLICE, division="diamond")
+
+        sql, *args = conn.fetch.call_args[0]
+        assert "division = $6" in sql
+        assert args[-1] == "diamond"
 
     @pytest.mark.asyncio
     async def test_get_without_since_passes_null(self):
@@ -610,3 +633,64 @@ class TestParsedWriteBack:
 
         args = conn.execute.call_args[0]
         assert args[1:] == ("abc123", parsed, 7)
+
+
+# ---------------------------------------------------------------------------
+# push subscriptions — weekly recap columns
+# ---------------------------------------------------------------------------
+
+
+class TestPushSubscriptionRecap:
+    @pytest.mark.asyncio
+    async def test_upsert_writes_the_recap_fields_but_never_last_recap(self):
+        pool, conn = _make_pool()
+        storage = _make_storage(pool=pool)
+
+        await storage.upsert_push_subscription(
+            "token-123",
+            "ios",
+            "de",
+            ["TeKrop-2217"],
+            recap_player_id="TeKrop-2217",
+            timezone="Europe/Berlin",
+        )
+
+        sql, *args = conn.execute.call_args[0]
+        set_clause = sql.split("DO UPDATE", 1)[1]
+        assert "recap_player_id = EXCLUDED.recap_player_id" in set_clause
+        assert "timezone        = EXCLUDED.timezone" in set_clause
+        assert "last_recap" not in set_clause
+        assert args[-2:] == ["TeKrop-2217", "Europe/Berlin"]
+
+    @pytest.mark.asyncio
+    async def test_upsert_without_recap_clears_it(self):
+        pool, conn = _make_pool()
+        storage = _make_storage(pool=pool)
+
+        await storage.upsert_push_subscription("token-123", "ios", "de", ["A-1"])
+
+        assert conn.execute.call_args[0][-2:] == (None, None)
+
+    @pytest.mark.asyncio
+    async def test_subscribed_player_ids_include_recap_players(self):
+        pool, conn = _make_pool()
+        conn.fetch = AsyncMock(
+            return_value=[{"player_id": "A-1"}, {"player_id": "B-2"}]
+        )
+        storage = _make_storage(pool=pool)
+
+        result = await storage.get_push_subscribed_player_ids()
+
+        assert "recap_player_id" in conn.fetch.call_args[0][0]
+        assert result == ["A-1", "B-2"]
+
+    @pytest.mark.asyncio
+    async def test_set_last_recap_updates_one_row(self):
+        pool, conn = _make_pool()
+        storage = _make_storage(pool=pool)
+
+        await storage.set_last_recap("token-123", "2026-09-27")
+
+        sql, *args = conn.execute.call_args[0]
+        assert "SET last_recap = $2" in sql
+        assert args == ["token-123", "2026-09-27"]

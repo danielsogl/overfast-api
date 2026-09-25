@@ -94,8 +94,8 @@ CREATE INDEX IF NOT EXISTS idx_player_snapshots_player_taken
 -- Like player_snapshots, this is data Blizzard cannot hand back — the rates
 -- page reports the current moment and nothing else, so a deleted row is gone.
 -- Unlike player_snapshots it is not a by-product of serving a request: a daily
--- cron pays for it, which is why only ONE slice of the /heroes/stats cross
--- product is recorded (see HERO_STATS_SNAPSHOT_SLICES in the hero service).
+-- cron pays for it, which is why only a few slices of the /heroes/stats cross
+-- product are recorded (see HERO_STATS_SNAPSHOT_SLICES in the hero service).
 --
 -- The primary key leads with a DATE, not a timestamp, and that is the whole
 -- point: a second run on the same day hits ON CONFLICT DO NOTHING instead of
@@ -114,9 +114,36 @@ CREATE TABLE IF NOT EXISTS hero_stats_snapshots (
     platform  TEXT  NOT NULL,
     gamemode  TEXT  NOT NULL,
     region    TEXT  NOT NULL,
+    division  TEXT  NOT NULL DEFAULT 'all',
     data      JSONB NOT NULL,
-    PRIMARY KEY (taken_on, platform, gamemode, region)
+    PRIMARY KEY (taken_on, platform, gamemode, region, division)
 );
+
+-- Per-division readings, added after the table shipped. Every existing row is
+-- the unfiltered slice, which is exactly what the 'all' default says, so the
+-- column needs no backfill.
+--
+-- The primary key has to grow with it, or the second division recorded on a
+-- day would hit ON CONFLICT against the first. That swap is guarded on the
+-- column being absent from the current key, so it runs once and is a no-op on
+-- every later boot and on a database created by the CREATE TABLE above.
+ALTER TABLE hero_stats_snapshots ADD COLUMN IF NOT EXISTS division TEXT NOT NULL DEFAULT 'all';
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_index i
+        JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
+        WHERE i.indrelid = 'hero_stats_snapshots'::regclass
+          AND i.indisprimary
+          AND a.attname = 'division'
+    ) THEN
+        ALTER TABLE hero_stats_snapshots DROP CONSTRAINT hero_stats_snapshots_pkey;
+        ALTER TABLE hero_stats_snapshots
+            ADD PRIMARY KEY (taken_on, platform, gamemode, region, division);
+    END IF;
+END $$;
 
 -- Parsed payloads, added alongside the raw sources they are derived from.
 --
@@ -211,3 +238,21 @@ CREATE TABLE IF NOT EXISTS player_rank_alerts (
     last_announced_rank TEXT        NOT NULL,
     announced_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Weekly recap, opt-in per device.
+--
+-- ``recap_player_id`` is the device's own player — the one the recap is about.
+-- NULL means the device never asked for a recap, which is every build that
+-- predates the field: the upsert writes what the client sent, so an older app
+-- keeps clearing it and never receives one.
+--
+-- ``timezone`` is an IANA name the client reports, used only to send the recap
+-- at a civil local hour. Stored as sent and resolved at send time; an unknown
+-- name falls back to UTC there rather than failing the registration, which
+-- also carries the rank alerts.
+--
+-- ``last_recap`` is ours, like ``last_patch_alert``: the local date the last
+-- recap went out, so an hourly job cannot send the same week twice.
+ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS recap_player_id TEXT;
+ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS timezone TEXT;
+ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS last_recap TEXT;

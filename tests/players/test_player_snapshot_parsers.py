@@ -9,6 +9,7 @@ from app.domain.parsers.player_profile import parse_player_profile_html
 from app.domain.parsers.player_snapshot import (
     SNAPSHOT_GENERAL_KEYS,
     build_player_snapshot,
+    diff_games,
     diff_player_snapshots,
 )
 from app.domain.parsers.player_stats import process_player_stats_summary
@@ -82,7 +83,13 @@ class TestBuildPlayerSnapshot:
         result = build_player_snapshot(parsed)
 
         assert result is not None
-        assert set(result) == {"endorsement", "competitive", "heroes", "general"}
+        assert set(result) == {
+            "endorsement",
+            "competitive",
+            "seasons",
+            "heroes",
+            "general",
+        }
         assert result["heroes"]
 
     @pytest.mark.parametrize("player_id", players_ids)
@@ -148,6 +155,7 @@ class TestBuildPlayerSnapshot:
         assert result == {
             "endorsement": 3,
             "competitive": {"pc": {"tank": {"division": "diamond", "tier": 3}}},
+            "seasons": {"pc": 14},
             "heroes": {},
             "general": {},
         }
@@ -201,6 +209,79 @@ class TestBuildPlayerSnapshot:
         result = build_player_snapshot(parsed) or {}
 
         assert result["endorsement"] is None
+
+
+class TestDiffGames:
+    def test_sums_every_platform_and_gamemode(self):
+        before = {
+            "general": {
+                "pc": {
+                    "competitive": {
+                        "games_played": 10,
+                        "games_won": 6,
+                        "games_lost": 4,
+                        "time_played": 3600,
+                    },
+                    "quickplay": {
+                        "games_played": 5,
+                        "games_won": 2,
+                        "games_lost": 3,
+                        "time_played": 1200,
+                    },
+                }
+            }
+        }
+        after = {
+            "general": {
+                "pc": {
+                    "competitive": {
+                        "games_played": 13,
+                        "games_won": 8,
+                        "games_lost": 5,
+                        "time_played": 5400,
+                    },
+                    "quickplay": {
+                        "games_played": 6,
+                        "games_won": 3,
+                        "games_lost": 3,
+                        "time_played": 1800,
+                    },
+                }
+            }
+        }
+
+        result = diff_games(before, after)
+
+        assert result == {
+            "games_played": 4,
+            "games_won": 3,
+            "games_lost": 1,
+            "time_played": 2400,
+        }
+
+    def test_a_gamemode_missing_before_contributes_nothing(self):
+        before = {}
+        after = {
+            "general": {
+                "pc": {
+                    "competitive": {
+                        "games_played": 900,
+                        "games_won": 450,
+                        "games_lost": 450,
+                        "time_played": 999999,
+                    }
+                }
+            }
+        }
+
+        result = diff_games(before, after)
+
+        assert result == {
+            "games_played": 0,
+            "games_won": 0,
+            "games_lost": 0,
+            "time_played": 0,
+        }
 
 
 class TestDiffPlayerSnapshots:

@@ -49,6 +49,9 @@ _DELTA_KEYS = (
 
 _WIN_PERCENTAGE = CareerHeroesComparisonsCategory.WIN_PERCENTAGE.value
 
+# The ``general`` counters ``diff_games`` subtracts. All four accumulate.
+_GAMES_KEYS = ("games_played", "games_won", "games_lost", "time_played")
+
 # The scalar career totals kept per platform and gamemode. ``total`` and
 # ``average`` from the same computation are left out: they are an order of
 # magnitude larger than the rest of the row and nothing reads them back.
@@ -83,6 +86,7 @@ def build_player_snapshot(parsed_profile: PlayerProfileData) -> dict | None:
     return {
         "endorsement": endorsement.get("level"),
         "competitive": competitive,
+        "seasons": _build_seasons(summary.get("competitive")),
         "heroes": heroes,
         "general": _build_general(parsed_profile),
     }
@@ -146,6 +150,26 @@ def _build_competitive(competitive: CompetitiveRanksData | None) -> dict:
             ranks[platform] = platform_entry
 
     return ranks
+
+
+def _build_seasons(competitive: CompetitiveRanksData | None) -> dict:
+    """The competitive season number per platform, e.g. ``{"pc": 18}``.
+
+    Kept apart from ``competitive`` so that dict stays role -> rank. Without it
+    a stored rank cannot be attributed to a season later: Blizzard publishes
+    no season calendar, and the number shown on the page moves on at the next
+    season boundary.
+    """
+    if not competitive:
+        return {}
+
+    seasons: dict[str, int] = {}
+    for platform in ("pc", "console"):
+        platform_ranks = competitive.get(platform)
+        season = platform_ranks.get("season") if platform_ranks else None
+        if isinstance(season, int):
+            seasons[platform] = season
+    return seasons
 
 
 def _build_heroes(stats: dict | None) -> dict:
@@ -226,6 +250,31 @@ def diff_player_snapshots(snapshots: list[dict]) -> dict:
             key: round(sum(hero[key] for hero in heroes), 2) for key in _DELTA_KEYS
         },
     }
+
+
+def diff_games(before: dict, after: dict) -> dict:
+    """Games and time played between two snapshot payloads, all modes summed.
+
+    Reads ``general``, the per platform/gamemode career totals. A pair missing
+    from either side contributes nothing: ``general`` was added to snapshots
+    after the table shipped, and subtracting a present total from an absent
+    one would report a whole career as one week's play.
+    """
+    before_general = before.get("general") or {}
+    after_general = after.get("general") or {}
+    totals = dict.fromkeys(_GAMES_KEYS, 0)
+
+    for platform, gamemodes in after_general.items():
+        for gamemode, stats_after in gamemodes.items():
+            stats_before = (before_general.get(platform) or {}).get(gamemode)
+            if not stats_before:
+                continue
+            for key in _GAMES_KEYS:
+                totals[key] += max(
+                    0, (stats_after.get(key) or 0) - (stats_before.get(key) or 0)
+                )
+
+    return totals
 
 
 def _diff_ranks(before: dict, after: dict) -> list[dict]:
