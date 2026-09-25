@@ -165,16 +165,19 @@ async def get_hero_stats(
     description=(
         "Get the recorded history of hero winrate, pickrate and banrate for one "
         "region, newest first. Blizzard publishes no history of its own : this "
-        "API takes one reading a day, so the series starts the day recording "
-        "began and has at most one point per day."
-        "<br />**Only one slice is recorded : PC, competitive, no role, map or "
-        "competitive division filter.** That is why this endpoint has no "
-        "`platform` or `gamemode` parameter — recording every combination of the "
-        "`/heroes/stats` filters would mean thousands of Blizzard requests a day, "
-        "and offering filters the data cannot answer would be worse than not "
-        "offering them."
+        "API takes one reading a day, so a series starts the day recording began "
+        "for it and has at most one point per day."
+        "<br />**Only PC and competitive are recorded, with an optional "
+        "`competitive_division` filter — no role or map filter.** That is why "
+        "this endpoint has no `platform` or `gamemode` parameter — recording "
+        "every combination of the `/heroes/stats` filters would mean thousands "
+        "of Blizzard requests a day, and offering filters the data cannot "
+        "answer would be worse than not offering them."
+        "<br />Per-division series only start from the day per-division "
+        "recording was added, so they may hold fewer points than the unfiltered "
+        "(`competitive_division` omitted) series."
         "<br />An empty `snapshots` list means nothing has been recorded for the "
-        "region yet, which is a normal state and not an error."
+        "region (and division) yet, which is a normal state and not an error."
         f"<br />**Cache TTL : {get_human_readable_duration(settings.hero_stats_cache_timeout)}.**"
     ),
     operation_id="get_hero_stats_history",
@@ -225,12 +228,27 @@ async def get_hero_stats_history(
             le=365,
         ),
     ] = 30,
+    competitive_division: Annotated[
+        CompetitiveDivisionFilter | None,
+        Query(
+            title="Competitive division filter",
+            description=(
+                "Return the series recorded for this division instead of the "
+                "unfiltered one. Per-division series only start from the day "
+                "per-division recording was added, so they may have fewer "
+                "points than the unfiltered series. All divisions combined by "
+                "default."
+            ),
+            examples=["diamond"],
+        ),
+    ] = None,
 ) -> Any:
     data, is_stale, age = await service.get_hero_stats_history(
         region=region,
         hero=str(hero) if hero else None,
         since=since,
         limit=limit,
+        division=competitive_division,
         cache_key=build_cache_key(request),
     )
     apply_swr_headers(

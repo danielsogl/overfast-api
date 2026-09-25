@@ -479,6 +479,15 @@ class HeroStatsHistory(BaseModel):
         description="Region the series was recorded for",
         examples=["europe"],
     )
+    competitive_division: str | None = Field(
+        None,
+        description=(
+            "Competitive division the series was filtered to, echoing the "
+            "`competitive_division` query parameter. Null for the unfiltered "
+            "series (all divisions combined)."
+        ),
+        examples=["diamond"],
+    )
     snapshots: list[HeroStatsSnapshot] = Field(
         ...,
         description=(

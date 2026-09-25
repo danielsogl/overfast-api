@@ -37,6 +37,18 @@ async def _recorded_history(storage_db: FakeStorage):
     )
 
 
+@pytest_asyncio.fixture
+async def _gold_division_recorded(storage_db: FakeStorage):
+    await storage_db.add_hero_stats_snapshot(
+        _TODAY,
+        "pc",
+        "competitive",
+        "europe",
+        [{"hero": "ana", "winrate": 60.0, "pickrate": 4.0, "banrate": None}],
+        division="gold",
+    )
+
+
 @pytest.mark.usefixtures("_recorded_history")
 def test_get_hero_stats_history(client: TestClient):
     response = client.get("/heroes/stats/history", params={"region": "europe"})
@@ -107,7 +119,11 @@ def test_get_hero_stats_history_of_an_unrecorded_region_is_empty(
     response = client.get("/heroes/stats/history", params={"region": "asia"})
 
     assert response.status_code == status.HTTP_200_OK
-    assert response.json() == {"region": "asia", "snapshots": []}
+    assert response.json() == {
+        "region": "asia",
+        "competitive_division": None,
+        "snapshots": [],
+    }
 
 
 def test_get_hero_stats_history_requires_a_region(client: TestClient):
@@ -143,3 +159,61 @@ def test_get_hero_stats_history_has_no_platform_or_gamemode_filter(
 
     assert response.status_code == status.HTTP_200_OK
     assert len(response.json()["snapshots"]) == 2  # noqa: PLR2004
+
+
+@pytest.mark.usefixtures("_recorded_history")
+def test_get_hero_stats_history_without_division_reads_the_all_slice(
+    client: TestClient,
+):
+    """Unchanged default behaviour: no ``competitive_division`` still means the
+    unfiltered ``"all"`` slice recorded before per-division history existed."""
+    response = client.get("/heroes/stats/history", params={"region": "europe"})
+
+    assert response.status_code == status.HTTP_200_OK
+    body = response.json()
+    assert body["competitive_division"] is None
+    assert len(body["snapshots"]) == 2  # noqa: PLR2004
+
+
+@pytest.mark.usefixtures("_gold_division_recorded")
+def test_get_hero_stats_history_with_division_reads_that_slice(client: TestClient):
+    response = client.get(
+        "/heroes/stats/history",
+        params={"region": "europe", "competitive_division": "gold"},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    body = response.json()
+    assert body["competitive_division"] == "gold"
+    assert body["snapshots"] == [
+        {
+            "taken_on": _TODAY.isoformat(),
+            "stats": [
+                {"hero": "ana", "winrate": 60.0, "pickrate": 4.0, "banrate": None}
+            ],
+        }
+    ]
+
+
+@pytest.mark.usefixtures("_recorded_history")
+def test_get_hero_stats_history_with_division_does_not_see_the_all_slice(
+    client: TestClient,
+):
+    """A ``division``-filtered request must not be served the unfiltered
+    payload — proves the cache key and storage lookup both key on it."""
+    response = client.get(
+        "/heroes/stats/history",
+        params={"region": "europe", "competitive_division": "gold"},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["snapshots"] == []
+
+
+def test_get_hero_stats_history_rejects_an_invalid_division(client: TestClient):
+    response = client.get(
+        "/heroes/stats/history",
+        params={"region": "europe", "competitive_division": "ultimate"},
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
