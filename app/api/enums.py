@@ -12,12 +12,3 @@ class RouteTag(StrEnum):
     PLAYERS = "🎮 Players"
     PATCH_NOTES = "📝 Patch Notes"
     PUSH = "🔔 Push"
-
-
-class Profiler(StrEnum):
-    """Supported profilers list"""
-
-    MEMRAY = "memray"
-    PYINSTRUMENT = "pyinstrument"
-    TRACEMALLOC = "tracemalloc"
-    OBJGRAPH = "objgraph"

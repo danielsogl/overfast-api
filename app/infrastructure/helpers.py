@@ -42,11 +42,6 @@ def overfast_internal_error(url: str, error: Exception) -> HTTPException:
         traceback.format_exc(),
     )
 
-    # If we're using a profiler, it means we're debugging, raise the error
-    # directly in order to have proper backtrace in logs
-    if settings.profiler:
-        raise error  # pragma: no cover
-
     return HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail=settings.internal_server_error_message,

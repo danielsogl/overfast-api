@@ -8,7 +8,6 @@ from app.api.enums import RouteTag
 from app.api.exception_handlers import register_exception_handlers
 from app.api.lifespan import lifespan
 from app.api.middlewares import ETagMiddleware
-from app.api.profiler import register_profiler
 from app.api.responses import ASCIIJSONResponse
 from app.api.routers.docs import router as docs
 from app.api.routers.gamemodes import router as gamemodes
@@ -126,10 +125,6 @@ register_exception_handlers(app)
 # Conditional requests on the cache-miss path. Cache hits never get here —
 # nginx answers them from the Valkey envelope, ETag included.
 app.add_middleware(ETagMiddleware)
-
-# Add supported profiler as middleware
-if settings.profiler:  # pragma: no cover
-    register_profiler(app, settings.profiler)
 
 
 # Add application routers
