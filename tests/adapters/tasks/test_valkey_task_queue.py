@@ -6,7 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import fakeredis
 import pytest
 
-from app.adapters.tasks.valkey_task_queue import ValkeyTaskQueue
+from app.adapters.tasks.valkey_task_queue import JOB_KEY_PREFIX, ValkeyTaskQueue
+
+
+async def _pending(redis: fakeredis.FakeAsyncRedis, job_id: str) -> bool:
+    return await redis.exists(f"{JOB_KEY_PREFIX}{job_id}") > 0
 
 
 @pytest.fixture
@@ -34,7 +38,9 @@ class TestDeduplication:
         mock_task.kiq.assert_awaited_once_with("job-1")
 
     @pytest.mark.asyncio
-    async def test_different_job_ids_both_recorded(self, queue: ValkeyTaskQueue):
+    async def test_different_job_ids_both_recorded(
+        self, queue: ValkeyTaskQueue, fake_redis: fakeredis.FakeAsyncRedis
+    ):
         mock_task = MagicMock()
         mock_task.kiq = AsyncMock()
         with patch.dict(
@@ -44,8 +50,8 @@ class TestDeduplication:
             await queue.enqueue("refresh", job_id="job-a")
             await queue.enqueue("refresh", job_id="job-b")
 
-        result_a = await queue.is_job_pending_or_running("job-a")
-        result_b = await queue.is_job_pending_or_running("job-b")
+        result_a = await _pending(fake_redis, "job-a")
+        result_b = await _pending(fake_redis, "job-b")
 
         assert result_a
         assert result_b
@@ -57,7 +63,9 @@ class TestDeduplication:
         assert result == "job-1"
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_task_name_when_no_job_id(self, queue: ValkeyTaskQueue):
+    async def test_falls_back_to_task_name_when_no_job_id(
+        self, queue: ValkeyTaskQueue, fake_redis: fakeredis.FakeAsyncRedis
+    ):
         mock_task = MagicMock()
         mock_task.kiq = AsyncMock()
         with patch.dict(
@@ -66,15 +74,17 @@ class TestDeduplication:
         ):
             result = await queue.enqueue("refresh_heroes")
 
-        pending = await queue.is_job_pending_or_running("refresh_heroes")
+        pending = await _pending(fake_redis, "refresh_heroes")
 
         assert result == "refresh_heroes"
         assert pending
 
 
-class TestIsJobPendingOrRunning:
+class TestDedupKey:
     @pytest.mark.asyncio
-    async def test_pending_after_enqueue(self, queue: ValkeyTaskQueue):
+    async def test_pending_after_enqueue(
+        self, queue: ValkeyTaskQueue, fake_redis: fakeredis.FakeAsyncRedis
+    ):
         mock_task = MagicMock()
         mock_task.kiq = AsyncMock()
         with patch.dict(
@@ -83,32 +93,7 @@ class TestIsJobPendingOrRunning:
         ):
             await queue.enqueue("refresh", job_id="job-1")
 
-        result = await queue.is_job_pending_or_running("job-1")
-
-        assert result
-
-    @pytest.mark.asyncio
-    async def test_not_pending_for_unknown_job(self, queue: ValkeyTaskQueue):
-        result = await queue.is_job_pending_or_running("unknown-job")
-
-        assert not result
-
-    @pytest.mark.asyncio
-    async def test_independent_instances_share_redis_state(
-        self, fake_redis: fakeredis.FakeAsyncRedis
-    ):
-        """Two queue instances using the same redis see each other's dedup keys."""
-        mock_task = MagicMock()
-        mock_task.kiq = AsyncMock()
-        q1 = ValkeyTaskQueue(fake_redis)
-        q2 = ValkeyTaskQueue(fake_redis)
-        with patch.dict(
-            "app.adapters.tasks.valkey_task_queue.TASK_MAP",
-            {"refresh": mock_task},
-        ):
-            await q1.enqueue("refresh", job_id="job-shared")
-
-        result = await q2.is_job_pending_or_running("job-shared")
+        result = await _pending(fake_redis, "job-1")
 
         assert result
 
@@ -127,11 +112,13 @@ class TestEnqueueTaskDispatch:
         mock_task.kiq.assert_awaited_once_with("heroes")
 
     @pytest.mark.asyncio
-    async def test_unknown_task_skips_kiq(self, queue: ValkeyTaskQueue):
+    async def test_unknown_task_skips_kiq(
+        self, queue: ValkeyTaskQueue, fake_redis: fakeredis.FakeAsyncRedis
+    ):
         """An unknown task name is a no-op — returns effective_id without claiming a dedup slot."""
         result = await queue.enqueue("nonexistent_task", job_id="xyz")
 
-        pending = await queue.is_job_pending_or_running("xyz")
+        pending = await _pending(fake_redis, "xyz")
 
         assert result == "xyz"
         assert not pending
@@ -154,25 +141,12 @@ class TestEnqueueTaskDispatch:
         assert result == "boom"
 
 
-class TestIsJobPendingOrRunningExceptionHandling:
-    @pytest.mark.asyncio
-    async def test_redis_exception_returns_false(
-        self, fake_redis: fakeredis.FakeAsyncRedis
-    ):
-        """If redis raises, is_job_pending_or_running returns False."""
-        queue = ValkeyTaskQueue(fake_redis)
-        cast("Any", fake_redis).exists = AsyncMock(
-            side_effect=RuntimeError("redis down")
-        )
-        result = await queue.is_job_pending_or_running("any-job")
-
-        assert result is False
-
-
 class TestReleaseJob:
     @pytest.mark.asyncio
-    async def test_release_removes_dedup_key(self, queue: ValkeyTaskQueue):
-        """After release_job, is_job_pending_or_running returns False."""
+    async def test_release_removes_dedup_key(
+        self, queue: ValkeyTaskQueue, fake_redis: fakeredis.FakeAsyncRedis
+    ):
+        """release_job deletes the dedup key."""
         mock_task = MagicMock()
         mock_task.kiq = AsyncMock()
         with patch.dict(
@@ -183,7 +157,7 @@ class TestReleaseJob:
 
         await queue.release_job("job-1")
 
-        result = await queue.is_job_pending_or_running("job-1")
+        result = await _pending(fake_redis, "job-1")
         assert not result
 
     @pytest.mark.asyncio

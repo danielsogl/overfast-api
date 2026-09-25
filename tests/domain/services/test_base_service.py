@@ -93,19 +93,6 @@ class TestEnqueueRefresh:
         )
 
     @pytest.mark.asyncio
-    async def test_does_not_pre_check_for_a_pending_job(self):
-        """Deduplication belongs to the queue, which claims with SET NX.
-
-        Asking first cost an extra round-trip on every stale read and left a
-        window for another process to claim in between. See
-        tests/adapters/tasks/test_valkey_task_queue.py::test_duplicate_job_skipped
-        for the dedup itself.
-        """
-        svc = _make_service()
-        await svc._enqueue_refresh("heroes", "heroes:en-us")
-        cast("Any", svc.task_queue).is_job_pending_or_running.assert_not_awaited()
-
-    @pytest.mark.asyncio
     async def test_exception_is_swallowed(self):
         """Queue errors must not propagate."""
         svc = _make_service(queue_fail=True)

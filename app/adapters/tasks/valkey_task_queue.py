@@ -65,13 +65,6 @@ class ValkeyTaskQueue:
 
         return effective_id
 
-    async def is_job_pending_or_running(self, job_id: str) -> bool:
-        """Return True if a job with this ID is already pending or running."""
-        try:
-            return (await self._valkey.exists(f"{JOB_KEY_PREFIX}{job_id}")) > 0
-        except Exception:  # noqa: BLE001
-            return False
-
     async def release_job(self, job_id: str) -> None:
         """Delete the dedup key for ``job_id``, allowing it to be re-enqueued.
 

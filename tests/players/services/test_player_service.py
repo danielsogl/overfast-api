@@ -65,7 +65,6 @@ def _make_service(
         cache.set_player_status = AsyncMock()
     if task_queue is None:
         task_queue = AsyncMock()
-        task_queue.is_job_pending_or_running = AsyncMock(return_value=False)
     blizzard_client = AsyncMock()
     return PlayerService(cache, storage, blizzard_client, task_queue)
 
@@ -499,7 +498,6 @@ class TestExecutePlayerRequest:
         # in place to prove they are NOT reached.
         storage._profiles["abc123|def456"]["updated_at"] = int(time.time()) - 9999
         task_queue = AsyncMock()
-        task_queue.is_job_pending_or_running = AsyncMock(return_value=False)
         svc = _make_service(storage=storage, task_queue=task_queue)
 
         with (
@@ -578,7 +576,6 @@ class TestExecutePlayerRequest:
         storage._profiles["abc123|def456"]["updated_at"] = int(time.time()) - 2000
         cache = AsyncMock()
         task_queue = AsyncMock()
-        task_queue.is_job_pending_or_running = AsyncMock(return_value=False)
         svc = _make_service(storage=storage, cache=cache, task_queue=task_queue)
 
         with (
@@ -1578,7 +1575,6 @@ class TestServesStaleWithinCeiling:
         )
         storage._profiles["abc123|def456"]["updated_at"] = int(time.time()) - 7200
         task_queue = AsyncMock()
-        task_queue.is_job_pending_or_running = AsyncMock(return_value=False)
         svc = _make_service(storage=storage, task_queue=task_queue)
 
         with (
@@ -1610,7 +1606,6 @@ class TestServesStaleWithinCeiling:
         )
         storage._profiles["abc123|def456"]["updated_at"] = int(time.time()) - 7200
         task_queue = AsyncMock()
-        task_queue.is_job_pending_or_running = AsyncMock(return_value=False)
         svc = _make_service(storage=storage, task_queue=task_queue)
 
         with (
@@ -1639,7 +1634,6 @@ class TestServesStaleWithinCeiling:
         )
         storage._profiles["abc123|def456"]["updated_at"] = int(time.time()) - 200_000
         task_queue = AsyncMock()
-        task_queue.is_job_pending_or_running = AsyncMock(return_value=False)
         svc = _make_service(storage=storage, task_queue=task_queue)
 
         with (
@@ -1674,7 +1668,6 @@ class TestServesStaleWithinCeiling:
         """Nothing stored is the one case with genuinely nothing to serve."""
         storage = FakeStorage()
         task_queue = AsyncMock()
-        task_queue.is_job_pending_or_running = AsyncMock(return_value=False)
         svc = _make_service(storage=storage, task_queue=task_queue)
 
         with (

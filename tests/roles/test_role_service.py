@@ -14,7 +14,6 @@ def _make_role_service() -> RoleService:
     storage = AsyncMock()
     blizzard_client = AsyncMock()
     task_queue = AsyncMock()
-    task_queue.is_job_pending_or_running.return_value = False
     return RoleService(cache, storage, blizzard_client, task_queue)
 
 

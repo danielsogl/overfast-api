@@ -20,10 +20,6 @@ class TaskQueuePort(Protocol):
         """
         ...
 
-    async def is_job_pending_or_running(self, job_id: str) -> bool:
-        """Return True if a job with this ID is already pending or running."""
-        ...
-
     async def release_job(self, job_id: str) -> None:
         """Delete the dedup key for ``job_id``, allowing it to be re-enqueued.
 
