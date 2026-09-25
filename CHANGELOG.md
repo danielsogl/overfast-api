@@ -2,6 +2,50 @@
 
 <!-- version list -->
 
+## v4.26.0 (2026-09-25)
+
+### Build System
+
+- **deps**: Bump astral-sh/setup-uv in the github-actions group
+  ([#56](https://github.com/danielsogl/overfast-api/pull/56),
+  [`be78fe8`](https://github.com/danielsogl/overfast-api/commit/be78fe8ad219673c43da8b64675caaef02ead8c5))
+
+- **deps**: Update pyjwt[crypto] requirement in the python group
+  ([#55](https://github.com/danielsogl/overfast-api/pull/55),
+  [`c5a6eb0`](https://github.com/danielsogl/overfast-api/commit/c5a6eb09479b04794ac178a227a6a1f74a13cb60))
+
+### Chores
+
+- Remove the Makefile duplicating the justfile
+  ([`8772192`](https://github.com/danielsogl/overfast-api/commit/8772192512970c359d499bf01573eba5e59c92b9))
+
+- **dev**: Remove the in-process profiler middlewares
+  ([`f77c0b7`](https://github.com/danielsogl/overfast-api/commit/f77c0b70193104451f931708e191cf19bb40f3cb))
+
+- **scripts**: Remove the one-off player ID spelling migration
+  ([`f6b8334`](https://github.com/danielsogl/overfast-api/commit/f6b8334b01458cbaca04006b9f99ec811634e1ba))
+
+### Features
+
+- Sessions, per-division hero history and opt-in weekly recap
+  ([#57](https://github.com/danielsogl/overfast-api/pull/57),
+  [`ecd084d`](https://github.com/danielsogl/overfast-api/commit/ecd084dbd371f0b0c8524b1cfb356d88a626f98a))
+
+### Refactoring
+
+- **blizzard**: Remove the ThrottlePort protocol
+  ([`93b9d78`](https://github.com/danielsogl/overfast-api/commit/93b9d782462342db692ceebe76179aa7eda15632))
+
+- **cache**: Drop get_api_cache from the cache port
+  ([`17af530`](https://github.com/danielsogl/overfast-api/commit/17af53013138f0533c7871d3137bbb97089ed3a9))
+
+- **parsers**: Remove unused *_from_html player parser entry points
+  ([`51ffb2d`](https://github.com/danielsogl/overfast-api/commit/51ffb2d2ccc65ba36d78fea57bf486adad87727d))
+
+- **tasks**: Drop is_job_pending_or_running from the task queue port
+  ([`0c46aeb`](https://github.com/danielsogl/overfast-api/commit/0c46aeb8caa4aed9abce70427f8ed0d8f148a880))
+
+
 ## v4.25.2 (2026-09-23)
 
 ### Bug Fixes
