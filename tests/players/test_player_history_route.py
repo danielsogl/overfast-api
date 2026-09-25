@@ -136,3 +136,39 @@ def test_get_player_stats_diff_blizzard_error(client: TestClient):
         response = client.get("/players/TeKrop-2217/stats/diff")
 
     assert response.status_code == status.HTTP_504_GATEWAY_TIMEOUT
+
+
+def test_get_player_sessions_without_history(
+    client: TestClient,
+    player_search_response_mock: Mock,
+):
+    """A player we only just started recording has a baseline but no
+    session yet — a 200 with an empty list, not an error."""
+    with patch(
+        "httpx2.AsyncClient.get",
+        side_effect=_blizzard_calls(_TEKROP_HTML, player_search_response_mock),
+    ):
+        response = client.get("/players/TeKrop-2217/sessions")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["sessions"] == []
+
+
+@pytest.mark.parametrize("query", ["limit=0", "limit=51"])
+def test_get_player_sessions_rejects_invalid_limit(client: TestClient, query: str):
+    response = client.get(f"/players/TeKrop-2217/sessions?{query}")
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+def test_get_player_sessions_blizzard_error(client: TestClient):
+    with patch(
+        "httpx2.AsyncClient.get",
+        return_value=Mock(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            text="Service Unavailable",
+        ),
+    ):
+        response = client.get("/players/TeKrop-2217/sessions")
+
+    assert response.status_code == status.HTTP_504_GATEWAY_TIMEOUT

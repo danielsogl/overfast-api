@@ -52,6 +52,12 @@ _WIN_PERCENTAGE = CareerHeroesComparisonsCategory.WIN_PERCENTAGE.value
 # The ``general`` counters ``diff_games`` subtracts. All four accumulate.
 _GAMES_KEYS = ("games_played", "games_won", "games_lost", "time_played")
 
+# Snapshots are polled every 4h for push-subscribed players, so a gap shorter
+# than that can just be the next scheduled poll catching an ongoing sitting
+# mid-way through — not a new session. A gap longer than this separates two
+# evenings.
+SESSION_GAP_SECONDS = 6 * 3600
+
 # The scalar career totals kept per platform and gamemode. ``total`` and
 # ``average`` from the same computation are left out: they are an order of
 # magnitude larger than the rest of the row and nothing reads them back.
@@ -275,6 +281,65 @@ def diff_games(before: dict, after: dict) -> dict:
                 )
 
     return totals
+
+
+def build_player_sessions(snapshots: list[dict], limit: int) -> list[dict]:
+    """Group a player's snapshot series into inferred play sessions, newest first.
+
+    ``snapshots`` arrives newest-first, as storage returns it. The oldest entry
+    is only a baseline — the state the first session started from — and never
+    becomes a session of its own.
+
+    Consecutive snapshots are grouped together unless the gap between their
+    ``last_updated_blizzard`` values exceeds ``SESSION_GAP_SECONDS``, which
+    starts a new session. For each session, ``before`` is the snapshot
+    immediately preceding its first one and ``after`` is its last one; the
+    games/ranks/heroes reported are the delta between those two, reusing the
+    same diff helpers ``/stats/diff`` uses rather than duplicating the logic.
+
+    A session where nothing measurable happened (no games, no time, no hero
+    movement) is dropped — that gap was silence, not play.
+    """
+    ordered = sorted(snapshots, key=lambda s: s["last_updated_blizzard"])
+    if len(ordered) < 2:  # noqa: PLR2004
+        return []
+
+    # Indices 1..len(ordered)-1 are candidate session members; split into runs
+    # wherever the gap to the previous snapshot exceeds the threshold.
+    groups: list[list[int]] = [[1]]
+    for i in range(2, len(ordered)):
+        gap = (
+            ordered[i]["last_updated_blizzard"]
+            - ordered[i - 1]["last_updated_blizzard"]
+        )
+        if gap > SESSION_GAP_SECONDS:
+            groups.append([])
+        groups[-1].append(i)
+
+    sessions = []
+    for group in groups:
+        before, after = ordered[group[0] - 1], ordered[group[-1]]
+        games = diff_games(before["data"], after["data"])
+        diff = diff_player_snapshots([after, before])
+        if (
+            games["games_played"] == 0
+            and games["time_played"] == 0
+            and not diff["heroes"]
+        ):
+            continue
+        sessions.append(
+            {
+                "since": before["last_updated_blizzard"],
+                "ended_at": after["last_updated_blizzard"],
+                "snapshots": len(group),
+                "games": games,
+                "ranks": diff["ranks"],
+                "heroes": diff["heroes"],
+            }
+        )
+
+    sessions.reverse()
+    return sessions[:limit]
 
 
 def _diff_ranks(before: dict, after: dict) -> list[dict]:

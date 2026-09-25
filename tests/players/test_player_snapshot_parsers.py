@@ -7,7 +7,9 @@ import pytest
 from app.domain.enums import PlayerGamemode, PlayerPlatform
 from app.domain.parsers.player_profile import parse_player_profile_html
 from app.domain.parsers.player_snapshot import (
+    SESSION_GAP_SECONDS,
     SNAPSHOT_GENERAL_KEYS,
+    build_player_sessions,
     build_player_snapshot,
     diff_games,
     diff_player_snapshots,
@@ -463,3 +465,78 @@ class TestDiffPlayerSnapshots:
 
         assert result["snapshots_compared"] == 3  # noqa: PLR2004
         assert result["totals"]["time_played"] == 200  # noqa: PLR2004
+
+
+def _session_snapshot(last_updated: int, games_played: int, time_played: int) -> dict:
+    return {
+        "taken_at": last_updated + 10,
+        "last_updated_blizzard": last_updated,
+        "data": {
+            "general": {
+                "pc": {
+                    "quickplay": {
+                        "games_played": games_played,
+                        "games_won": 0,
+                        "games_lost": 0,
+                        "time_played": time_played,
+                    }
+                }
+            },
+            "heroes": {},
+            "competitive": {},
+        },
+    }
+
+
+class TestBuildPlayerSessions:
+    def test_baseline_only_yields_no_session(self):
+        snapshots = [_session_snapshot(0, games_played=0, time_played=0)]
+
+        assert build_player_sessions(snapshots, limit=10) == []
+
+    def test_no_history_yields_no_session(self):
+        assert build_player_sessions([], limit=10) == []
+
+    def test_splits_on_a_gap_and_reports_newest_first(self):
+        baseline = _session_snapshot(0, games_played=0, time_played=0)
+        s1 = _session_snapshot(1800, games_played=1, time_played=600)
+        s2 = _session_snapshot(3600, games_played=3, time_played=1800)
+        gap = SESSION_GAP_SECONDS + 3600
+        s3 = _session_snapshot(3600 + gap, games_played=4, time_played=2100)
+        # storage returns newest first
+        snapshots = [s3, s2, s1, baseline]
+
+        result = build_player_sessions(snapshots, limit=10)
+
+        assert len(result) == 2  # noqa: PLR2004
+        newest, oldest = result
+        assert oldest["since"] == 0
+        assert oldest["ended_at"] == 3600  # noqa: PLR2004
+        assert oldest["snapshots"] == 2  # noqa: PLR2004
+        assert oldest["games"]["games_played"] == 3  # noqa: PLR2004
+        assert oldest["games"]["time_played"] == 1800  # noqa: PLR2004
+        assert newest["since"] == 3600  # noqa: PLR2004
+        assert newest["ended_at"] == 3600 + gap
+        assert newest["snapshots"] == 1
+        assert newest["games"]["games_played"] == 1
+        assert newest["games"]["time_played"] == 300  # noqa: PLR2004
+
+    def test_empty_session_is_dropped(self):
+        baseline = _session_snapshot(0, games_played=0, time_played=0)
+        unchanged = _session_snapshot(1800, games_played=0, time_played=0)
+
+        result = build_player_sessions([unchanged, baseline], limit=10)
+
+        assert result == []
+
+    def test_limit_keeps_only_the_newest_sessions(self):
+        baseline = _session_snapshot(0, games_played=0, time_played=0)
+        gap = SESSION_GAP_SECONDS + 3600
+        s1 = _session_snapshot(gap, games_played=1, time_played=600)
+        s2 = _session_snapshot(2 * gap, games_played=2, time_played=1200)
+        snapshots = [s2, s1, baseline]
+
+        result = build_player_sessions(snapshots, limit=1)
+
+        assert len(result) == 1
+        assert result[0]["since"] == gap
