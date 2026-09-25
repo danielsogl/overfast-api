@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, cast
 from app.domain.enums import PlayerGamemode, PlayerPlatform
 from app.domain.parsers.player_career_stats import (
     extract_career_stats_from_profile,
-    parse_player_career_stats_from_html,
     process_career_stats,
 )
 from tests.helpers import read_html_file
@@ -153,23 +152,3 @@ class TestProcessCareerStats:
         )
 
         assert result == {}
-
-
-class TestParsePlayerCareerStatsFromHtml:
-    def test_with_real_fixture_no_filter(self):
-        """parse_player_career_stats_from_html returns a dict from real HTML."""
-        result = parse_player_career_stats_from_html(
-            _TEKROP_HTML, PlayerGamemode.QUICKPLAY
-        )
-
-        assert isinstance(result, dict)
-
-    def test_with_platform_gamemode_filter(self):
-        """Filters are applied correctly."""
-        result = parse_player_career_stats_from_html(
-            _TEKROP_HTML,
-            gamemode=PlayerGamemode.QUICKPLAY,
-            platform=PlayerPlatform.PC,
-        )
-
-        assert isinstance(result, dict)

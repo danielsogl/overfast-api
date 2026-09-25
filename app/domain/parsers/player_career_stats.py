@@ -10,14 +10,13 @@ from typing import TYPE_CHECKING, Any
 
 from app.domain.parsers.player_profile import (
     filter_stats_by_query,
-    parse_player_profile_html,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from app.domain.enums import PlayerGamemode, PlayerPlatform
-    from app.domain.models.player import BlizzardSearchPlayer, PlayerProfileData
+    from app.domain.models.player import PlayerProfileData
 
 
 def extract_career_stats_from_profile(
@@ -99,27 +98,3 @@ def process_career_stats(
     # We have at least gamemode filter provided, filter results
     stats = career_stats_data.get("stats")
     return filter_stats_by_query(stats, gamemode, platform, hero)
-
-
-def parse_player_career_stats_from_html(
-    html: str,
-    gamemode: PlayerGamemode | str,
-    player_summary: BlizzardSearchPlayer | None = None,
-    platform: PlayerPlatform | str | None = None,
-    hero: str | None = None,
-) -> dict:
-    """
-    Parse player career stats from HTML (for Player Cache usage)
-
-    Args:
-        html: Player profile HTML
-        gamemode: Mandatory gamemode filter
-        player_summary: Optional player summary from search endpoint
-        platform: Optional platform filter
-        hero: Optional hero filter
-
-    Returns:
-        Career stats dict, filtered by query parameters
-    """
-    profile_data = parse_player_profile_html(html, player_summary)
-    return process_career_stats(profile_data, gamemode, platform, hero)

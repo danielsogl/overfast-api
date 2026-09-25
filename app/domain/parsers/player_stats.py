@@ -17,11 +17,10 @@ from app.domain.parsers.player_helpers import (
     get_hero_role,
     get_plural_stat_key,
 )
-from app.domain.parsers.player_profile import parse_player_profile_html
 from app.infrastructure.logger import logger
 
 if TYPE_CHECKING:
-    from app.domain.models.player import BlizzardSearchPlayer, PlayerProfileData
+    from app.domain.models.player import PlayerProfileData
 
 
 # Stat names for aggregation
@@ -379,25 +378,3 @@ def process_player_stats_summary(
         "roles": roles_stats,
         "heroes": heroes_data,
     }
-
-
-def parse_player_stats_summary_from_html(
-    html: str,
-    player_summary: BlizzardSearchPlayer | None = None,
-    gamemode: PlayerGamemode | None = None,
-    platform: PlayerPlatform | None = None,
-) -> dict:
-    """
-    Parse player stats summary from HTML (for Player Cache usage)
-
-    Args:
-        html: Player profile HTML
-        player_summary: Optional player summary from search endpoint
-        gamemode: Optional gamemode filter
-        platform: Optional platform filter
-
-    Returns:
-        Dict with "general", "roles", and "heroes" stats
-    """
-    profile_data = parse_player_profile_html(html, player_summary)
-    return process_player_stats_summary(profile_data, gamemode, platform)
