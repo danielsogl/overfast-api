@@ -31,6 +31,7 @@ from app.api.models.players import (
     PlayerHistory,
     PlayerNotFoundError,
     PlayerSearchResult,
+    PlayerSessions,
     PlayerStatsDiff,
     PlayerStatsSummary,
     PlayerSummaries,
@@ -623,6 +624,50 @@ async def get_player_stats_diff(
         player_id=commons["player_id"],
         cache_key=cache_key,
         since=since,
+    )
+    apply_swr_headers(response, settings.career_path_cache_timeout, is_stale, age)
+    return data
+
+
+@router.get(
+    "/{player_id}/sessions",
+    responses=career_routes_responses,
+    tags=[RouteTag.PLAYERS],
+    summary="Get inferred play sessions",
+    description=(
+        "Group the player's recorded profile versions into inferred play "
+        "sessions : a run of snapshots close enough together in time is taken "
+        "to be one sitting. `since` is the last known state before the "
+        "session, not necessarily when it started — activity happened "
+        "sometime after that point. A session is only as precise as how often "
+        "this player has been refreshed : one rarely requested gets coarser, "
+        "merged sessions."
+        f"<br />**Cache TTL : {get_human_readable_duration(settings.career_path_cache_timeout)}.**"
+    ),
+    operation_id="get_player_sessions",
+    response_model=PlayerSessions,
+)
+async def get_player_sessions(
+    request: Request,
+    response: Response,
+    service: PlayerServiceDep,
+    commons: CommonsPlayerDep,
+    limit: Annotated[
+        int,
+        Query(
+            title="Limit",
+            description="Maximum number of sessions to return",
+            examples=[10],
+            ge=1,
+            le=50,
+        ),
+    ] = 10,
+) -> Any:
+    cache_key = build_cache_key(request)
+    data, is_stale, age = await service.get_player_sessions(
+        player_id=commons["player_id"],
+        cache_key=cache_key,
+        limit=limit,
     )
     apply_swr_headers(response, settings.career_path_cache_timeout, is_stale, age)
     return data

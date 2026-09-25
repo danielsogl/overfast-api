@@ -30,9 +30,9 @@ class FakeStorage:
         # player_id -> last_updated_blizzard -> row, mirroring the composite
         # primary key that makes the real INSERT idempotent.
         self._snapshots: dict[str, dict[int, dict]] = {}
-        # (taken_on, platform, gamemode, region) -> payload, again mirroring the
-        # real primary key.
-        self._hero_stats: dict[tuple[date, str, str, str], list[dict]] = {}
+        # (taken_on, platform, gamemode, region, division) -> payload, again
+        # mirroring the real primary key.
+        self._hero_stats: dict[tuple[date, str, str, str, str], list[dict]] = {}
         # token -> {platform, locale, player_ids, updated_at}
         self._push: dict[str, dict] = {}
         self._rank_alerts: dict[str, str] = {}
@@ -191,10 +191,13 @@ class FakeStorage:
         gamemode: str,
         region: str,
         data: list[dict],
+        division: str = "all",
     ) -> None:
         # setdefault, not assignment: ON CONFLICT DO NOTHING keeps the first row
         # recorded for this day and filter combination.
-        self._hero_stats.setdefault((taken_on, platform, gamemode, region), data)
+        self._hero_stats.setdefault(
+            (taken_on, platform, gamemode, region, division), data
+        )
 
     async def get_hero_stats_snapshots(
         self,
@@ -203,6 +206,7 @@ class FakeStorage:
         region: str,
         since: int | None = None,
         limit: int = 30,
+        division: str = "all",
     ) -> list[dict]:
         since_date = (
             None if since is None else datetime.fromtimestamp(since, tz=UTC).date()
@@ -210,7 +214,7 @@ class FakeStorage:
         rows = [
             {"taken_on": key[0], "data": data}
             for key, data in self._hero_stats.items()
-            if key[1:] == (platform, gamemode, region)
+            if key[1:] == (platform, gamemode, region, division)
             and (since_date is None or key[0] >= since_date)
         ]
         rows.sort(key=lambda row: row["taken_on"], reverse=True)
@@ -260,13 +264,19 @@ class FakeStorage:
         locale: str,
         player_ids: list[str],
         environment: str = "production",
+        recap_player_id: str | None = None,
+        timezone: str | None = None,
     ) -> None:
+        existing = self._push.get(token, {})
         self._push[token] = {
             "platform": platform,
             "locale": locale,
             "environment": environment,
             "player_ids": list(player_ids),
-            "last_patch_alert": self._push.get(token, {}).get("last_patch_alert"),
+            "recap_player_id": recap_player_id,
+            "timezone": timezone,
+            "last_patch_alert": existing.get("last_patch_alert"),
+            "last_recap": existing.get("last_recap"),
             "updated_at": time.time(),
         }
 
@@ -274,7 +284,14 @@ class FakeStorage:
         return self._push.pop(token, None) is not None
 
     async def get_push_subscribed_player_ids(self) -> list[str]:
-        return sorted({pid for row in self._push.values() for pid in row["player_ids"]})
+        return sorted(
+            {pid for row in self._push.values() for pid in row["player_ids"]}
+            | {
+                row["recap_player_id"]
+                for row in self._push.values()
+                if row["recap_player_id"] is not None
+            }
+        )
 
     async def get_push_subscriptions_for_player(self, player_id: str) -> list[dict]:
         return [
@@ -297,9 +314,16 @@ class FakeStorage:
                 "environment": row["environment"],
                 "player_ids": list(row["player_ids"]),
                 "last_patch_alert": row["last_patch_alert"],
+                "recap_player_id": row["recap_player_id"],
+                "timezone": row["timezone"],
+                "last_recap": row["last_recap"],
             }
             for token, row in self._push.items()
         ]
+
+    async def set_last_recap(self, token: str, recap_date: str) -> None:
+        if token in self._push:
+            self._push[token]["last_recap"] = recap_date
 
     async def set_last_announced_patch(self, token: str, patch_date: str) -> None:
         if token in self._push:

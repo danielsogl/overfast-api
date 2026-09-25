@@ -10,6 +10,11 @@ of a window: a rank that moved and moved back is not news.
 
 The hero half is simpler: a patch says which heroes changed, the snapshot
 series says which of those the player actually plays.
+
+The weekly recap is a third, opt-in kind: not "what changed", but "what
+happened this week" for one player, built from ``diff_games`` and
+``diff_player_snapshots`` over a 7-day window rather than two adjacent
+snapshots.
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ from __future__ import annotations
 from collections import Counter
 
 from app.domain.enums import CompetitiveDivision
+from app.domain.parsers.player_snapshot import diff_games, diff_player_snapshots
 
 # Declaration order is ascending, so the index is the division's strength.
 _DIVISION_STRENGTH = {
@@ -69,11 +75,15 @@ def rank_alert(snapshots: list[dict]) -> str | None:
 
     after = highest_rank((snapshots[0].get("data") or {}).get("competitive") or {})
     before = highest_rank((snapshots[1].get("data") or {}).get("competitive") or {})
+    return _rank_move(before, after)
+
+
+def _rank_move(before: dict | None, after: dict | None) -> str | None:
+    """*after* formatted, when it differs from *before* and both are ranked."""
     if before is None or after is None:
         return None
     if (before["division"], before["tier"]) == (after["division"], after["tier"]):
         return None
-
     return format_rank(after)
 
 
@@ -112,3 +122,42 @@ def hero_alert(changed: set[str], snapshots: list[dict], limit: int = 3) -> list
                         played[hero] += stats.get("time_played") or 0
 
     return [hero for hero, _ in played.most_common(limit)]
+
+
+def weekly_recap(snapshots: list[dict]) -> dict | None:
+    """The numbers for one player's weekly recap, or None to stay silent.
+
+    *snapshots* is one player's snapshots from the last 7 days, newest first,
+    followed by the last one from before the window when there is one.
+    Silent when there is no week to compare (fewer than two snapshots) or the
+    week held no games — "you didn't play" is not a notification anyone asked
+    for, mirroring ``rank_alert``'s reasoning for staying quiet on the
+    unranked cases.
+    """
+    if len(snapshots) < 2:  # noqa: PLR2004
+        return None
+
+    newest, oldest = snapshots[0], snapshots[-1]
+    before = oldest.get("data") or {}
+    after = newest.get("data") or {}
+
+    games = diff_games(before, after)
+    if games["games_played"] == 0:
+        return None
+
+    played: Counter[str] = Counter()
+    for hero in diff_player_snapshots(snapshots)["heroes"]:
+        played[hero["hero"]] += hero["time_played"]
+    top_hero = played.most_common(1)[0][0] if played else None
+
+    rank = _rank_move(
+        highest_rank(before.get("competitive") or {}),
+        highest_rank(after.get("competitive") or {}),
+    )
+
+    return {
+        "games_played": games["games_played"],
+        "games_won": games["games_won"],
+        "hero": top_hero,
+        "rank": rank,
+    }

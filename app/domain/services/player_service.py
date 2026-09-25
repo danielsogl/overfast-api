@@ -34,6 +34,7 @@ from app.domain.parsers.player_profile import (
 )
 from app.domain.parsers.player_search import parse_player_search
 from app.domain.parsers.player_snapshot import (
+    build_player_sessions,
     build_player_snapshot,
     diff_player_snapshots,
 )
@@ -142,11 +143,13 @@ def clear_inflight_locks() -> None:
 # question the endpoint exists to answer.
 _DEFAULT_DIFF_WINDOW = 86400
 
-# A window's worth of snapshots is read to find its oldest entry, but only the
-# two ends are compared. 500 versions inside one window would mean Blizzard
-# republished the profile every few minutes for the whole period; capping here
-# keeps one query bounded instead of adding an ascending-order variant to the
-# port for a case that does not occur.
+# Shared bound for /stats/diff and /sessions, whose snapshots list otherwise
+# has no upper limit: /stats/diff reads a window's worth of snapshots to find
+# its oldest entry, though only the two ends are compared; /sessions walks the
+# whole list. 500 versions in one read would mean Blizzard republished the
+# profile every few minutes for the whole period; capping here keeps one query
+# bounded instead of adding an ascending-order variant to the port for a case
+# that does not occur.
 _DIFF_SNAPSHOT_LIMIT = 500
 
 
@@ -463,6 +466,34 @@ class PlayerService(BaseService):
         )
 
         data = {"since": since, **diff_player_snapshots(snapshots)}
+        await self._update_api_cache(
+            cache_key, data, settings.career_path_cache_timeout
+        )
+        return SwrResult(data, is_stale, age)
+
+    # ------------------------------------------------------------------
+    # Inferred sessions  (GET /players/{player_id}/sessions)
+    # ------------------------------------------------------------------
+
+    async def get_player_sessions(
+        self,
+        player_id: str,
+        cache_key: str,
+        limit: int = 10,
+    ) -> SwrResult[dict]:
+        """Group the player's recorded snapshots into inferred play sessions.
+
+        Reads the same snapshot series ``/history`` and ``/stats/diff`` do —
+        see ``build_player_sessions`` for how a session is inferred from gaps
+        between recorded profile versions.
+        """
+        is_stale, age = await self._warm_player_profile(player_id)
+        snapshots = await self.storage.get_player_snapshots(
+            await self._canonical_player_id(player_id),
+            limit=_DIFF_SNAPSHOT_LIMIT,
+        )
+
+        data = {"sessions": build_player_sessions(snapshots, limit)}
         await self._update_api_cache(
             cache_key, data, settings.career_path_cache_timeout
         )

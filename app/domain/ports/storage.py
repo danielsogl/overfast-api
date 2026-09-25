@@ -158,11 +158,14 @@ class StoragePort(Protocol):
         gamemode: str,
         region: str,
         data: list[dict],
+        division: str = "all",
     ) -> None:
         """Record one day's hero stats reading for one filter combination.
 
-        Idempotent: ``(taken_on, platform, gamemode, region)`` is the primary
-        key, so running the daily job twice stores nothing the second time.
+        Idempotent: ``(taken_on, platform, gamemode, region, division)`` is the
+        primary key, so running the daily job twice stores nothing the second
+        time. ``division`` is a competitive division, or ``"all"`` for the
+        unfiltered reading.
         """
         ...
 
@@ -173,6 +176,7 @@ class StoragePort(Protocol):
         region: str,
         since: int | None = None,
         limit: int = 30,
+        division: str = "all",
     ) -> list[dict]:
         """Return recorded hero stats readings, newest first.
 
@@ -190,8 +194,14 @@ class StoragePort(Protocol):
         locale: str,
         player_ids: list[str],
         environment: str = "production",
+        recap_player_id: str | None = None,
+        timezone: str | None = None,
     ) -> None:
-        """Register or refresh one device's rank-alert subscription"""
+        """Register or refresh one device's rank-alert subscription.
+
+        ``recap_player_id`` and ``timezone`` are client-owned like the rest and
+        overwritten on every call, so a client that omits them opts out.
+        """
         ...
 
     async def delete_push_subscription(self, token: str) -> bool:
@@ -206,6 +216,9 @@ class StoragePort(Protocol):
     async def get_push_subscribed_player_ids(self) -> list[str]:
         """
         Every player at least one live device watches, de-duplicated.
+
+        Includes each device's ``recap_player_id``: a recap is only as good as
+        the snapshot series behind it, so that player is polled too.
 
         Returns:
             Player identifiers worth refreshing without an incoming request
@@ -227,8 +240,13 @@ class StoragePort(Protocol):
 
         Returns:
             One ``{token, platform, locale, environment, player_ids,
-            last_patch_alert}`` per device
+            last_patch_alert, recap_player_id, timezone, last_recap}`` per
+            device
         """
+        ...
+
+    async def set_last_recap(self, token: str, recap_date: str) -> None:
+        """Record the local date (``YYYY-MM-DD``) of the recap just sent."""
         ...
 
     async def set_last_announced_patch(self, token: str, patch_date: str) -> None:

@@ -49,6 +49,15 @@ _DELTA_KEYS = (
 
 _WIN_PERCENTAGE = CareerHeroesComparisonsCategory.WIN_PERCENTAGE.value
 
+# The ``general`` counters ``diff_games`` subtracts. All four accumulate.
+_GAMES_KEYS = ("games_played", "games_won", "games_lost", "time_played")
+
+# Snapshots are polled every 4h for push-subscribed players, so a gap shorter
+# than that can just be the next scheduled poll catching an ongoing sitting
+# mid-way through — not a new session. A gap longer than this separates two
+# evenings.
+SESSION_GAP_SECONDS = 6 * 3600
+
 # The scalar career totals kept per platform and gamemode. ``total`` and
 # ``average`` from the same computation are left out: they are an order of
 # magnitude larger than the rest of the row and nothing reads them back.
@@ -83,6 +92,7 @@ def build_player_snapshot(parsed_profile: PlayerProfileData) -> dict | None:
     return {
         "endorsement": endorsement.get("level"),
         "competitive": competitive,
+        "seasons": _build_seasons(summary.get("competitive")),
         "heroes": heroes,
         "general": _build_general(parsed_profile),
     }
@@ -146,6 +156,26 @@ def _build_competitive(competitive: CompetitiveRanksData | None) -> dict:
             ranks[platform] = platform_entry
 
     return ranks
+
+
+def _build_seasons(competitive: CompetitiveRanksData | None) -> dict:
+    """The competitive season number per platform, e.g. ``{"pc": 18}``.
+
+    Kept apart from ``competitive`` so that dict stays role -> rank. Without it
+    a stored rank cannot be attributed to a season later: Blizzard publishes
+    no season calendar, and the number shown on the page moves on at the next
+    season boundary.
+    """
+    if not competitive:
+        return {}
+
+    seasons: dict[str, int] = {}
+    for platform in ("pc", "console"):
+        platform_ranks = competitive.get(platform)
+        season = platform_ranks.get("season") if platform_ranks else None
+        if isinstance(season, int):
+            seasons[platform] = season
+    return seasons
 
 
 def _build_heroes(stats: dict | None) -> dict:
@@ -226,6 +256,90 @@ def diff_player_snapshots(snapshots: list[dict]) -> dict:
             key: round(sum(hero[key] for hero in heroes), 2) for key in _DELTA_KEYS
         },
     }
+
+
+def diff_games(before: dict, after: dict) -> dict:
+    """Games and time played between two snapshot payloads, all modes summed.
+
+    Reads ``general``, the per platform/gamemode career totals. A pair missing
+    from either side contributes nothing: ``general`` was added to snapshots
+    after the table shipped, and subtracting a present total from an absent
+    one would report a whole career as one week's play.
+    """
+    before_general = before.get("general") or {}
+    after_general = after.get("general") or {}
+    totals = dict.fromkeys(_GAMES_KEYS, 0)
+
+    for platform, gamemodes in after_general.items():
+        for gamemode, stats_after in gamemodes.items():
+            stats_before = (before_general.get(platform) or {}).get(gamemode)
+            if not stats_before:
+                continue
+            for key in _GAMES_KEYS:
+                totals[key] += max(
+                    0, (stats_after.get(key) or 0) - (stats_before.get(key) or 0)
+                )
+
+    return totals
+
+
+def build_player_sessions(snapshots: list[dict], limit: int) -> list[dict]:
+    """Group a player's snapshot series into inferred play sessions, newest first.
+
+    ``snapshots`` arrives newest-first, as storage returns it. The oldest entry
+    is only a baseline — the state the first session started from — and never
+    becomes a session of its own.
+
+    Consecutive snapshots are grouped together unless the gap between their
+    ``last_updated_blizzard`` values exceeds ``SESSION_GAP_SECONDS``, which
+    starts a new session. For each session, ``before`` is the snapshot
+    immediately preceding its first one and ``after`` is its last one; the
+    games/ranks/heroes reported are the delta between those two, reusing the
+    same diff helpers ``/stats/diff`` uses rather than duplicating the logic.
+
+    A session where nothing measurable happened (no games, no time, no hero
+    movement) is dropped — that gap was silence, not play.
+    """
+    ordered = sorted(snapshots, key=lambda s: s["last_updated_blizzard"])
+    if len(ordered) < 2:  # noqa: PLR2004
+        return []
+
+    # Indices 1..len(ordered)-1 are candidate session members; split into runs
+    # wherever the gap to the previous snapshot exceeds the threshold.
+    groups: list[list[int]] = [[1]]
+    for i in range(2, len(ordered)):
+        gap = (
+            ordered[i]["last_updated_blizzard"]
+            - ordered[i - 1]["last_updated_blizzard"]
+        )
+        if gap > SESSION_GAP_SECONDS:
+            groups.append([])
+        groups[-1].append(i)
+
+    sessions = []
+    for group in groups:
+        before, after = ordered[group[0] - 1], ordered[group[-1]]
+        games = diff_games(before["data"], after["data"])
+        diff = diff_player_snapshots([after, before])
+        if (
+            games["games_played"] == 0
+            and games["time_played"] == 0
+            and not diff["heroes"]
+        ):
+            continue
+        sessions.append(
+            {
+                "since": before["last_updated_blizzard"],
+                "ended_at": after["last_updated_blizzard"],
+                "snapshots": len(group),
+                "games": games,
+                "ranks": diff["ranks"],
+                "heroes": diff["heroes"],
+            }
+        )
+
+    sessions.reverse()
+    return sessions[:limit]
 
 
 def _diff_ranks(before: dict, after: dict) -> list[dict]:

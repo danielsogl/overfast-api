@@ -9,6 +9,7 @@ import pytest
 from app.adapters.tasks.worker import (
     _run_refresh_task,
     cleanup_stale_players,
+    notify_weekly_recaps,
     refresh_gamemodes,
     refresh_hero,
     refresh_heroes,
@@ -277,3 +278,57 @@ class TestSnapshotHeroStats:
 
         assert schedule != cleanup
         assert schedule == [{"cron": "0 5 * * *"}]
+
+
+# ── notify_weekly_recaps ──────────────────────────────────────────────────────
+
+
+class TestNotifyWeeklyRecaps:
+    def test_runs_hourly(self):
+        """Local Sunday 18:00 falls in a different UTC hour per device, so the
+        check has to run every hour rather than once a day."""
+        schedule = cast("Any", notify_weekly_recaps).labels["schedule"]
+
+        assert schedule == [{"cron": "0 * * * *"}]
+
+    @pytest.mark.asyncio
+    async def test_skipped_when_push_is_disabled(self):
+        mock_storage = AsyncMock()
+        mock_player_service = AsyncMock()
+
+        with patch("app.adapters.tasks.worker.build_push_sender", return_value=None):
+            await cast("Any", notify_weekly_recaps).__wrapped__(
+                mock_storage, mock_player_service
+            )
+
+        mock_storage.get_push_subscriptions.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_calls_the_service_when_push_is_enabled(self):
+        mock_storage = AsyncMock()
+        mock_storage.get_push_subscriptions.return_value = []
+        mock_player_service = AsyncMock()
+
+        with patch(
+            "app.adapters.tasks.worker.build_push_sender", return_value=AsyncMock()
+        ):
+            await cast("Any", notify_weekly_recaps).__wrapped__(
+                mock_storage, mock_player_service
+            )
+
+        mock_storage.get_push_subscriptions.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_service_exception_is_swallowed(self):
+        """One broken device must not fail the whole hourly run."""
+        mock_storage = AsyncMock()
+        mock_storage.get_push_subscriptions.side_effect = RuntimeError("db gone")
+        mock_player_service = AsyncMock()
+
+        with patch(
+            "app.adapters.tasks.worker.build_push_sender", return_value=AsyncMock()
+        ):
+            # Should not propagate.
+            await cast("Any", notify_weekly_recaps).__wrapped__(
+                mock_storage, mock_player_service
+            )

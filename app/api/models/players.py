@@ -701,6 +701,16 @@ class SnapshotData(BaseModel):
         ),
         examples=[{"pc": {"tank": {"division": "diamond", "tier": 3}}}],
     )
+    seasons: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "Competitive season number at the time of the snapshot, keyed by "
+            "platform. Blizzard publishes no season calendar, so this is what "
+            "lets a later reader attribute a recorded rank to a season. Absent "
+            "on rows recorded before this field was added."
+        ),
+        examples=[{"pc": 18}],
+    )
     heroes: dict[str, dict[str, dict[str, dict[str, StrictInt | StrictFloat]]]] = Field(
         ...,
         description=(
@@ -900,6 +910,74 @@ class PlayerStatsDiff(BaseModel):
     totals: PlayerDiffTotals = Field(
         ...,
         description="Sum of the per-hero deltas above",
+    )
+
+
+class PlayerSessionGames(BaseModel):
+    games_played: StrictInt | StrictFloat = Field(
+        ...,
+        description="Games played across all modes during the session",
+        examples=[3],
+    )
+    games_won: StrictInt | StrictFloat = Field(
+        ...,
+        description="Games won across all modes during the session",
+        examples=[2],
+    )
+    games_lost: StrictInt | StrictFloat = Field(
+        ...,
+        description="Games lost across all modes during the session",
+        examples=[1],
+    )
+    time_played: StrictInt | StrictFloat = Field(
+        ...,
+        description="Seconds played across all modes during the session",
+        examples=[2700],
+    )
+
+
+class PlayerSession(BaseModel):
+    since: int = Field(
+        ...,
+        description=(
+            "Unix timestamp of the last known state before the session : the "
+            "activity below happened some time after this."
+        ),
+        examples=[1739547600],
+        gt=0,
+    )
+    ended_at: int = Field(
+        ...,
+        description="Unix timestamp of the last snapshot recorded during the session",
+        examples=[1739561200],
+        gt=0,
+    )
+    snapshots: int = Field(
+        ...,
+        description="Number of recorded profile versions the session spans",
+        examples=[3],
+        ge=1,
+    )
+    games: PlayerSessionGames = Field(
+        ..., description="Games and time played during the session"
+    )
+    ranks: list[PlayerRankMovement] = Field(
+        ..., description="Platform/role pairs whose rank changed during the session"
+    )
+    heroes: list[PlayerHeroDiff] = Field(
+        ..., description="Per-hero deltas during the session"
+    )
+
+
+class PlayerSessions(BaseModel):
+    sessions: list[PlayerSession] = Field(
+        ...,
+        description=(
+            "Inferred play sessions, newest first. A session is inferred from "
+            "gaps between recorded profile versions, so its precision depends "
+            "on how often this player's profile has been refreshed : a player "
+            "who is only requested occasionally gets coarser, merged sessions."
+        ),
     )
 
 

@@ -8,12 +8,15 @@ from app.domain.push_alerts import (
     hero_alert,
     highest_rank,
     rank_alert,
+    weekly_recap,
 )
 from app.domain.push_messages import (
     HERO_ALERT_MESSAGES,
     RANK_ALERT_MESSAGES,
+    WEEKLY_RECAP_MESSAGES,
     hero_alert_text,
     rank_alert_text,
+    weekly_recap_text,
 )
 
 
@@ -214,3 +217,148 @@ class TestHeroMessages:
 
     def test_falls_back_to_english_for_an_unknown_locale(self):
         assert hero_alert_text("cy", ["Ana"])[0] == "Hero Update"
+
+
+# ─── Weekly recap ──────────────────────────────────────────────────────────────
+
+
+def _general(games_played: int, games_won: int, time_played: int = 0) -> dict:
+    return {
+        "pc": {
+            "quickplay": {
+                "games_played": games_played,
+                "games_won": games_won,
+                "games_lost": games_played - games_won,
+                "time_played": time_played,
+            }
+        }
+    }
+
+
+def _heroes(**by_hero: int) -> dict:
+    return {
+        "pc": {
+            "quickplay": {
+                hero: {"time_played": seconds, "games_won": 0}
+                for hero, seconds in by_hero.items()
+            }
+        }
+    }
+
+
+def _week_snapshot(
+    taken_at: int,
+    games_played: int,
+    games_won: int,
+    competitive: dict | None = None,
+    **by_hero: int,
+) -> dict:
+    return {
+        "taken_at": taken_at,
+        "data": {
+            "general": _general(games_played, games_won),
+            "heroes": _heroes(**by_hero),
+            "competitive": competitive or {},
+        },
+    }
+
+
+class TestWeeklyRecap:
+    def test_reports_games_played_and_won(self):
+        recap = weekly_recap(
+            [
+                _week_snapshot(2, games_played=12, games_won=8, dva=100),
+                _week_snapshot(1, games_played=5, games_won=3, dva=50),
+            ]
+        )
+
+        assert recap == {
+            "games_played": 7,
+            "games_won": 5,
+            "hero": "dva",
+            "rank": None,
+        }
+
+    def test_names_the_top_hero_by_time_played_delta(self):
+        recap = weekly_recap(
+            [
+                _week_snapshot(2, 5, 3, ana=1000, dva=9000),
+                _week_snapshot(1, 1, 1, ana=100, dva=100),
+            ]
+        )
+
+        assert recap is not None
+        assert recap["hero"] == "dva"
+
+    def test_includes_a_rank_move_when_the_highest_rank_changed(self):
+        recap = weekly_recap(
+            [
+                _week_snapshot(2, 5, 3, competitive=_pc(tank=("diamond", 2))),
+                _week_snapshot(1, 1, 1, competitive=_pc(tank=("gold", 1))),
+            ]
+        )
+
+        assert recap is not None
+        assert recap["rank"] == "Diamond 2"
+
+    def test_stays_silent_with_fewer_than_two_snapshots(self):
+        assert weekly_recap([_week_snapshot(1, 5, 3)]) is None
+
+    def test_stays_silent_for_a_week_without_games(self):
+        recap = weekly_recap(
+            [
+                _week_snapshot(2, games_played=5, games_won=3),
+                _week_snapshot(1, games_played=5, games_won=3),
+            ]
+        )
+
+        assert recap is None
+
+    def test_no_hero_played_yields_none(self):
+        recap = weekly_recap(
+            [
+                _week_snapshot(2, 5, 3),
+                _week_snapshot(1, 1, 1),
+            ]
+        )
+
+        assert recap is not None
+        assert recap["hero"] is None
+
+
+class TestWeeklyRecapMessages:
+    def test_every_shipped_locale_carries_the_placeholders(self):
+        for locale, (title, stats, top_hero) in WEEKLY_RECAP_MESSAGES.items():
+            assert title, locale
+            assert "{name}" in stats, locale
+            assert "{games}" in stats, locale
+            assert "{wins}" in stats, locale
+            assert "{hero}" in top_hero, locale
+
+    def test_the_three_catalogues_ship_the_same_locales(self):
+        assert WEEKLY_RECAP_MESSAGES.keys() == RANK_ALERT_MESSAGES.keys()
+
+    def test_builds_the_full_sentence(self):
+        title, body = weekly_recap_text("en-US", "TeKrop", 7, 5, "D.Va", "Diamond 2")
+
+        assert title == "Weekly Recap"
+        assert body == "TeKrop: Games: 7 · Wins: 5 · Top hero: D.Va · Diamond 2"
+
+    def test_drops_the_hero_part_when_there_is_no_hero(self):
+        _, body = weekly_recap_text("en-US", "TeKrop", 1, 0, None, None)
+
+        assert body == "TeKrop: Games: 1 · Wins: 0"
+
+    def test_drops_the_rank_part_when_it_did_not_move(self):
+        _, body = weekly_recap_text("en-US", "TeKrop", 3, 2, "D.Va", None)
+
+        assert body == "TeKrop: Games: 3 · Wins: 2 · Top hero: D.Va"
+
+    def test_is_plural_safe_for_a_single_game(self):
+        """`Games: 1`, never `1 games`."""
+        _, body = weekly_recap_text("en-US", "TeKrop", 1, 1, None, None)
+
+        assert "1 games" not in body
+
+    def test_falls_back_to_english_for_an_unknown_locale(self):
+        assert weekly_recap_text("cy", "X", 1, 1, None, None)[0] == "Weekly Recap"

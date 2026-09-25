@@ -1553,6 +1553,50 @@ class TestGetPlayerStatsDiff:
         assert data["totals"]["time_played"] > 0
 
 
+class TestGetPlayerSessions:
+    @pytest.mark.asyncio
+    async def test_no_history_yields_no_session(self):
+        """The warm-up request records only a baseline — nothing to group yet."""
+        storage = FakeStorage()
+        await _seed_stored_profile(storage)
+        svc = _make_service(storage=storage)
+
+        data, _is_stale, _age = await svc.get_player_sessions(_BLIZZARD_ID, "key")
+
+        assert data["sessions"] == []
+
+    @pytest.mark.asyncio
+    async def test_default_limit_is_ten(self):
+        storage = FakeStorage()
+        await _seed_stored_profile(storage)
+        svc = _make_service(storage=storage)
+
+        with patch(
+            "app.domain.services.player_service.build_player_sessions",
+            return_value=[],
+        ) as builder:
+            await svc.get_player_sessions(_BLIZZARD_ID, "key")
+
+        assert builder.call_args[0][1] == 10  # noqa: PLR2004
+
+    @pytest.mark.asyncio
+    async def test_limit_is_forwarded_to_the_builder(self):
+        storage = FakeStorage()
+        await _seed_stored_profile(storage)
+        svc = _make_service(storage=storage)
+
+        with patch(
+            "app.domain.services.player_service.build_player_sessions",
+            return_value=["session"],
+        ) as builder:
+            data, _is_stale, _age = await svc.get_player_sessions(
+                _BLIZZARD_ID, "key", limit=5
+            )
+
+        assert builder.call_args[0][1] == 5  # noqa: PLR2004
+        assert data["sessions"] == ["session"]
+
+
 # ---------------------------------------------------------------------------
 # Serving past the staleness threshold
 # ---------------------------------------------------------------------------

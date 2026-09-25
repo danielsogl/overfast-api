@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from app.config import settings
 from app.domain.enums import (
+    CompetitiveDivisionFilter,
     Locale,
     PlayerGamemode,
     PlayerPlatform,
@@ -35,28 +36,32 @@ from app.infrastructure.logger import logger
 
 if TYPE_CHECKING:
     from app.domain.enums import (
-        CompetitiveDivisionFilter,
         HeroGamemode,
         MapKey,
         Role,
     )
 
-# The one slice of the /heroes/stats cross product recorded daily: PC,
-# competitive, no role / map / competitive-division filter — one row per region,
-# so three Blizzard requests and three rows a day.
+# The slices of the /heroes/stats cross product recorded daily: PC, competitive,
+# no role or map filter, crossed with region and competitive division — one
+# unfiltered ("all") row per region plus one row per region per division, so
+# 3 + 3x8 = 27 Blizzard requests and 27 rows a day.
 #
-# Snapshotting the full cross product (platform, gamemode, region, role, map and
-# competitive division) would be thousands of requests a day and a table nobody
-# could query usefully, so this is a deliberate trade: the unfiltered slice is "the
-# meta as a whole", which is the question a winrate series actually answers.
-# Per-division or per-map history is a different feature needing its own
-# decision and its own request budget — it is not a setting, on purpose. A knob
-# here is an invitation to switch the cross product on by accident.
+# The unfiltered slice is "the meta as a whole", which is the question a winrate
+# series answers by default. Per-division history earns its own request budget
+# on top of that: rank tiers move differently (a hero can be dominant in Bronze
+# and dead in Grandmaster), and per-rank meta trends are worth asking Blizzard
+# for — 24 extra requests a day is well within the throttle that already carries
+# the unfiltered three. Per-map or per-platform history is not: crossing those
+# in too would mean the full cross product, thousands of requests a day and a
+# table nobody could query usefully, so role, map and platform stay out on
+# purpose. A knob for those here would be an invitation to switch the cross
+# product on by accident.
 HERO_STATS_SNAPSHOT_PLATFORM = PlayerPlatform.PC
 HERO_STATS_SNAPSHOT_GAMEMODE = PlayerGamemode.COMPETITIVE
 HERO_STATS_SNAPSHOT_SLICES = tuple(
-    (HERO_STATS_SNAPSHOT_PLATFORM, HERO_STATS_SNAPSHOT_GAMEMODE, region)
+    (HERO_STATS_SNAPSHOT_PLATFORM, HERO_STATS_SNAPSHOT_GAMEMODE, region, division)
     for region in PlayerRegion
+    for division in (None, *CompetitiveDivisionFilter)
 )
 
 
@@ -295,17 +300,18 @@ class HeroService(StaticDataService):
         """Record today's reading of every canonical slice. Returns rows written.
 
         Requests are sequential on purpose: they queue behind the same Blizzard
-        throttle either way, and firing three at once only makes the throttle
-        back off. A region that fails is logged and skipped — a partial day is
-        worth more than no day, and nothing here may abort the other regions.
+        throttle either way, and firing them all at once only makes the throttle
+        back off. A slice that fails is logged and skipped — a partial day is
+        worth more than no day, and nothing here may abort the other slices.
         """
         taken_on = datetime.now(tz=UTC).date()
         recorded = 0
 
-        for platform, gamemode, region in HERO_STATS_SNAPSHOT_SLICES:
+        for platform, gamemode, region, division in HERO_STATS_SNAPSHOT_SLICES:
+            division_str = "all" if division is None else str(division)
             try:
                 stats = await self._fetch_hero_stats(
-                    platform, gamemode, region, None, None, None, "hero:asc"
+                    platform, gamemode, region, None, None, division, "hero:asc"
                 )
                 await self.storage.add_hero_stats_snapshot(
                     taken_on,
@@ -313,17 +319,21 @@ class HeroService(StaticDataService):
                     str(gamemode),
                     str(region),
                     build_hero_stats_snapshot(stats),
+                    division=division_str,
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
-                    "[hero stats history] Failed to record {} : {}", region, exc
+                    "[hero stats history] Failed to record {} {} : {}",
+                    region,
+                    division_str,
+                    exc,
                 )
                 continue
 
             recorded += 1
 
         logger.info(
-            "[hero stats history] Recorded {}/{} regions for {}",
+            "[hero stats history] Recorded {}/{} slices for {}",
             recorded,
             len(HERO_STATS_SNAPSHOT_SLICES),
             taken_on,
@@ -337,20 +347,26 @@ class HeroService(StaticDataService):
         hero: str | None = None,
         since: int | None = None,
         limit: int = 30,
+        division: CompetitiveDivisionFilter | None = None,
     ) -> SwrResult[dict]:
         """Return the recorded hero stats series for one region, newest first.
 
-        Only the canonical slice exists in storage, so platform and gamemode are
-        fixed here rather than exposed as filters. Filtering on ``hero`` drops
-        the days that hero was not recorded on, so a client charting one hero
-        gets points rather than gaps.
+        Only platform PC and gamemode competitive are recorded, so they are
+        fixed here rather than exposed as filters. ``division`` selects the
+        per-division series instead of the unfiltered ("all") one; omitted, it
+        reads "all", which is the only series recorded before per-division
+        history was added. Filtering on ``hero`` drops the days that hero was
+        not recorded on, so a client charting one hero gets points rather than
+        gaps.
         """
+        division_str = "all" if division is None else str(division)
         snapshots = await self.storage.get_hero_stats_snapshots(
             str(HERO_STATS_SNAPSHOT_PLATFORM),
             str(HERO_STATS_SNAPSHOT_GAMEMODE),
             str(region),
             since=since,
             limit=limit,
+            division=division_str,
         )
 
         series = []
@@ -365,7 +381,11 @@ class HeroService(StaticDataService):
                     {"taken_on": snapshot["taken_on"].isoformat(), "stats": stats}
                 )
 
-        data = {"region": str(region), "snapshots": series}
+        data = {
+            "region": str(region),
+            "competitive_division": None if division is None else str(division),
+            "snapshots": series,
+        }
         await self._update_api_cache(
             cache_key,
             data,

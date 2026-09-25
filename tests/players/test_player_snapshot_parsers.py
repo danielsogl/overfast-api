@@ -7,8 +7,11 @@ import pytest
 from app.domain.enums import PlayerGamemode, PlayerPlatform
 from app.domain.parsers.player_profile import parse_player_profile_html
 from app.domain.parsers.player_snapshot import (
+    SESSION_GAP_SECONDS,
     SNAPSHOT_GENERAL_KEYS,
+    build_player_sessions,
     build_player_snapshot,
+    diff_games,
     diff_player_snapshots,
 )
 from app.domain.parsers.player_stats import process_player_stats_summary
@@ -82,7 +85,13 @@ class TestBuildPlayerSnapshot:
         result = build_player_snapshot(parsed)
 
         assert result is not None
-        assert set(result) == {"endorsement", "competitive", "heroes", "general"}
+        assert set(result) == {
+            "endorsement",
+            "competitive",
+            "seasons",
+            "heroes",
+            "general",
+        }
         assert result["heroes"]
 
     @pytest.mark.parametrize("player_id", players_ids)
@@ -148,6 +157,7 @@ class TestBuildPlayerSnapshot:
         assert result == {
             "endorsement": 3,
             "competitive": {"pc": {"tank": {"division": "diamond", "tier": 3}}},
+            "seasons": {"pc": 14},
             "heroes": {},
             "general": {},
         }
@@ -201,6 +211,79 @@ class TestBuildPlayerSnapshot:
         result = build_player_snapshot(parsed) or {}
 
         assert result["endorsement"] is None
+
+
+class TestDiffGames:
+    def test_sums_every_platform_and_gamemode(self):
+        before = {
+            "general": {
+                "pc": {
+                    "competitive": {
+                        "games_played": 10,
+                        "games_won": 6,
+                        "games_lost": 4,
+                        "time_played": 3600,
+                    },
+                    "quickplay": {
+                        "games_played": 5,
+                        "games_won": 2,
+                        "games_lost": 3,
+                        "time_played": 1200,
+                    },
+                }
+            }
+        }
+        after = {
+            "general": {
+                "pc": {
+                    "competitive": {
+                        "games_played": 13,
+                        "games_won": 8,
+                        "games_lost": 5,
+                        "time_played": 5400,
+                    },
+                    "quickplay": {
+                        "games_played": 6,
+                        "games_won": 3,
+                        "games_lost": 3,
+                        "time_played": 1800,
+                    },
+                }
+            }
+        }
+
+        result = diff_games(before, after)
+
+        assert result == {
+            "games_played": 4,
+            "games_won": 3,
+            "games_lost": 1,
+            "time_played": 2400,
+        }
+
+    def test_a_gamemode_missing_before_contributes_nothing(self):
+        before = {}
+        after = {
+            "general": {
+                "pc": {
+                    "competitive": {
+                        "games_played": 900,
+                        "games_won": 450,
+                        "games_lost": 450,
+                        "time_played": 999999,
+                    }
+                }
+            }
+        }
+
+        result = diff_games(before, after)
+
+        assert result == {
+            "games_played": 0,
+            "games_won": 0,
+            "games_lost": 0,
+            "time_played": 0,
+        }
 
 
 class TestDiffPlayerSnapshots:
@@ -382,3 +465,78 @@ class TestDiffPlayerSnapshots:
 
         assert result["snapshots_compared"] == 3  # noqa: PLR2004
         assert result["totals"]["time_played"] == 200  # noqa: PLR2004
+
+
+def _session_snapshot(last_updated: int, games_played: int, time_played: int) -> dict:
+    return {
+        "taken_at": last_updated + 10,
+        "last_updated_blizzard": last_updated,
+        "data": {
+            "general": {
+                "pc": {
+                    "quickplay": {
+                        "games_played": games_played,
+                        "games_won": 0,
+                        "games_lost": 0,
+                        "time_played": time_played,
+                    }
+                }
+            },
+            "heroes": {},
+            "competitive": {},
+        },
+    }
+
+
+class TestBuildPlayerSessions:
+    def test_baseline_only_yields_no_session(self):
+        snapshots = [_session_snapshot(0, games_played=0, time_played=0)]
+
+        assert build_player_sessions(snapshots, limit=10) == []
+
+    def test_no_history_yields_no_session(self):
+        assert build_player_sessions([], limit=10) == []
+
+    def test_splits_on_a_gap_and_reports_newest_first(self):
+        baseline = _session_snapshot(0, games_played=0, time_played=0)
+        s1 = _session_snapshot(1800, games_played=1, time_played=600)
+        s2 = _session_snapshot(3600, games_played=3, time_played=1800)
+        gap = SESSION_GAP_SECONDS + 3600
+        s3 = _session_snapshot(3600 + gap, games_played=4, time_played=2100)
+        # storage returns newest first
+        snapshots = [s3, s2, s1, baseline]
+
+        result = build_player_sessions(snapshots, limit=10)
+
+        assert len(result) == 2  # noqa: PLR2004
+        newest, oldest = result
+        assert oldest["since"] == 0
+        assert oldest["ended_at"] == 3600  # noqa: PLR2004
+        assert oldest["snapshots"] == 2  # noqa: PLR2004
+        assert oldest["games"]["games_played"] == 3  # noqa: PLR2004
+        assert oldest["games"]["time_played"] == 1800  # noqa: PLR2004
+        assert newest["since"] == 3600  # noqa: PLR2004
+        assert newest["ended_at"] == 3600 + gap
+        assert newest["snapshots"] == 1
+        assert newest["games"]["games_played"] == 1
+        assert newest["games"]["time_played"] == 300  # noqa: PLR2004
+
+    def test_empty_session_is_dropped(self):
+        baseline = _session_snapshot(0, games_played=0, time_played=0)
+        unchanged = _session_snapshot(1800, games_played=0, time_played=0)
+
+        result = build_player_sessions([unchanged, baseline], limit=10)
+
+        assert result == []
+
+    def test_limit_keeps_only_the_newest_sessions(self):
+        baseline = _session_snapshot(0, games_played=0, time_played=0)
+        gap = SESSION_GAP_SECONDS + 3600
+        s1 = _session_snapshot(gap, games_played=1, time_played=600)
+        s2 = _session_snapshot(2 * gap, games_played=2, time_played=1200)
+        snapshots = [s2, s1, baseline]
+
+        result = build_player_sessions(snapshots, limit=1)
+
+        assert len(result) == 1
+        assert result[0]["since"] == gap
