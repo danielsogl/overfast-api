@@ -317,6 +317,29 @@ async def notify_hero_changes(
         logger.exception("[Worker] notify_hero_changes: Failed.")
 
 
+@broker.task(schedule=[{"cron": "0 * * * *"}])
+async def notify_weekly_recaps(
+    storage: StorageDep, player_service: PlayerServiceDep
+) -> None:
+    """Send each opted-in device its weekly recap (checked hourly).
+
+    Hourly rather than weekly because the trigger is a *local* Sunday 18:00,
+    and each device's own timezone puts that in a different UTC hour. The
+    job stays cheap anyway: ``PushService.notify_weekly_recaps`` filters each
+    subscription on local time before it loads a single snapshot, so 23 of
+    every 24 runs touch no player at all for a given device.
+    """
+    sender = build_push_sender()
+    if sender is None:
+        logger.debug("[Worker] notify_weekly_recaps: push disabled, skipping.")
+        return
+
+    try:
+        await PushService(storage, player_service, sender).notify_weekly_recaps()
+    except Exception:  # noqa: BLE001
+        logger.exception("[Worker] notify_weekly_recaps: Failed.")
+
+
 @broker.task(schedule=[{"cron": "0 5 * * *"}])
 async def snapshot_hero_stats(service: HeroServiceDep) -> None:
     """Record the daily hero stats reading (runs daily at 05:00 UTC).

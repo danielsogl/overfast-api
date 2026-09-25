@@ -60,6 +60,30 @@ class PushSubscription(BaseModel):
         max_length=MAX_WATCHED_PLAYERS,
         examples=[["TeKrop-2217"]],
     )
+    recap_player_id: str | None = Field(
+        None,
+        description=(
+            "Player the opt-in weekly recap should summarise, usually the "
+            "device's own. Omit to stay opted out : a device that never sends "
+            "this is never sent a recap."
+        ),
+        min_length=1,
+        max_length=256,
+        examples=["TeKrop-2217"],
+    )
+    timezone: str | None = Field(
+        None,
+        description=(
+            "IANA timezone name (e.g. `Europe/Berlin`) the weekly recap is "
+            "timed against. Only shape-checked, not resolved : rejecting a "
+            "zone our tzdata doesn't know would fail the whole registration "
+            "and cost the device its rank alerts too, so an unresolvable "
+            "value quietly falls back to UTC at send time instead."
+        ),
+        pattern=r"^[A-Za-z0-9_+\-]+(/[A-Za-z0-9_+\-]+)*$",
+        max_length=64,
+        examples=["Europe/Berlin"],
+    )
 
 
 class PushSubscriptionAck(BaseModel):

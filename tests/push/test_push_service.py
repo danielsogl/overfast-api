@@ -370,3 +370,205 @@ async def test_drops_the_devices_the_service_reported_gone_on_a_hero_alert(
     await service.notify_hero_changes(_patch("dva"))
 
     assert await storage_db.get_push_subscriptions() == []
+
+
+# ─── Weekly recap ──────────────────────────────────────────────────────────────
+
+# A Sunday 18:00 UTC instant, used as the "now" every recap test fires from.
+_SUNDAY_1800_UTC = datetime(2026, 9, 20, 18, 0, tzinfo=UTC)
+
+
+def _week_data(games_played: int, games_won: int, **by_hero: int) -> dict:
+    return {
+        "general": {
+            "pc": {
+                "quickplay": {
+                    "games_played": games_played,
+                    "games_won": games_won,
+                    "games_lost": games_played - games_won,
+                    "time_played": 0,
+                }
+            }
+        },
+        "heroes": {
+            "pc": {
+                "quickplay": {
+                    hero: {"time_played": seconds, "games_won": 0}
+                    for hero, seconds in by_hero.items()
+                }
+            }
+        },
+        "competitive": {},
+    }
+
+
+async def _seed_week(storage: FakeStorage, player_id: str) -> None:
+    """A week's worth of play: an old snapshot and a fresh one, 7 games apart.
+
+    ``add_player_snapshot`` stamps ``taken_at`` with wall-clock time at
+    insertion, which lands well after any ``since`` this suite computes from
+    the fixed ``_SUNDAY_1800_UTC`` — so the pair is "within the last 7 days"
+    from the recap's point of view without having to fake the clock.
+    """
+    await storage.add_player_snapshot(player_id, 1, _week_data(1, 1, dva=50))
+    await storage.add_player_snapshot(player_id, 2, _week_data(8, 5, dva=950))
+
+
+@pytest.mark.asyncio
+async def test_sends_a_recap_at_sunday_eighteen_local(storage_db: FakeStorage):
+    await storage_db.upsert_push_subscription(
+        "tok-1234", "ios", "en-US", [PLAYER], recap_player_id=PLAYER
+    )
+    await _seed_week(storage_db, PLAYER)
+    sender = _Sender()
+    service, _ = _service(storage_db, sender)
+
+    sent = await service.notify_weekly_recaps(now=_SUNDAY_1800_UTC)
+
+    assert sent == 1
+    assert sender.sent[0].body == "TeKrop-2217: Games: 7 · Wins: 4 · Top hero: D.Va"
+    assert sender.sent[0].player_id == PLAYER
+
+
+@pytest.mark.asyncio
+async def test_a_single_game_this_week_is_compared_to_last_week(
+    storage_db: FakeStorage,
+):
+    """One snapshot inside the window still recaps, against the one before it."""
+    await storage_db.upsert_push_subscription(
+        "tok-1234", "ios", "en-US", [PLAYER], recap_player_id=PLAYER
+    )
+    await _seed_week(storage_db, PLAYER)
+    last_week = (_SUNDAY_1800_UTC - timedelta(days=8)).timestamp()
+    storage_db._snapshots[PLAYER][1]["taken_at"] = last_week
+    sender = _Sender()
+    service, _ = _service(storage_db, sender)
+
+    sent = await service.notify_weekly_recaps(now=_SUNDAY_1800_UTC)
+
+    assert sent == 1
+    assert sender.sent[0].body == "TeKrop-2217: Games: 7 · Wins: 4 · Top hero: D.Va"
+
+
+@pytest.mark.asyncio
+async def test_uses_the_device_timezone(storage_db: FakeStorage):
+    """20:00 UTC is 18:00 in a UTC-2 zone, so only that device fires."""
+    utc_now = _SUNDAY_1800_UTC + timedelta(hours=2)
+    await storage_db.upsert_push_subscription(
+        "tok-1234",
+        "ios",
+        "en-US",
+        [PLAYER],
+        recap_player_id=PLAYER,
+        timezone="Etc/GMT+2",
+    )
+    await _seed_week(storage_db, PLAYER)
+    sender = _Sender()
+    service, _ = _service(storage_db, sender)
+
+    sent = await service.notify_weekly_recaps(now=utc_now)
+
+    assert sent == 1
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_timezone_falls_back_to_utc(storage_db: FakeStorage):
+    await storage_db.upsert_push_subscription(
+        "tok-1234",
+        "ios",
+        "en-US",
+        [PLAYER],
+        recap_player_id=PLAYER,
+        timezone="Not/AZone",
+    )
+    await _seed_week(storage_db, PLAYER)
+    sender = _Sender()
+    service, _ = _service(storage_db, sender)
+
+    sent = await service.notify_weekly_recaps(now=_SUNDAY_1800_UTC)
+
+    assert sent == 1
+
+
+@pytest.mark.asyncio
+async def test_silent_outside_sunday_eighteen(storage_db: FakeStorage):
+    await storage_db.upsert_push_subscription(
+        "tok-1234", "ios", "en-US", [PLAYER], recap_player_id=PLAYER
+    )
+    await _seed_week(storage_db, PLAYER)
+    sender = _Sender()
+    service, _ = _service(storage_db, sender)
+
+    not_sunday = _SUNDAY_1800_UTC + timedelta(days=1)
+    wrong_hour = _SUNDAY_1800_UTC.replace(hour=17)
+
+    sent = [
+        await service.notify_weekly_recaps(now=not_sunday),
+        await service.notify_weekly_recaps(now=wrong_hour),
+    ]
+
+    assert sent == [0, 0]
+    assert sender.sent == []
+
+
+@pytest.mark.asyncio
+async def test_sent_once_per_week(storage_db: FakeStorage):
+    await storage_db.upsert_push_subscription(
+        "tok-1234", "ios", "en-US", [PLAYER], recap_player_id=PLAYER
+    )
+    await _seed_week(storage_db, PLAYER)
+    sender = _Sender()
+    service, _ = _service(storage_db, sender)
+
+    # Same hour, run twice — a re-run within the hour must not double-send.
+    sent = [
+        await service.notify_weekly_recaps(now=_SUNDAY_1800_UTC),
+        await service.notify_weekly_recaps(now=_SUNDAY_1800_UTC),
+    ]
+
+    assert sent == [1, 0]
+    assert len(sender.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_silent_with_no_games_in_the_week(storage_db: FakeStorage):
+    await storage_db.upsert_push_subscription(
+        "tok-1234", "ios", "en-US", [PLAYER], recap_player_id=PLAYER
+    )
+    await storage_db.add_player_snapshot(PLAYER, 1, _week_data(3, 2))
+    await storage_db.add_player_snapshot(PLAYER, 2, _week_data(3, 2))
+    sender = _Sender()
+    service, _ = _service(storage_db, sender)
+
+    sent = await service.notify_weekly_recaps(now=_SUNDAY_1800_UTC)
+
+    assert sent == 0
+    assert sender.sent == []
+
+
+@pytest.mark.asyncio
+async def test_silent_for_devices_without_a_recap_player(storage_db: FakeStorage):
+    await storage_db.upsert_push_subscription("tok-1234", "ios", "en-US", [PLAYER])
+    await _seed_week(storage_db, PLAYER)
+    sender = _Sender()
+    service, _ = _service(storage_db, sender)
+
+    sent = await service.notify_weekly_recaps(now=_SUNDAY_1800_UTC)
+
+    assert sent == 0
+
+
+@pytest.mark.asyncio
+async def test_drops_the_devices_the_service_reported_gone_on_a_recap(
+    storage_db: FakeStorage,
+):
+    await storage_db.upsert_push_subscription(
+        "tok-1234", "ios", "en-US", [PLAYER], recap_player_id=PLAYER
+    )
+    await _seed_week(storage_db, PLAYER)
+    sender = _Sender(gone=["tok-1234"])
+    service, _ = _service(storage_db, sender)
+
+    await service.notify_weekly_recaps(now=_SUNDAY_1800_UTC)
+
+    assert await storage_db.get_push_subscriptions() == []

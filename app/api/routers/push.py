@@ -33,7 +33,9 @@ router = APIRouter()
         "token, so the app sends its full roster rather than a delta.<br />"
         "Safe to repeat : the app is expected to call this on every launch, "
         "which is also how a subscription stays alive. One that nobody "
-        "refreshes is pruned."
+        "refreshes is pruned.<br />"
+        "Optionally also opts the device into a weekly recap for one player, "
+        "sent Sunday evening in the timezone given."
     ),
 )
 async def register_push_subscription(
@@ -46,6 +48,8 @@ async def register_push_subscription(
         subscription.locale,
         subscription.player_ids,
         subscription.environment.value,
+        subscription.recap_player_id,
+        subscription.timezone,
     )
     return PushSubscriptionAck(watched_players=len(subscription.player_ids))
 
