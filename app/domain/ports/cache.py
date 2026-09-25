@@ -38,14 +38,6 @@ class CachePort(Protocol):
         ...
 
     # Application-specific cache methods
-    async def get_api_cache(self, cache_key: str) -> dict | list | None:
-        """
-        Get the API cache value associated with a given cache key.
-
-        Returns decompressed JSON data (dict or list) or None if not found.
-        """
-        ...
-
     async def update_api_cache(
         self,
         cache_key: str,

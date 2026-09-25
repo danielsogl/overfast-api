@@ -1,4 +1,6 @@
 import asyncio
+import json
+from compression import zstd
 from unittest.mock import patch
 
 import pytest
@@ -12,6 +14,17 @@ from app.domain.enums import Locale
 @pytest.fixture
 def cache_manager():
     return ValkeyCache()
+
+
+async def _read_api_cache(cache: ValkeyCache, cache_key: str) -> dict | list | None:
+    """Decode an api-cache entry the way nginx reads it."""
+    raw = await cache.get(f"{settings.api_cache_key_prefix}:{cache_key}")
+    if raw is None:
+        return None
+    envelope = json.loads(zstd.decompress(raw))
+    if isinstance(envelope, dict) and "data_json" in envelope:
+        return json.loads(envelope["data_json"])
+    return envelope
 
 
 @pytest.fixture
@@ -36,15 +49,15 @@ async def test_update_and_get_api_cache(
     expected: str | None,
 ):
     # Assert the value is not here before update
-    assert await cache_manager.get_api_cache(cache_key) is None
+    assert await _read_api_cache(cache_manager, cache_key) is None
 
     # Update the API Cache and sleep if needed
     await cache_manager.update_api_cache(cache_key, value, expire)
     await asyncio.sleep(sleep_time + 1)
 
     # Assert the value matches
-    assert await cache_manager.get_api_cache(cache_key) == expected
-    assert await cache_manager.get_api_cache("another_cache_key") is None
+    assert await _read_api_cache(cache_manager, cache_key) == expected
+    assert await _read_api_cache(cache_manager, "another_cache_key") is None
 
 
 @pytest.mark.asyncio
@@ -77,8 +90,8 @@ async def test_valkey_connection_error(cache_manager: ValkeyCache, locale):
             settings.heroes_path_cache_timeout,
         )
 
-        # get_api_cache should return None on error
-        result = await cache_manager.get_api_cache(heroes_cache_key)
+        # reads should return None on error
+        result = await _read_api_cache(cache_manager, heroes_cache_key)
         assert result is None
 
 
@@ -213,7 +226,7 @@ class TestPlayerStatus:
         await cache_manager.evict_volatile_data()
 
         # api-cache key should be gone
-        api_cache_result = await cache_manager.get_api_cache("/heroes")
+        api_cache_result = await _read_api_cache(cache_manager, "/heroes")
         # unknown-player status/cooldown should survive
         result = await cache_manager.get_player_status(blizzard_id)
 
@@ -239,7 +252,7 @@ class TestPlayerStatus:
 
         await cache_manager.evict_volatile_data()
 
-        assert await cache_manager.get_api_cache("/heroes") is None
+        assert await _read_api_cache(cache_manager, "/heroes") is None
         assert await cache_manager.get("throttle:delay") == b"1.75"
         assert await cache_manager.get("taskiq:queue") == b"pending-job"
 

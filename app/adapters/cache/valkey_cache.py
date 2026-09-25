@@ -85,12 +85,6 @@ class ValkeyCache(metaclass=Singleton):
         # Use module-level function for better performance
         return zstd.compress(json_str.encode("utf-8"))
 
-    @staticmethod
-    def _decompress_json_value(value: bytes) -> dict | list:
-        """Helper method to retrieve a value from a compressed JSON data using zstd"""
-        # Use module-level function for better performance
-        return json.loads(zstd.decompress(value).decode("utf-8"))
-
     # CachePort protocol methods
     @handle_valkey_error(default_return=None)
     async def get(self, key: str) -> bytes | None:
@@ -121,18 +115,6 @@ class ValkeyCache(metaclass=Singleton):
         return bool(result)
 
     # Application-specific cache methods
-    @handle_valkey_error(default_return=None)
-    async def get_api_cache(self, cache_key: str) -> dict | list | None:
-        """Get the API Cache value associated with a given cache key."""
-        api_cache_key = f"{settings.api_cache_key_prefix}:{cache_key}"
-        api_cache = await self.valkey_server.get(api_cache_key)
-        if not api_cache or not isinstance(api_cache, bytes):
-            return None
-        envelope = self._decompress_json_value(api_cache)
-        if isinstance(envelope, dict) and "data_json" in envelope:
-            return json.loads(envelope["data_json"])
-        return envelope
-
     @handle_valkey_error(default_return=None)
     async def update_api_cache(
         self,
