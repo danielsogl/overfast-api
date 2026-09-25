@@ -35,12 +35,6 @@ Running the project is straightforward. Ensure you have `docker` and `docker com
 just up
 ```
 
-You can also use the `Makefile` alternative :
-
-```shell
-make up
-```
-
 ## 🌐 Deploy to Hetzner Cloud
 
 This section documents how to deploy OverFast API to a Hetzner Cloud VPS with Docker and HTTPS.
@@ -236,7 +230,6 @@ just test
 Running tests with given args (without coverage)
 ```shell
 just test tests/common
-make test PYTEST_ARGS="tests/common"
 ```
 
 
