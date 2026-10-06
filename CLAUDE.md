@@ -117,7 +117,7 @@ are the ones that say *nothing does*.
 |---|---|---|
 | heroes.csv key/name/role | the live heroes page | `check_heroes`, daily |
 | heroes.csv hitpoints, 5v5 and `_6v6` | Blizzard patch notes (deltas only, tagged per mode) | `check_hitpoints_against_patch_notes`, daily |
-| maps.csv in live rotation (31 of 59) | the rates page map dropdown | `check_maps_in_rotation`, daily |
+| maps.csv in live rotation (31 of 60) | the rates page map dropdown | `check_maps_in_rotation`, daily |
 | maps.csv arcade / retired / workshop / Stadium (28) | wiki only | **nothing** — manual |
 | maps.csv location, country_code | wiki infobox `{{flag\|xx}}` | **nothing** — manual, audited once (see below) |
 | gamemodes.csv descriptions | none; Blizzard deleted the source | **nothing** — frozen |
