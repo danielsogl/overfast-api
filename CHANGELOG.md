@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v4.27.0 (2026-10-06)
+
+### Build System
+
+- **deps**: Bump python dependencies
+  ([`7ebec3a`](https://github.com/danielsogl/overfast-api/commit/7ebec3a848e12654c291a3a5bdc4d8f5031faa0e))
+
+### Features
+
+- Season 5 — Watchpoint: Grimsvotn, Sombra to support
+  ([#59](https://github.com/danielsogl/overfast-api/pull/59),
+  [`e6fa4d4`](https://github.com/danielsogl/overfast-api/commit/e6fa4d43560ab2f1403e0b40c6059d783a687aed))
+
+
 ## v4.26.0 (2026-09-25)
 
 ### Build System
