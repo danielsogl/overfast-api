@@ -502,7 +502,7 @@ def check_hitpoints_against_patch_notes() -> None:
 # the shell. Its option values are byte-identical to our key column and the
 # enclosing optgroup gives the gamemode.
 #
-# It covers the live rotation only (30 of our 58): no arcade, retired, workshop
+# It covers the live rotation only (31 of our 60): no arcade, retired, workshop
 # or Stadium-exclusive maps. That is a real limit, not an oversight — those have
 # no Blizzard-published source and stay manual.
 
