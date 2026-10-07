@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v4.27.1 (2026-10-07)
+
+### Bug Fixes
+
+- Use Blizzard's key for Grímsvötn map
+  ([`7139f06`](https://github.com/danielsogl/overfast-api/commit/7139f067ca0c15112a0374992aead09d7b7ee272))
+
+
 ## v4.27.0 (2026-10-06)
 
 ### Build System
