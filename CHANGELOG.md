@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v4.27.2 (2026-10-14)
+
+### Bug Fixes
+
+- Apply October 13 hotfix hitpoints for Kiriko and D.Mon
+  ([#62](https://github.com/danielsogl/overfast-api/pull/62),
+  [`f191916`](https://github.com/danielsogl/overfast-api/commit/f191916db3ef012af0310c6bd17247f6b7724946))
+
+
 ## v4.27.1 (2026-10-07)
 
 ### Bug Fixes
