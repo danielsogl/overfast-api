@@ -69,6 +69,19 @@ def parse_html_root(html: str) -> LexborNode:
     return root_tag
 
 
+def css_first(node: LexborNode, selector: str) -> LexborNode:
+    """First match of a selector that must exist.
+
+    Raises AttributeError, like the bare ``node.css_first(...).attr`` access it
+    replaces, so the parsers' existing ``except AttributeError`` handling still
+    turns it into a ParserParsingError.
+    """
+    if (match := node.css_first(selector)) is None:
+        msg = f"Required element not found: {selector}"
+        raise AttributeError(msg)
+    return match
+
+
 def safe_get_text(node: LexborNode | None, default: str = "") -> str:
     """Safely get text from a node, return default if None"""
     return node.text().strip() if node else default
