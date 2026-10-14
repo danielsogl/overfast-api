@@ -6,7 +6,7 @@ baptiste,Baptiste,support,250,0,0,250,0,0
 bastion,Bastion,damage,250,100,0,250,100,0
 brigitte,Brigitte,support,175,75,0,175,75,0
 cassidy,Cassidy,damage,250,0,0,250,0,0
-dmon,D.Mon,tank,425,275,0,275,250,0
+dmon,D.Mon,tank,425,250,0,275,250,0
 doctrine,Doctrine,support,250,0,0,250,0,0
 domina,Domina,tank,250,0,400,100,0,375
 doomfist,Doomfist,tank,525,0,0,425,0,0
@@ -22,7 +22,7 @@ jetpack-cat,Jetpack Cat,support,225,0,0,225,0,0
 junker-queen,Junker Queen,tank,525,0,0,450,0,0
 junkrat,Junkrat,damage,200,0,0,200,0,0
 juno,Juno,support,75,0,150,75,0,150
-kiriko,Kiriko,support,225,0,0,225,0,0
+kiriko,Kiriko,support,250,0,0,250,0,0
 lifeweaver,Lifeweaver,support,200,0,50,200,0,50
 lucio,Lúcio,support,225,0,0,225,0,0
 mauga,Mauga,tank,575,125,0,450,100,0
