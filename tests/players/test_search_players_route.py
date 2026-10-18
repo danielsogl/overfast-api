@@ -170,3 +170,20 @@ def test_search_players_internal_error(client: TestClient):
 
     assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
     assert response.json() == {"error": settings.internal_server_error_message}
+
+
+@pytest.mark.parametrize("name", ["tekrop", "TEKROP", "TeKrop-2217", "TeKrop-0000"])
+def test_search_players_case_insensitive_with_blizzard_player_id(
+    client: TestClient, name: str
+):
+    """Any casing or discriminator finds TeKrop; player_id is Blizzard's ID,
+    never the (possibly wrong) discriminator from the search input."""
+    response = client.get("/players", params={"name": name})
+    json_response = response.json()
+
+    assert response.status_code == status.HTTP_200_OK
+    assert json_response["total"] == 1
+    result = json_response["results"][0]
+    assert result["name"] == "TeKrop"
+    assert result["player_id"] == result["blizzard_id"]
+    assert "-" not in result["player_id"]

@@ -6,6 +6,7 @@ from app.domain.exceptions import ParserParsingError
 from app.domain.parsers.player_search import (
     apply_ordering,
     filter_players_by_name,
+    prioritize_exact_matches,
     transform_player_search_results,
 )
 
@@ -51,6 +52,60 @@ class TestFilterPlayersByName:
 
         assert len(result) == 1
 
+    @pytest.mark.parametrize("search", ["tekrop", "TEKROP", "tekrop-2217", "TeKrop"])
+    def test_matches_case_insensitively(self, search: str):
+        players = [{"name": "TeKrop", "isPublic": True}]
+
+        assert filter_players_by_name(players, search) == players
+
+    def test_casefold_handles_non_ascii_case(self):
+        players = [{"name": "Straße", "isPublic": True}]
+
+        assert filter_players_by_name(players, "STRASSE") == players
+
+    def test_cjk_name_matches_as_is(self):
+        players = [
+            {"name": "天使", "isPublic": True},
+            {"name": "天使ちゃん", "isPublic": True},
+        ]
+
+        assert filter_players_by_name(players, "天使") == players[:1]
+
+    def test_fullwidth_name_is_not_normalized(self):
+        """No NFKC: fullwidth and ASCII "Mercy" stay distinct names."""
+        players = [
+            {"name": "\uff2d\uff45\uff52\uff43\uff59", "isPublic": True},
+            {"name": "Mercy", "isPublic": True},
+        ]
+
+        assert (
+            filter_players_by_name(players, "\uff4d\uff45\uff52\uff43\uff59")
+            == players[:1]
+        )
+        assert filter_players_by_name(players, "mercy") == players[1:]
+
+
+# ── prioritize_exact_matches ─────────────────────────────────────────────────
+
+
+class TestPrioritizeExactMatches:
+    def test_exact_casing_first_keeps_order_within_groups(self):
+        players = [
+            {"name": "MERCY", "player_id": "a"},
+            {"name": "mercy", "player_id": "b"},
+            {"name": "Mercy", "player_id": "c"},
+            {"name": "mercy", "player_id": "d"},
+        ]
+        result = prioritize_exact_matches(players, "mercy")
+
+        assert [p["player_id"] for p in result] == ["b", "d", "a", "c"]
+
+    def test_discriminator_is_ignored(self):
+        players = [{"name": "TEKROP"}, {"name": "TeKrop"}]
+        result = prioritize_exact_matches(players, "TeKrop-2217")
+
+        assert [p["name"] for p in result] == ["TeKrop", "TEKROP"]
+
 
 # ── transform_player_search_results ──────────────────────────────────────────
 
@@ -73,7 +128,7 @@ def _make_player(**overrides) -> dict:
 class TestTransformPlayerSearchResults:
     def test_basic_transform(self):
         player = _make_player()
-        result = transform_player_search_results([player], "Test")
+        result = transform_player_search_results([player])
 
         assert len(result) == 1
         r = result[0]
@@ -89,25 +144,26 @@ class TestTransformPlayerSearchResults:
             namecard="https://example.com/namecard.png",
             title="Philosopher",
         )
-        result = transform_player_search_results([player], "Test")
+        result = transform_player_search_results([player])
         r = result[0]
 
         assert r["avatar"] is None
         assert r["namecard"] is None
         assert r["title"] is None
 
-    def test_single_result_with_discriminator_uses_search_nickname(self):
-        """Single result + discriminator in search → player_id = search_nickname."""
-        player = _make_player(url="Test-9999")
-        result = transform_player_search_results([player], "Test-9999")
+    def test_player_id_always_comes_from_blizzard_url(self):
+        """Single result is no longer special-cased: player_id = player['url']."""
+        player = _make_player(url="abc123%7Cdef456")
+        result = transform_player_search_results([player])
 
-        assert result[0]["player_id"] == "Test-9999"
+        assert result[0]["player_id"] == "abc123%7Cdef456"
+        assert result[0]["blizzard_id"] == "abc123%7Cdef456"
+        assert result[0]["career_url"].endswith("/players/abc123%7Cdef456")
 
     def test_multiple_results_use_url_as_player_id(self):
-        """Multiple results → player_id = player['url'] regardless of search."""
         p1 = _make_player(name="Test", url="Test-0001")
         p2 = _make_player(name="Test", url="Test-0002")
-        results = transform_player_search_results([p1, p2], "Test-0001")
+        results = transform_player_search_results([p1, p2])
 
         assert results[0]["player_id"] == "Test-0001"
         assert results[1]["player_id"] == "Test-0002"
@@ -116,7 +172,7 @@ class TestTransformPlayerSearchResults:
         """Missing 'url' key raises ParserParsingError."""
         player = {"name": "Test"}  # missing required fields
         with pytest.raises(ParserParsingError, match="Missing required field"):
-            transform_player_search_results([player], "Test")
+            transform_player_search_results([player])
 
 
 # ── apply_ordering ────────────────────────────────────────────────────────────
