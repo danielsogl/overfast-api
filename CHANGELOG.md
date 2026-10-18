@@ -2,6 +2,26 @@
 
 <!-- version list -->
 
+## v4.27.3 (2026-10-18)
+
+### Bug Fixes
+
+- **players**: Case-insensitive player search with Blizzard-derived player_id
+  ([`1b6e5c8`](https://github.com/danielsogl/overfast-api/commit/1b6e5c80aa1324de1ae64e61307c3089e0f4d79e))
+
+### Build System
+
+- **deps**: Bump astral-sh/setup-uv ([#63](https://github.com/danielsogl/overfast-api/pull/63),
+  [`93c78e1`](https://github.com/danielsogl/overfast-api/commit/93c78e146fdf5947954a0641c671460a1ba55130))
+
+- **deps**: Bump python-semantic-release/python-semantic-release
+  ([#58](https://github.com/danielsogl/overfast-api/pull/58),
+  [`e9d616d`](https://github.com/danielsogl/overfast-api/commit/e9d616d22d517987e435660e7a8d0aaa3bfd2960))
+
+- **deps**: Bump the python group with 5 updates
+  ([`b480390`](https://github.com/danielsogl/overfast-api/commit/b4803907c57de881cbff34295b15a1e45dfcc629))
+
+
 ## v4.27.2 (2026-10-14)
 
 ### Bug Fixes
