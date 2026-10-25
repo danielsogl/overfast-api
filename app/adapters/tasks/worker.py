@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Annotated
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
 
 from taskiq import TaskiqDepends
 from taskiq.schedule_sources import LabelScheduleSource
@@ -97,7 +97,7 @@ TaskQueueDep = Annotated[TaskQueuePort, TaskiqDepends(get_task_queue)]
 async def _run_refresh_task(
     entity_id: str,
     task_queue: TaskQueuePort,
-) -> AsyncIterator[None]:
+) -> AsyncGenerator[None]:
     """Run a refresh task end-to-end: log the outcome and duration, then
     release the dedup key so the job can be re-enqueued immediately.
     """

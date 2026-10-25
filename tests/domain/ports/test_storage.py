@@ -1,6 +1,6 @@
 """Tests for the StoragePort contract — exercised via FakeStorage"""
 
-import datetime
+import datetime as dt
 import time
 
 import pytest
@@ -259,11 +259,11 @@ class TestHeroStatsSnapshots:
         data = [{"hero": "ana", "winrate": 52.1, "pickrate": 8.3, "banrate": None}]
 
         await storage_db.add_hero_stats_snapshot(
-            datetime.date(2026, 8, 29), *self._SLICE, data
+            dt.date(2026, 8, 29), *self._SLICE, data
         )
 
         result = await storage_db.get_hero_stats_snapshots(*self._SLICE)
-        assert result == [{"taken_on": datetime.date(2026, 8, 29), "data": data}]
+        assert result == [{"taken_on": dt.date(2026, 8, 29), "data": data}]
 
     @pytest.mark.asyncio
     async def test_get_snapshots_for_unrecorded_region(self, storage_db):
@@ -275,7 +275,7 @@ class TestHeroStatsSnapshots:
 
     @pytest.mark.asyncio
     async def test_same_day_is_stored_once(self, storage_db):
-        taken_on = datetime.date(2026, 8, 29)
+        taken_on = dt.date(2026, 8, 29)
         await storage_db.add_hero_stats_snapshot(taken_on, *self._SLICE, [{"v": 1}])
         await storage_db.add_hero_stats_snapshot(taken_on, *self._SLICE, [{"v": 2}])
 
@@ -288,7 +288,7 @@ class TestHeroStatsSnapshots:
     async def test_snapshots_are_returned_newest_first(self, storage_db):
         for day in (27, 28, 29):
             await storage_db.add_hero_stats_snapshot(
-                datetime.date(2026, 8, day), *self._SLICE, [{"day": day}]
+                dt.date(2026, 8, day), *self._SLICE, [{"day": day}]
             )
 
         result = await storage_db.get_hero_stats_snapshots(*self._SLICE)
@@ -299,7 +299,7 @@ class TestHeroStatsSnapshots:
     async def test_limit_keeps_the_newest(self, storage_db):
         for day in (27, 28, 29):
             await storage_db.add_hero_stats_snapshot(
-                datetime.date(2026, 8, day), *self._SLICE, [{"day": day}]
+                dt.date(2026, 8, day), *self._SLICE, [{"day": day}]
             )
 
         result = await storage_db.get_hero_stats_snapshots(*self._SLICE, limit=2)
@@ -310,9 +310,9 @@ class TestHeroStatsSnapshots:
     async def test_since_filters_on_the_day(self, storage_db):
         for day in (27, 29):
             await storage_db.add_hero_stats_snapshot(
-                datetime.date(2026, 8, day), *self._SLICE, [{"day": day}]
+                dt.date(2026, 8, day), *self._SLICE, [{"day": day}]
             )
-        since = int(datetime.datetime(2026, 8, 28, tzinfo=datetime.UTC).timestamp())
+        since = int(dt.datetime(2026, 8, 28, tzinfo=dt.UTC).timestamp())
 
         result = await storage_db.get_hero_stats_snapshots(*self._SLICE, since=since)
 
@@ -320,7 +320,7 @@ class TestHeroStatsSnapshots:
 
     @pytest.mark.asyncio
     async def test_snapshots_are_isolated_per_slice(self, storage_db):
-        taken_on = datetime.date(2026, 8, 29)
+        taken_on = dt.date(2026, 8, 29)
         await storage_db.add_hero_stats_snapshot(taken_on, *self._SLICE, [{"v": 1}])
         await storage_db.add_hero_stats_snapshot(
             taken_on, "pc", "competitive", "asia", [{"v": 2}]
@@ -333,10 +333,10 @@ class TestHeroStatsSnapshots:
 
     @pytest.mark.asyncio
     async def test_delete_old_snapshots(self, storage_db):
-        today = datetime.datetime.now(tz=datetime.UTC).date()
+        today = dt.datetime.now(tz=dt.UTC).date()
         await storage_db.add_hero_stats_snapshot(today, *self._SLICE, [{"v": 1}])
         await storage_db.add_hero_stats_snapshot(
-            today - datetime.timedelta(days=10), *self._SLICE, [{"v": 2}]
+            today - dt.timedelta(days=10), *self._SLICE, [{"v": 2}]
         )
 
         deleted = await storage_db.delete_old_hero_stats_snapshots(86400)
