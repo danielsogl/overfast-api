@@ -1,6 +1,6 @@
 """Route tests for the hero stats history endpoint"""
 
-import datetime
+import datetime as dt
 from typing import TYPE_CHECKING
 
 import pytest
@@ -12,8 +12,8 @@ if TYPE_CHECKING:
 
     from tests.fake_storage import FakeStorage
 
-_TODAY = datetime.datetime.now(tz=datetime.UTC).date()
-_YESTERDAY = _TODAY - datetime.timedelta(days=1)
+_TODAY = dt.datetime.now(tz=dt.UTC).date()
+_YESTERDAY = _TODAY - dt.timedelta(days=1)
 
 
 @pytest_asyncio.fixture
@@ -96,11 +96,7 @@ def test_get_hero_stats_history_is_capped_by_limit(client: TestClient):
 
 @pytest.mark.usefixtures("_recorded_history")
 def test_get_hero_stats_history_since_filters_older_days(client: TestClient):
-    since = int(
-        datetime.datetime.combine(
-            _TODAY, datetime.time(), tzinfo=datetime.UTC
-        ).timestamp()
-    )
+    since = int(dt.datetime.combine(_TODAY, dt.time(), tzinfo=dt.UTC).timestamp())
 
     response = client.get(
         "/heroes/stats/history", params={"region": "europe", "since": since}

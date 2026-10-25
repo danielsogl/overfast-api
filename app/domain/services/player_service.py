@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Never, cast
 from urllib.parse import quote
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable
+    from collections.abc import AsyncGenerator, Callable
 
 from app.config import settings
 from app.domain.enums import HeroKeyCareerFilter, PlayerGamemode, PlayerPlatform
@@ -115,7 +115,7 @@ _INFLIGHT_WAITERS: Counter[str] = Counter()
 
 
 @asynccontextmanager
-async def single_flight(key: str) -> AsyncIterator[None]:
+async def single_flight(key: str) -> AsyncGenerator[None]:
     """Serialise concurrent work for *key*, dropping the lock when nobody waits.
 
     Callers must re-check their data source after acquiring: the point is that

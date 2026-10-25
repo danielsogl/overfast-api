@@ -1,6 +1,6 @@
 """Set of pydantic models used for Patch Notes API routes"""
 
-import datetime
+import datetime as dt
 
 from pydantic import BaseModel, Field
 
@@ -103,7 +103,7 @@ class PatchNoteSection(BaseModel):
 
 
 class PatchNote(BaseModel):
-    date: datetime.date = Field(
+    date: dt.date = Field(
         ...,
         description=(
             "Publication date of the patch, as an ISO-8601 date. Read from the "

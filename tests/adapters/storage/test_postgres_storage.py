@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import json
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
@@ -165,7 +165,7 @@ class TestGetStaticData:
     async def test_returns_decompressed_data(self):
         payload = json.dumps({"heroes": []})
         compressed = PostgresStorage._compress(payload)
-        updated_at = datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC)
+        updated_at = dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
         row = {
             "data": compressed,
             "parsed": None,
@@ -193,7 +193,7 @@ class TestGetStaticData:
             "data": PostgresStorage._compress("<html/>"),
             "parsed": parsed,
             "category": "heroes",
-            "updated_at": datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC),
+            "updated_at": dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
             "data_version": 3,
         }
         conn = _make_connection()
@@ -250,7 +250,7 @@ class TestGetPlayerProfile:
         html = "<html>player</html>"
         compressed = PostgresStorage._compress(html)
         summary = {"url": "abc123", "lastUpdated": 1700000000}
-        updated_at = datetime.datetime(2025, 6, 1, tzinfo=datetime.UTC)
+        updated_at = dt.datetime(2025, 6, 1, tzinfo=dt.UTC)
         row = {
             "html_compressed": compressed,
             "parsed": None,
@@ -276,7 +276,7 @@ class TestGetPlayerProfile:
         """When row summary is None, builds a minimal summary dict."""
         html = "<html>player</html>"
         compressed = PostgresStorage._compress(html)
-        updated_at = datetime.datetime(2025, 6, 1, tzinfo=datetime.UTC)
+        updated_at = dt.datetime(2025, 6, 1, tzinfo=dt.UTC)
         row = {
             "html_compressed": compressed,
             "parsed": None,
@@ -396,7 +396,7 @@ class TestPlayerSnapshots:
 
     @pytest.mark.asyncio
     async def test_get_maps_rows_and_converts_taken_at(self):
-        taken_at = datetime.datetime(2026, 8, 29, 12, 0, tzinfo=datetime.UTC)
+        taken_at = dt.datetime(2026, 8, 29, 12, 0, tzinfo=dt.UTC)
         pool, conn = _make_pool()
         conn.fetch = AsyncMock(
             return_value=[
@@ -461,7 +461,7 @@ class TestHeroStatsSnapshots:
 
     @pytest.mark.asyncio
     async def test_insert_ignores_a_day_already_recorded(self):
-        taken_on = datetime.date(2026, 8, 29)
+        taken_on = dt.date(2026, 8, 29)
         pool, conn = _make_pool()
         storage = _make_storage(pool=pool)
 
@@ -474,7 +474,7 @@ class TestHeroStatsSnapshots:
 
     @pytest.mark.asyncio
     async def test_insert_passes_the_division(self):
-        taken_on = datetime.date(2026, 8, 29)
+        taken_on = dt.date(2026, 8, 29)
         pool, conn = _make_pool()
         storage = _make_storage(pool=pool)
 
@@ -486,7 +486,7 @@ class TestHeroStatsSnapshots:
 
     @pytest.mark.asyncio
     async def test_get_maps_rows_newest_first(self):
-        taken_on = datetime.date(2026, 8, 29)
+        taken_on = dt.date(2026, 8, 29)
         pool, conn = _make_pool()
         conn.fetch = AsyncMock(
             return_value=[{"taken_on": taken_on, "data": [{"v": 1}]}]

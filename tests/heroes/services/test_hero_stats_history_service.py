@@ -1,6 +1,6 @@
 """Tests for the hero stats history parts of HeroService"""
 
-import datetime
+import datetime as dt
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -27,7 +27,7 @@ _STATS_ROW = {
     "subrole": "medic",
     "color": "#48699e",
 }
-_TODAY = datetime.datetime.now(tz=datetime.UTC).date()
+_TODAY = dt.datetime.now(tz=dt.UTC).date()
 
 
 def _make_hero_service(storage: Any = None) -> tuple[HeroService, Any]:
@@ -152,14 +152,14 @@ class TestRecordHeroStatsSnapshots:
 class TestGetHeroStatsHistory:
     _ROWS = [  # noqa: RUF012
         {
-            "taken_on": datetime.date(2026, 8, 29),
+            "taken_on": dt.date(2026, 8, 29),
             "data": [
                 {"hero": "ana", "winrate": 52.1, "pickrate": 8.3, "banrate": None},
                 {"hero": "mercy", "winrate": 49.0, "pickrate": 6.0, "banrate": None},
             ],
         },
         {
-            "taken_on": datetime.date(2026, 8, 28),
+            "taken_on": dt.date(2026, 8, 28),
             "data": [
                 {"hero": "mercy", "winrate": 48.0, "pickrate": 5.5, "banrate": None}
             ],
