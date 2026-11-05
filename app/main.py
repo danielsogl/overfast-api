@@ -3,13 +3,11 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from app.api.docs import setup_custom_openapi
 from app.api.enums import RouteTag
 from app.api.exception_handlers import register_exception_handlers
 from app.api.lifespan import lifespan
 from app.api.middlewares import ETagMiddleware
 from app.api.responses import ASCIIJSONResponse
-from app.api.routers.docs import router as docs
 from app.api.routers.gamemodes import router as gamemodes
 from app.api.routers.heroes import router as heroes
 from app.api.routers.maps import router as maps
@@ -40,8 +38,6 @@ hosting your own instance on a server 👍
 🕸️ Prefer GraphQL ? Check out
 [OverGraphQL API](https://github.com/TeKrop/overgraphql-api), a GraphQL facade
 over OverFast API exposing the same data as a single relational graph.
-
-Swagger UI (useful for trying API calls) : {settings.app_base_url}/docs
 
 {f"Status page : {settings.status_page_url}" if settings.status_page_url else ""}
 """
@@ -102,6 +98,8 @@ app = FastAPI(
     servers=[{"url": settings.app_base_url, "description": "Production server"}],
     docs_url=None,
     redoc_url=None,
+    # Not served: the API is for our own apps. `just openapi` exports the schema.
+    openapi_url=None,
     lifespan=lifespan,
     contact={
         "name": 'Valentin "TeKrop" PORCHET',
@@ -118,8 +116,7 @@ app = FastAPI(
 # Mount static folder for development server
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Setup FastAPI generic stuff and docs
-setup_custom_openapi(app, new_route_path=settings.new_route_path)
+# Setup FastAPI generic stuff
 register_exception_handlers(app)
 
 # Conditional requests on the cache-miss path. Cache hits never get here —
@@ -127,8 +124,13 @@ register_exception_handlers(app)
 app.add_middleware(ETagMiddleware)
 
 
+# The container health checks and scripts/vps/healthcheck.sh expect a 200 here.
+@app.get("/", include_in_schema=False)
+async def root() -> dict[str, str]:
+    return {"status": "ok"}
+
+
 # Add application routers
-app.include_router(docs)
 app.include_router(heroes, prefix="/heroes")
 app.include_router(roles, prefix="/roles")
 app.include_router(gamemodes, prefix="/gamemodes")

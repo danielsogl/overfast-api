@@ -2,7 +2,7 @@ local zstd = require "zstd"
 local cjson = require "cjson"
 local valkey = require "resty.redis"
 
-local EXCLUDED_PATHS = { ["/"] = true, ["/docs"] = true, ["/openapi.json"] = true }
+local EXCLUDED_PATHS = { ["/"] = true }
 local COOLDOWN_KEY_PREFIX = "${UNKNOWN_PLAYER_COOLDOWN_KEY_PREFIX}"
 local UNKNOWN_PLAYERS_CACHE_ENABLED = "${UNKNOWN_PLAYERS_CACHE_ENABLED}" == "true"
 -- nginx exposes every request header as $http_<name>, lowercased with '-' to

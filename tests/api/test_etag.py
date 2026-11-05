@@ -147,13 +147,6 @@ def test_error_responses_are_not_tagged(client: TestClient):
     assert "ETag" not in response.headers
 
 
-def test_openapi_schema_is_not_tagged(client: TestClient):
-    response = client.get("/openapi.json", headers=CONDITIONAL)
-
-    assert response.status_code == status.HTTP_200_OK
-    assert "ETag" not in response.headers
-
-
 @pytest.mark.asyncio
 async def test_cache_envelope_carries_the_tag_nginx_will_serve(
     client: TestClient, valkey_server: fakeredis.FakeAsyncRedis

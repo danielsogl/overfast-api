@@ -101,6 +101,10 @@ clean: down_clean
 lock:
     uv lock --upgrade
 
+# export the OpenAPI schema, which the API does not serve, for the app's client generator
+openapi output:
+    POSTGRES_PASSWORD=x APP_BASE_URL=https://api.mercy-stats.app uv run python -c "import json, pathlib; from app.main import app; pathlib.Path('{{ output }}').write_text(json.dumps(app.openapi(), indent=2))"
+
 # update test fixtures (heroes, players, etc.)
 update_test_fixtures params="":
     {{ docker_run }} uv run python -m tests.update_test_fixtures {{ params }}
