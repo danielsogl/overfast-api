@@ -1,7 +1,6 @@
 # ⚡ OverFast API
 [![Build Status](https://github.com/danielsogl/overfast-api/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/danielsogl/overfast-api/actions/workflows/build.yml)
 [![Issues](https://img.shields.io/github/issues/danielsogl/overfast-api)](https://github.com/danielsogl/overfast-api/issues)
-[![Documentation](https://img.shields.io/badge/documentation-yes-brightgreen.svg)](https://api.mercy-stats.app)
 [![License: MIT](https://img.shields.io/github/license/danielsogl/overfast-api)](https://github.com/danielsogl/overfast-api/blob/main/LICENSE)
 ![OverFast API](static/logo.png)
 
@@ -22,9 +21,6 @@
 
 ## ✨ [Live instance](https://api.mercy-stats.app)
 The live instance operates with a rate limit applied per second, shared across all endpoints. You can view the current rate limit on the home page, and this limit may be adjusted as needed. For higher request throughput, consider hosting your own instance on a dedicated server 👍
-
-- Live instance (Redoc documentation) : https://api.mercy-stats.app/
-- Swagger UI : https://api.mercy-stats.app/docs
 
 Upstream's instance, which this fork diverged from, lives at https://overfast-api.tekrop.fr/
 

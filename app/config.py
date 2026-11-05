@@ -38,9 +38,6 @@ class Settings(BaseSettings):
     # Optional, status page URL if you have any to provide
     status_page_url: str | None = None
 
-    # Route path to display as new on the documentation
-    new_route_path: str | None = None
-
     ############
     # PUSH NOTIFICATIONS
     ############

@@ -114,8 +114,9 @@ fi
 # accumulated ERRORS count decides the exit status.
 echo "=== GET / ==="
 BODY=$(fetch "/") || fail "/ not reachable"
-echo "$BODY" | grep -q "redoc" || fail "/ does not contain redoc HTML"
+echo "$BODY" | jq -e '.status == "ok"' >/dev/null || fail "/ did not report status ok"
 
+# overwatch_app generates its API client from this schema.
 echo "=== GET /openapi.json ==="
 BODY=$(fetch "/openapi.json") || fail "/openapi.json not reachable"
 echo "$BODY" | jq -e '.openapi' >/dev/null || fail "missing openapi version field"
