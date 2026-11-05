@@ -3,8 +3,6 @@ from typing import TYPE_CHECKING
 import pytest
 from fastapi import status
 
-from app.main import app
-
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient
 
@@ -16,10 +14,13 @@ def test_root_reports_ok_for_health_checks(client: TestClient):
     assert response.json() == {"status": "ok"}
 
 
-@pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
+@pytest.mark.parametrize("path", ["/docs", "/redoc"])
 def test_documentation_is_not_served(client: TestClient, path: str):
     assert client.get(path).status_code == status.HTTP_404_NOT_FOUND
 
 
-def test_schema_stays_exportable():
-    assert "/heroes" in app.openapi()["paths"]
+def test_openapi_schema_is_served_for_the_app_client_generator(client: TestClient):
+    response = client.get("/openapi.json")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert "/heroes" in response.json()["paths"]

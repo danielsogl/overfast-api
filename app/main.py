@@ -98,8 +98,6 @@ app = FastAPI(
     servers=[{"url": settings.app_base_url, "description": "Production server"}],
     docs_url=None,
     redoc_url=None,
-    # Not served: the API is for our own apps. `just openapi` exports the schema.
-    openapi_url=None,
     lifespan=lifespan,
     contact={
         "name": 'Valentin "TeKrop" PORCHET',

@@ -116,6 +116,12 @@ echo "=== GET / ==="
 BODY=$(fetch "/") || fail "/ not reachable"
 echo "$BODY" | jq -e '.status == "ok"' >/dev/null || fail "/ did not report status ok"
 
+# overwatch_app generates its API client from this schema.
+echo "=== GET /openapi.json ==="
+BODY=$(fetch "/openapi.json") || fail "/openapi.json not reachable"
+echo "$BODY" | jq -e '.openapi' >/dev/null || fail "missing openapi version field"
+echo "$BODY" | jq -e '.paths | keys | length > 5' >/dev/null || fail "too few paths in spec"
+
 echo "=== GET /roles ==="
 BODY=$(fetch "/roles") || fail "/roles not reachable"
 COUNT=$(echo "$BODY" | jq 'length')

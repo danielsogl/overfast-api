@@ -34,7 +34,7 @@ class ETagMiddleware(BaseHTTPMiddleware):
     Only responses carrying ``X-Cache-Status`` are tagged. That header comes from
     ``apply_swr_headers`` and from nowhere else, so it marks exactly the cacheable
     payload routes — players, heroes, maps, gamemodes, roles, patch notes — and
-    never an error body or ``/``.
+    never an error body, ``/`` or ``/openapi.json``.
 
     Also requires the client to send ``settings.conditional_get_header``,
     declaring it handles conditional GETs correctly. Offering an ETag is
