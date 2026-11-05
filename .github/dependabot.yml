@@ -8,6 +8,23 @@ updates:
       github-actions:
         patterns:
           - "*"
+  # Dependabot skips a FROM line that uses a variable (dependabot-core#2057), so
+  # the tags it should track are literal in Dockerfile and build/nginx/Dockerfile.
+  # The Python and Valkey images stay on floating tags with ARGs, and are not tracked.
+  - package-ecosystem: "docker"
+    directories:
+      - "/"
+      - "/build/nginx"
+    schedule:
+      interval: "weekly"
+    groups:
+      docker:
+        patterns:
+          - "*"
+    ignore:
+      # A new major starts on an empty data directory, and needs a data migration.
+      - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: "uv"
     directory: "/"
     schedule:

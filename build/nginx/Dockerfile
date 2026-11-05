@@ -1,12 +1,5 @@
-# Build arguments
-ARG OPENRESTY_VERSION=1.31.8.1-0
-
-# Use the OpenResty Alpine base image
-FROM openresty/openresty:${OPENRESTY_VERSION}-alpine-fat
-
-# Environment variables
-ARG OPENRESTY_VERSION
-ENV OPENRESTY_VERSION=${OPENRESTY_VERSION}
+# Use the OpenResty Alpine base image. Literal so Dependabot can bump it.
+FROM openresty/openresty:1.31.8.1-0-alpine-fat
 
 # For envsubst command in entrypoint
 RUN apk add --no-cache gettext git zstd-dev
