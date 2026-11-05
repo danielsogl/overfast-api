@@ -77,6 +77,14 @@ Both run in CI on every PR. Running the suite outside Docker needs `POSTGRES_PAS
   is gone. The volume must stay mounted at `/var/lib/postgresql` — `postgres:18` declares that
   `VOLUME` and keeps PGDATA below it at `18/docker`, so a mount anywhere else leaves the cluster on
   a throwaway anonymous volume.
+- **PGDATA is per major version.** A new postgres major starts on an empty cluster, so never bump it
+  without a migration; Dependabot ignores those bumps. The move to 18 is done: the data lives in the
+  `postgres-data` volume, and the old `pg-data` volume stays only as a rollback. As long as `pg-data`
+  exists, `scripts/check-pg-migration.sh` needs the migration marker in `postgres-data`, or `deploy.sh`
+  stops first.
+- **`/` is a health endpoint, and `/docs` is gone.** The container health checks and
+  `scripts/vps/healthcheck.sh` expect a 200 on `/`. `/openapi.json` stays:
+  `overwatch_app` generates its API client from it.
 - **Hitpoint columns in `heroes.csv` are hand-maintained.** Blizzard publishes them nowhere — grep a
   live hero page for health/armor/shield markup and there is nothing — so they cannot be scraped.
   Use this order of evidence, and never skip a rung:

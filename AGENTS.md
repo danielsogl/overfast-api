@@ -21,7 +21,7 @@ just down                                                        # Stop all cont
 just check                                                       # Run ty type checker (uv run ty check)
 just lint                                                        # Run ruff linter with --fix
 just format                                                      # Run ruff formatter
-just test                                                        # Run all tests with coverage (-n auto, parallel)
+just test                                                        # Run all tests with coverage (-n 4, parallel)
 just test tests/domain/services/                                 # Run a specific test directory
 just test tests/adapters/blizzard/test_client.py                 # Run a specific test file
 just test "tests/ -k test_get_hero_by_key"                       # Run tests matching a keyword
@@ -192,7 +192,7 @@ remove coupling that costs nothing here.
 - Refresh test fixtures from live pages: `just exec "python -m tests.update_test_fixtures"`.
 - `patch("httpx2.AsyncClient.get", ...)` is the standard mock pattern for HTTP calls.
 - `pytest.mark.parametrize` used extensively for enum coverage.
-- Tests run in parallel via `pytest-xdist` (`-n auto`). Ensure test isolation.
+- Tests run in parallel via `pytest-xdist` (`-n 4` in `just test`, see the `justfile`). Ensure test isolation.
 
 ### AAA pattern
 
