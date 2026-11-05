@@ -65,6 +65,10 @@ jobs:
       - name: Run persistence test
         run: bash scripts/persistence-test.sh
 
+      # Replaces the stack's volumes, so it has to come after the checks above.
+      - name: Run postgres 18 migration test
+        run: bash scripts/pg-migration-test.sh
+
       - name: Dump logs on failure
         if: failure()
         run: docker compose logs --tail=200

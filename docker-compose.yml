@@ -104,7 +104,7 @@ services:
       timeout: 5s
 
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-overfast}
       - POSTGRES_USER=${POSTGRES_USER:-overfast}
@@ -116,11 +116,12 @@ services:
         limits:
           memory: 1g
     volumes:
-      # Must be the PGDATA path itself: postgres:17 declares
-      # VOLUME /var/lib/postgresql/data, which shadows a mount on the parent
-      # with an anonymous volume — `docker compose down` then drops the cluster.
-      # (Upstream mounts the parent because it runs postgres:18, where PGDATA moved up.)
-      - pg-data:/var/lib/postgresql/data
+      # postgres:18 declares VOLUME /var/lib/postgresql and keeps PGDATA below it
+      # at 18/docker, so the mount has to be that parent. A different volume than
+      # the old pg-data on purpose: that one holds the postgres:17 cluster and
+      # stays untouched as the rollback. scripts/migrate-postgres-18.sh moves the
+      # data, and scripts/check-pg-migration.sh stops a deploy until it has.
+      - postgres-data:/var/lib/postgresql
     healthcheck:
       test:
         [
@@ -198,4 +199,4 @@ services:
 
 volumes:
   valkey-data:
-  pg-data:
+  postgres-data:

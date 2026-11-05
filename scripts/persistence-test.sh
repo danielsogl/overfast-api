@@ -3,10 +3,11 @@
 # and actually lives in the *named* volume.
 #
 # The smoke test only exercises static endpoints, so it stayed green while the
-# cluster was silently written to an anonymous volume (pg-data mounted at
-# /var/lib/postgresql, while postgres:17 declares VOLUME /var/lib/postgresql/data
-# and shadows it). That anonymous volume is orphaned on recreation and destroyed
-# by `docker compose down -v`, so the cache cold-started for no visible reason.
+# cluster was silently written to an anonymous volume (a mount on a different
+# path than the image's VOLUME, which then shadows it). That anonymous volume is
+# orphaned on recreation and destroyed by `docker compose down -v`, so the cache
+# cold-started for no visible reason. postgres:18 declares VOLUME
+# /var/lib/postgresql and keeps PGDATA below it, so that is the path to check.
 #
 # Expects a stack that is already up (e.g. after scripts/smoke-test.sh).
 # Restarts the stack — do not run against production.
@@ -39,7 +40,7 @@ wait_for_postgres() {
 
 # ── Check 1: the cluster lives in the named volume ───────────────────────────
 # Structural check. Explains *why* check 2 fails when it does.
-echo "=== Check 1: PGDATA is backed by the named pg-data volume ==="
+echo "=== Check 1: PGDATA is backed by the named postgres-data volume ==="
 PG_CID="$(docker compose ps -q postgres)"
 if [ -z "$PG_CID" ]; then
     echo "::error::postgres container is not running — start the stack first"
@@ -50,12 +51,12 @@ PGDATA_PATH="$(docker compose exec -T postgres sh -c 'echo $PGDATA' | tr -d '\r\
 echo "  PGDATA=$PGDATA_PATH"
 
 DATA_VOLUME="$(docker inspect "$PG_CID" \
-    --format "{{range .Mounts}}{{if eq .Destination \"${PGDATA_PATH}\"}}{{.Name}}{{end}}{{end}}")"
+    --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql"}}{{.Name}}{{end}}{{end}}')"
 
 if [ -z "$DATA_VOLUME" ]; then
-    fail "no volume is mounted at $PGDATA_PATH — the cluster is in the container layer"
-elif ! echo "$DATA_VOLUME" | grep -q 'pg-data$'; then
-    fail "PGDATA is backed by anonymous volume ${DATA_VOLUME:0:12}… — not the named pg-data volume"
+    fail "no volume is mounted at /var/lib/postgresql — the cluster is in the container layer"
+elif ! echo "$DATA_VOLUME" | grep -q 'postgres-data$'; then
+    fail "PGDATA is backed by anonymous volume ${DATA_VOLUME:0:12}… — not the named postgres-data volume"
 else
     echo "  OK: $DATA_VOLUME"
 fi

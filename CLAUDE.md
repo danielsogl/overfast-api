@@ -71,10 +71,12 @@ Both run in CI on every PR. Running the suite outside Docker needs `POSTGRES_PAS
 
 - The taskiq **worker runs the same `app/api/lifespan.py`** as the API process. Anything there that
   touches the shared cache must be guarded with `if not broker.is_worker_process`.
-- **Postgres holds only cache.** `static_data` and `player_profiles` are both regenerable Blizzard
-  content, so losing them costs refetch time, not data. The volume must stay mounted at the PGDATA
-  path itself — `postgres:17` declares `VOLUME /var/lib/postgresql/data` and will shadow a mount on
-  the parent with a throwaway anonymous volume.
+- **Postgres is not only cache.** `static_data` and `player_profiles` are regenerable Blizzard
+  content, and `push_subscriptions` and `player_rank_alerts` repair themselves, but
+  `player_snapshots` and `hero_stats_snapshots` are history Blizzard cannot hand back: a lost row
+  is gone. The volume must stay mounted at `/var/lib/postgresql` — `postgres:18` declares that
+  `VOLUME` and keeps PGDATA below it at `18/docker`, so a mount anywhere else leaves the cluster on
+  a throwaway anonymous volume.
 - **Hitpoint columns in `heroes.csv` are hand-maintained.** Blizzard publishes them nowhere — grep a
   live hero page for health/armor/shield markup and there is nothing — so they cannot be scraped.
   Use this order of evidence, and never skip a rung:
