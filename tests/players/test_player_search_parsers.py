@@ -201,3 +201,13 @@ class TestApplyOrdering:
         players = [{"name": "X"}]
         with pytest.raises(ParserParsingError, match="Invalid ordering"):
             apply_ordering(players, "nonexistent_field:asc")
+
+
+def test_missing_avatar_is_none():
+    """A search result without 'avatar' is kept, with avatar=None."""
+    player = _make_player()
+    del player["avatar"]
+
+    result = transform_player_search_results([player])
+
+    assert result[0]["avatar"] is None

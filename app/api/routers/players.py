@@ -24,6 +24,7 @@ from app.api.helpers import (
     get_human_readable_duration,
 )
 from app.api.helpers import routes_responses as common_routes_responses
+from app.api.models.errors import BlizzardErrorMessage
 from app.api.models.players import (
     CareerStats,
     Player,
@@ -88,6 +89,10 @@ career_routes_responses = {
     status.HTTP_404_NOT_FOUND: {
         "model": PlayerNotFoundError,
         "description": "Player Not Found",
+    },
+    status.HTTP_502_BAD_GATEWAY: {
+        "model": BlizzardErrorMessage,
+        "description": "Blizzard served the career page in another language",
     },
     **common_routes_responses,
 }
