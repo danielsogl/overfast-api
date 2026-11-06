@@ -129,6 +129,52 @@ class TestStaleValueIsAFailure:
         assert "passive" not in findings[0][1]
 
 
+# Mauga's two armor notes, in page order: November 3, 2026 then September 8,
+# 2026. Wording from Blizzard's retail patch notes.
+_MAUGA_NOVEMBER = (
+    "Mauga",
+    (
+        "Restoring some of his base armor improves his survivability. "
+        "Base armor increased from 125 to 150."
+    ),
+)
+_MAUGA_SEPTEMBER = ("Mauga", "Base armor reduced from 150 to 125.")
+_MAUGA_ROWS = {
+    "Mauga": {"role": "tank", "health": "575", "armor": "150", "shields": "0"},
+    # The plausibility bound comes from all rows; these keep 125 inside it.
+    "D.Va": {"role": "tank", "health": "350", "armor": "325", "shields": "0"},
+    "Orisa": {"role": "tank", "health": "475", "armor": "100", "shields": "0"},
+}
+
+
+class TestOnlyTheNewestNoteCounts:
+    """Blizzard lists the newest patch first. A later note that undoes an
+    earlier one must win, whichever value the earlier one would match."""
+
+    def test_value_restored_by_the_newest_note_is_silent(self):
+        findings = hitpoint_findings([_MAUGA_NOVEMBER, _MAUGA_SEPTEMBER], _MAUGA_ROWS)
+
+        assert findings == []
+
+    def test_value_from_before_the_newest_note_still_fails(self):
+        rows = {
+            **_MAUGA_ROWS,
+            "Mauga": {**_MAUGA_ROWS["Mauga"], "armor": "125"},
+        }
+
+        findings = hitpoint_findings([_MAUGA_NOVEMBER, _MAUGA_SEPTEMBER], rows)
+
+        assert findings == [
+            (
+                "fail",
+                (
+                    "Mauga armor is 125, but Blizzard changed it to 150 "
+                    "(patch note: armor from 125 to 150)"
+                ),
+            )
+        ]
+
+
 class TestCurrentValueIsSilent:
     """A run that reports nothing is the normal state; noise gets ignored."""
 
