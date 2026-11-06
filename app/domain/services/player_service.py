@@ -30,6 +30,7 @@ from app.domain.parsers.player_profile import (
     fetch_player_html,
     filter_all_stats_data,
     filter_stats_by_query,
+    is_expected_html_locale,
     parse_player_profile_html,
 )
 from app.domain.parsers.player_search import parse_player_search
@@ -803,7 +804,8 @@ class PlayerService(BaseService):
                 return None, 0
 
         profile = await self.get_player_profile_cache(blizzard_id)
-        if not profile:
+        # A localised page stored before the locale check existed: refetch.
+        if not profile or not is_expected_html_locale(profile["profile"]):
             return None, 0
 
         age = int(time.time()) - profile["updated_at"]
@@ -846,6 +848,7 @@ class PlayerService(BaseService):
             and identity.player_summary
             and player_cache["summary"].get("lastUpdated")
             == identity.player_summary.get("lastUpdated")
+            and is_expected_html_locale(player_cache["profile"])
         ):
             html = cast("str", player_cache["profile"])
             if force_update or (

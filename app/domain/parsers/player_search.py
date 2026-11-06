@@ -95,7 +95,7 @@ def transform_player_search_results(players: list[dict]) -> list[dict]:
                 {
                     "player_id": player_id,
                     "name": player["name"],
-                    "avatar": player["avatar"],
+                    "avatar": player.get("avatar"),
                     "namecard": player.get("namecard"),
                     "title": get_player_title(player.get("title")),
                     "career_url": f"{settings.app_base_url}/players/{player_id}",
