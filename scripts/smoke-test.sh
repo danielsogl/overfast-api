@@ -252,7 +252,7 @@ echo "  $DIRECT_COUNT heroes, filter survives the redirect"
 # The assertion is the method, not the push feature. Any future POST/PUT/PATCH
 # route is covered by the same two requests.
 echo "=== Non-GET methods through nginx ==="
-SMOKE_TOKEN="smoke-test-token-$$"
+SMOKE_TOKEN="$(printf '%064x' "$$")"  # an iOS token must be hex
 PUT_BODY=$(mktemp)
 CODE=$(curl -s -o "$PUT_BODY" -w "%{http_code}" -X PUT \
     -H 'content-type: application/json' \

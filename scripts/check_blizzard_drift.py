@@ -569,6 +569,8 @@ def check_maps_in_rotation(html: str) -> None:
                 f"map {key!r} is {gamemode} on Blizzard but "
                 f"{row['gamemodes']!r} in maps.csv"
             )
+        elif "standard" not in row["uses"].split(","):
+            fail(f"map {key!r} is in rotation but its uses are {row['uses']!r}")
         elif _normalise(name) != _normalise(row["name"]):
             warn(f"map {key!r} is named {name!r} on Blizzard, {row['name']!r} here")
 

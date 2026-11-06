@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field, HttpUrl
 
-from app.domain.enums import MapGamemode, MapKey
+from app.domain.enums import MapGamemode, MapKey, MapUse
 
 
 class Map(BaseModel):
@@ -20,6 +20,16 @@ class Map(BaseModel):
     gamemodes: list[MapGamemode] = Field(
         ...,
         description="Main gamemodes on which the map is playable",
+    )
+    uses: list[MapUse] = Field(
+        ...,
+        min_length=1,
+        max_length=len(MapUse),
+        description=(
+            "Kind of play the map is used for: `standard` is the regular "
+            "rotation, the others are Stadium, Workshop, Arcade and training"
+        ),
+        examples=[["standard"], ["standard", "stadium"], ["arcade"]],
     )
     location: str = Field(
         ...,

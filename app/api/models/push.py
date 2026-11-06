@@ -1,12 +1,23 @@
 """Pydantic models for the push subscription endpoints"""
 
-from pydantic import BaseModel, Field
+import re
+from typing import Annotated, Self
+
+from pydantic import BaseModel, Field, model_validator
 
 from app.domain.enums import PushEnvironment, PushPlatform
 
 # One row per device, and the app caps a free user at 5 followed players and a
 # subscriber at 50. Anything past that is not a real roster.
 MAX_WATCHED_PLAYERS = 50
+
+# An APNs device token is hex, and the APNs sender puts it into the request
+# path, so anything else could rewrite that URL. FCM tokens travel in a JSON
+# body and are left alone: their format is not documented closely enough to
+# reject one safely, and a rejected registration costs every alert silently.
+_APNS_TOKEN = re.compile(r"^[0-9A-Fa-f]+$")
+
+PlayerId = Annotated[str, Field(min_length=1, max_length=256)]
 
 
 class PushSubscription(BaseModel):
@@ -49,7 +60,7 @@ class PushSubscription(BaseModel):
         ),
         examples=["production"],
     )
-    player_ids: list[str] = Field(
+    player_ids: list[PlayerId] = Field(
         ...,
         description=(
             "Players this device wants rank alerts for. Replaces the previous "
@@ -84,6 +95,13 @@ class PushSubscription(BaseModel):
         max_length=64,
         examples=["Europe/Berlin"],
     )
+
+    @model_validator(mode="after")
+    def _apns_token_is_hex(self) -> Self:
+        if self.platform == PushPlatform.IOS and not _APNS_TOKEN.match(self.token):
+            msg = "An iOS token must be the hex APNs device token"
+            raise ValueError(msg)
+        return self
 
 
 class PushSubscriptionAck(BaseModel):

@@ -10,7 +10,8 @@ if TYPE_CHECKING:
 
     from tests.fake_storage import FakeStorage
 
-REGISTRATION_ID = "fMEP0vJqS0y-test-device-0000000000000"
+REGISTRATION_ID = "0123456789abcdef" * 4  # APNs tokens are hex
+FCM_REGISTRATION_ID = "fMEP0vJqS0y:APA91bH-test_device-0000000000000"
 
 
 def _body(**overrides) -> dict:
@@ -129,9 +130,22 @@ def test_delete_is_idempotent(client: TestClient):
         ("player_ids", []),
         ("player_ids", [f"P-{i}" for i in range(51)]),
         ("token", "short"),
+        ("token", "not-hex-but-long-enough"),
+        ("token", f"{REGISTRATION_ID}/../../evil"),
+        ("player_ids", [""]),
+        ("player_ids", ["x" * 257]),
     ],
 )
 def test_rejects_invalid_input(client: TestClient, field: str, value):
     response = client.put("/push/subscriptions", json=_body(**{field: value}))
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+def test_android_keeps_its_fcm_token_format(client: TestClient):
+    """FCM tokens are not hex; the hex rule is for APNs alone."""
+    response = client.put(
+        "/push/subscriptions", json=_body(token=FCM_REGISTRATION_ID, platform="android")
+    )
+
+    assert response.status_code == status.HTTP_200_OK
