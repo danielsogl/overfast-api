@@ -5,11 +5,15 @@ from __future__ import annotations
 import datetime as dt
 import json
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.adapters.storage.postgres_storage import PostgresStorage
+from app.adapters.storage.postgres_storage import (
+    _SCHEMA_LOCK_ID,
+    _SCHEMA_SQL,
+    PostgresStorage,
+)
 from app.domain.ports.storage import StaticDataCategory
 
 
@@ -20,6 +24,8 @@ def _make_connection(fetchrow_result=None, fetch_result=None):
     conn.execute = AsyncMock(return_value="DELETE 3")
     conn.fetchrow = AsyncMock(return_value=fetchrow_result)
     conn.fetch = AsyncMock(return_value=fetch_result or [])
+    # asyncpg's transaction() is a plain call returning an async context manager.
+    conn.transaction = MagicMock()
     return conn
 
 
@@ -93,6 +99,19 @@ class TestInitialize:
 
         assert storage._initialized is True
         conn.execute.assert_awaited()  # schema creation
+
+    @pytest.mark.asyncio
+    async def test_schema_runs_under_an_advisory_lock_in_one_transaction(self):
+        """Concurrent processes on a fresh database must queue, not collide."""
+        pool, conn = _make_pool()
+        storage = _make_storage(pool)
+
+        await storage._create_schema()
+
+        conn.transaction.assert_called_once()
+        lock, schema = conn.execute.await_args_list
+        assert lock.args == ("SELECT pg_advisory_xact_lock($1)", _SCHEMA_LOCK_ID)
+        assert schema.args == (_SCHEMA_SQL,)
 
     @pytest.mark.asyncio
     async def test_initialize_idempotent(self):

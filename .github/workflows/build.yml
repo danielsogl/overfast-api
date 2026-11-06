@@ -65,6 +65,11 @@ jobs:
       - name: Run persistence test
         run: bash scripts/persistence-test.sh
 
+      # App, worker and scheduler all create the schema at startup; on an empty
+      # database they used to collide and kill the app container.
+      - name: Run concurrent schema creation test
+        run: bash scripts/schema-race-test.sh
+
       - name: Run static cache purge test
         run: bash scripts/purge-cache-test.sh
 
