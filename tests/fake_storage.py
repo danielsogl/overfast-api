@@ -6,7 +6,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from app.domain.parsers import PARSER_VERSION
+from app.domain.parsers import DATA_VERSION
 
 if TYPE_CHECKING:
     from datetime import date
@@ -55,7 +55,7 @@ class FakeStorage:
         key: str,
         data: str,
         category: StaticDataCategory,
-        data_version: int = PARSER_VERSION,
+        data_version: int = DATA_VERSION,
         parsed: dict | list | None = None,
     ) -> None:
         now = int(time.time())
@@ -73,7 +73,7 @@ class FakeStorage:
         self,
         key: str,
         parsed: dict | list,
-        data_version: int = PARSER_VERSION,
+        data_version: int = DATA_VERSION,
     ) -> None:
         existing = self._static.get(key)
         if existing is None:
@@ -109,7 +109,7 @@ class FakeStorage:
         battletag: str | None = None,
         name: str | None = None,
         last_updated_blizzard: int | None = None,
-        data_version: int = PARSER_VERSION,
+        data_version: int = DATA_VERSION,
         parsed: dict | None = None,
     ) -> None:
         now = int(time.time())
@@ -132,7 +132,7 @@ class FakeStorage:
         self,
         player_id: str,
         parsed: dict,
-        data_version: int = PARSER_VERSION,
+        data_version: int = DATA_VERSION,
     ) -> None:
         existing = self._profiles.get(player_id)
         if existing is None:

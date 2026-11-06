@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.config import settings
 from app.domain.exceptions import ParserInternalError, ParserParsingError
-from app.domain.parsers import PARSER_VERSION
+from app.domain.parsers import DATA_VERSION
 from app.domain.ports.storage import StaticDataCategory
 from app.domain.services import BaseService, SwrResult
 from app.infrastructure.logger import logger
@@ -176,7 +176,7 @@ class StaticDataService(BaseService):
         if config.parser is None:
             return await self._parse_stored(stored["raw"], config)
 
-        if stored["parsed"] is not None and stored["data_version"] == PARSER_VERSION:
+        if stored["parsed"] is not None and stored["data_version"] == DATA_VERSION:
             return stored["parsed"]
 
         parsed = await self._parse_stored(stored["raw"], config)
@@ -195,7 +195,7 @@ class StaticDataService(BaseService):
             await self.storage.set_static_data_parsed(
                 key=storage_key,
                 parsed=parsed,
-                data_version=PARSER_VERSION,
+                data_version=DATA_VERSION,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
@@ -269,7 +269,7 @@ class StaticDataService(BaseService):
                 key=storage_key,
                 data=raw,
                 category=StaticDataCategory(entity_type),
-                data_version=PARSER_VERSION,
+                data_version=DATA_VERSION,
                 parsed=parsed,
             )
         except Exception as exc:  # noqa: BLE001

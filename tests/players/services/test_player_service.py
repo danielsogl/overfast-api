@@ -21,7 +21,7 @@ from app.domain.models.player import (
     PlayerIdentity,
     PlayerProfileData,
 )
-from app.domain.parsers import PARSER_VERSION
+from app.domain.parsers import DATA_VERSION
 from app.domain.services.player_service import (
     _INFLIGHT_LOCKS,
     _PARSED_PROFILE_CACHE,
@@ -890,7 +890,7 @@ class TestParseStoredWriteBack:
             html=_TEKROP_HTML,
             summary=_PLAYER_SUMMARY,
             parsed={"summary": {"username": "stored"}, "stats": {}},
-            data_version=PARSER_VERSION,
+            data_version=DATA_VERSION,
         )
         svc = _make_service(storage=storage)
 
@@ -920,7 +920,7 @@ class TestParseStoredWriteBack:
             html=_TEKROP_HTML,
             summary=_PLAYER_SUMMARY,
             parsed={"summary": {"username": "old"}, "stats": {}},
-            data_version=PARSER_VERSION - 1,
+            data_version=DATA_VERSION - 1,
         )
         svc = _make_service(storage=storage)
 
@@ -946,7 +946,7 @@ class TestParseStoredWriteBack:
         row = await storage.get_player_profile("abc123|def456")
         assert row is not None
         assert row["parsed"] == {"summary": {"username": "fresh"}, "stats": {}}
-        assert row["data_version"] == PARSER_VERSION
+        assert row["data_version"] == DATA_VERSION
 
     @pytest.mark.asyncio
     async def test_missing_parsed_parses_and_writes_back(self):
@@ -979,7 +979,7 @@ class TestParseStoredWriteBack:
         row = await storage.get_player_profile("abc123|def456")
         assert row is not None
         assert row["parsed"] is not None
-        assert row["data_version"] == PARSER_VERSION
+        assert row["data_version"] == DATA_VERSION
 
     @pytest.mark.asyncio
     async def test_write_back_failure_does_not_break_the_request(self):
@@ -988,7 +988,7 @@ class TestParseStoredWriteBack:
             "abc123|def456",
             html=_TEKROP_HTML,
             summary=_PLAYER_SUMMARY,
-            data_version=PARSER_VERSION - 1,
+            data_version=DATA_VERSION - 1,
         )
         svc = _make_service(storage=storage)
 
@@ -1024,7 +1024,7 @@ class TestParseStoredWriteBack:
             "abc123|def456",
             html=_TEKROP_HTML,
             summary=_PLAYER_SUMMARY,
-            data_version=PARSER_VERSION - 1,
+            data_version=DATA_VERSION - 1,
         )
         original_updated_at = storage._profiles["abc123|def456"]["updated_at"]
         svc = _make_service(storage=storage)
@@ -1094,7 +1094,7 @@ class TestParseStoredWriteBack:
         row = await svc.storage.get_player_profile("abc123|def456")
         assert row is not None
         assert row["parsed"] == {"summary": {"username": "fresh"}, "stats": {}}
-        assert row["data_version"] == PARSER_VERSION
+        assert row["data_version"] == DATA_VERSION
 
     @pytest.mark.asyncio
     async def test_refresh_persists_parsed_profile(self):
@@ -1129,7 +1129,7 @@ class TestParseStoredWriteBack:
         row = await storage.get_player_profile("abc123|def456")
         assert row is not None
         assert row["parsed"] == {"summary": {"username": "fresh"}, "stats": {}}
-        assert row["data_version"] == PARSER_VERSION
+        assert row["data_version"] == DATA_VERSION
 
 
 # ---------------------------------------------------------------------------

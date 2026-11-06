@@ -199,6 +199,13 @@ else
     log "nginx container was replaced by compose."
 fi
 
+# ── Step 7b: Drop the cached CSV-backed responses ────────────────────────────
+# After every process runs the new image, so none can write the old values back.
+# Non-fatal: a failed purge leaves entries that expire within 24h, not an outage.
+log "Purging cached /heroes, /maps and /gamemodes responses..."
+bash scripts/purge-static-cache.sh 2>&1 | tee -a "$LOG_FILE" \
+    || log "WARNING: static cache purge failed, entries expire within 24h."
+
 # ── Step 8: Final health assertion ───────────────────────────────────────────
 log "Verifying all containers are healthy..."
 sleep 5
