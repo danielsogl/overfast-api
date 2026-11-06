@@ -31,6 +31,27 @@ class InterceptHandler(logging.Handler):
         )
 
 
+PUSH_SUBSCRIPTION_PATH = "/push/subscriptions/"
+
+
+class MaskPushTokens(logging.Filter):
+    """Drop the device token from uvicorn's access line for DELETE
+    /push/subscriptions/{token}: the token is the only proof of owning a
+    subscription, and access.log is kept for a year."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        # uvicorn's access line: (client, method, path, http_version, status)
+        if (
+            isinstance(args, tuple)
+            and len(args) == 5  # noqa: PLR2004
+            and isinstance(args[2], str)
+            and args[2].startswith(PUSH_SUBSCRIPTION_PATH)
+        ):
+            record.args = (*args[:2], f"{PUSH_SUBSCRIPTION_PATH}<token>", *args[3:])
+        return True
+
+
 def _setup_logger():
     log_format = (
         "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
@@ -57,6 +78,7 @@ def _setup_logger():
     )
     logging.basicConfig(handlers=[InterceptHandler()], level=0)
     logging.getLogger("uvicorn.access").handlers = [InterceptHandler()]
+    logging.getLogger("uvicorn.access").addFilter(MaskPushTokens())
     for _log in ("uvicorn", "uvicorn.error", "fastapi"):
         logging.getLogger(_log).handlers = [InterceptHandler()]
     return loguru_logger.bind(method=None)
