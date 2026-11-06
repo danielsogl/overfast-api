@@ -2,6 +2,64 @@
 
 <!-- version list -->
 
+## v4.27.5 (2026-11-06)
+
+### Bug Fixes
+
+- **storage**: Serialise schema creation with an advisory lock
+  ([#79](https://github.com/danielsogl/overfast-api/pull/79),
+  [`4928581`](https://github.com/danielsogl/overfast-api/commit/4928581a368068300c0cb71d5da9544dd8528f9f))
+
+
+## v4.27.4 (2026-11-06)
+
+### Bug Fixes
+
+- **heroes**: Apply the November 3 hitpoint changes
+  ([#75](https://github.com/danielsogl/overfast-api/pull/75),
+  [`05ba546`](https://github.com/danielsogl/overfast-api/commit/05ba546d345f21e5d29ed577b4be1489c4e3b3e4))
+
+- **heroes**: Split hero stats parsing errors and log the offending payload
+  ([#77](https://github.com/danielsogl/overfast-api/pull/77),
+  [`818e6a4`](https://github.com/danielsogl/overfast-api/commit/818e6a4476b916ec2ad4ed448876b3e97cee86dd))
+
+- **players**: Reject non-English career pages and tolerate a missing search avatar
+  ([#76](https://github.com/danielsogl/overfast-api/pull/76),
+  [`22f9c7c`](https://github.com/danielsogl/overfast-api/commit/22f9c7cb58acba5e0c252f77cb526503c04afc4d))
+
+### Build System
+
+- Upgrade to Python 3.15, uv 0.13.7 and OpenResty 1.31.8.1
+  ([#68](https://github.com/danielsogl/overfast-api/pull/68),
+  [`454cb56`](https://github.com/danielsogl/overfast-api/commit/454cb56d72a23bb54d689dffac9d381d4d4e95f0))
+
+- **deps**: Bump all dependencies ([#67](https://github.com/danielsogl/overfast-api/pull/67),
+  [`e0c1e05`](https://github.com/danielsogl/overfast-api/commit/e0c1e053d0bf81fe9a79d7c95b22d0be179bb61d))
+
+- **deps**: Bump all dependencies ([#64](https://github.com/danielsogl/overfast-api/pull/64),
+  [`2495635`](https://github.com/danielsogl/overfast-api/commit/2495635b0f5aedfd74cebe879d91695e0de7c87e))
+
+- **postgres**: Move to postgres 18 behind a deploy gate
+  ([#69](https://github.com/danielsogl/overfast-api/pull/69),
+  [`198c5eb`](https://github.com/danielsogl/overfast-api/commit/198c5eb43134ad06710de61f005b4821fc650309))
+
+### Chores
+
+- Track base images in Dependabot and clean up tooling and docs
+  ([`50e60fc`](https://github.com/danielsogl/overfast-api/commit/50e60fc50935a10e7e9dce369f2fc3c71e584100))
+
+- **api**: Remove the documentation UI
+  ([`e185709`](https://github.com/danielsogl/overfast-api/commit/e185709489ce4a3f370bf6c95f6a6afea48141ba))
+
+### Continuous Integration
+
+- Add one-shot workflow for the postgres 18 migration
+  ([`2eee908`](https://github.com/danielsogl/overfast-api/commit/2eee90828b3bfbaf3c4f46b4349f5935d193868a))
+
+- Remove the one-shot postgres 18 migration workflow
+  ([`145e49a`](https://github.com/danielsogl/overfast-api/commit/145e49af8a1904d722952e7d62cc31c0c9ac0bf2))
+
+
 ## v4.27.3 (2026-10-18)
 
 ### Bug Fixes

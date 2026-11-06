@@ -7,6 +7,7 @@ This module handles parsing of player profile HTML including:
 - Career stats (detailed statistics per hero)
 """
 
+import re
 from http import HTTPStatus
 from typing import TYPE_CHECKING, cast
 
@@ -69,6 +70,38 @@ GAMEMODES_DIV_MAPPING = {
 }
 
 
+_HTML_LANG = re.compile(
+    r"""<html[^>]*\slang\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))""", re.IGNORECASE
+)
+
+
+def get_html_lang(html: str) -> str | None:
+    """Return the ``<html lang>`` value, or None when there is none."""
+    match = _HTML_LANG.search(html)
+    return next(g for g in match.groups() if g is not None) if match else None
+
+
+def is_expected_html_locale(html: str) -> bool:
+    """False only for a page that declares a non-English language.
+
+    Blizzard occasionally serves a localised career page for the en-us URL.
+    Parsed, it yields wrong stat keys and numbers, and here that would end up in
+    stored snapshots, which cannot be refetched, and in rank alerts. A missing
+    ``lang`` proves nothing, so it passes.
+    """
+    lang = get_html_lang(html)
+    return lang is None or lang.lower() == "en" or lang.lower().startswith("en-")
+
+
+def validate_html_locale(html: str) -> None:
+    """Raise 502 for a localised page, before anything parses or stores it."""
+    if not is_expected_html_locale(html):
+        raise ParserBlizzardError(
+            status_code=HTTPStatus.BAD_GATEWAY.value,
+            message=f"Unexpected page locale: {get_html_lang(html)!r}",
+        )
+
+
 async def fetch_player_html(
     client: BlizzardClientPort, player_id: str
 ) -> tuple[str, str | None]:
@@ -88,13 +121,16 @@ async def fetch_player_html(
         Tuple of (HTML content, Blizzard ID extracted from redirect URL)
 
     Raises:
-        ParserBlizzardError: If player not found (404)
+        ParserBlizzardError: If player not found (404), or if Blizzard served a
+            non-English page (502)
     """
 
     url = build_blizzard_url(settings.career_path, player_id)
 
     response = await client.get(url)
     validate_response_status(response, valid_codes=[200, 404])
+    if response.status_code == HTTPStatus.OK:
+        validate_html_locale(response.text)
 
     # Extract Blizzard ID from final URL (after redirect)
     blizzard_id = extract_blizzard_id_from_url(str(response.url))

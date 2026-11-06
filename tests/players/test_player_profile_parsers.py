@@ -275,7 +275,9 @@ class TestFetchPlayerHtml:
     @pytest.mark.asyncio
     async def test_battletag_player_id_is_url_quoted(self):
         """A raw BattleTag player_id is percent-quoted in the request URL."""
-        mock_response = Mock(status_code=status.HTTP_200_OK, url="https://example.com")
+        mock_response = Mock(
+            status_code=status.HTTP_200_OK, url="https://example.com", text=_TEKROP_HTML
+        )
 
         with patch("httpx2.AsyncClient.get", return_value=mock_response) as mock_get:
             client = BlizzardClient()
@@ -288,7 +290,9 @@ class TestFetchPlayerHtml:
     async def test_blizzard_id_player_id_is_not_double_encoded(self):
         """A player_id already in %7C-encoded Blizzard ID form isn't double-quoted."""
         blizzard_id = "df51a381fe20caf8baa7%7C0bf3b4c47cbebe84b8db9c676a4e9c1f"
-        mock_response = Mock(status_code=status.HTTP_200_OK, url="https://example.com")
+        mock_response = Mock(
+            status_code=status.HTTP_200_OK, url="https://example.com", text=_TEKROP_HTML
+        )
 
         with patch("httpx2.AsyncClient.get", return_value=mock_response) as mock_get:
             client = BlizzardClient()
@@ -297,6 +301,70 @@ class TestFetchPlayerHtml:
         requested_url = mock_get.call_args.args[0]
         assert requested_url.endswith(f"/{blizzard_id}/")
         assert "%25" not in requested_url
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "html",
+        [
+            '<html lang="it-IT"><body></body></html>',
+            '<html lang="de"><body></body></html>',
+            "<html lang='it-IT'><body></body></html>",
+            "<html lang=it-IT><body></body></html>",
+            '<html lang = "it-IT"><body></body></html>',
+            '<html class="x" lang="fr-FR"><body></body></html>',
+        ],
+    )
+    async def test_non_english_page_is_rejected(self, html: str):
+        """A 200 page that declares another language is a 502, never parsed."""
+        mock_response = Mock(
+            status_code=status.HTTP_200_OK, url="https://example.com", text=html
+        )
+
+        with (
+            patch("httpx2.AsyncClient.get", return_value=mock_response),
+            pytest.raises(ParserBlizzardError) as exc_info,
+        ):
+            await fetch_player_html(BlizzardClient(), "TeKrop-2217")
+
+        assert exc_info.value.status_code == status.HTTP_502_BAD_GATEWAY
+        assert "Unexpected page locale" in str(exc_info.value.message)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "html",
+        [
+            '<html lang="en-US"><body></body></html>',
+            '<html lang="EN-us"><body></body></html>',
+            '<html lang="en-GB"><body></body></html>',
+            '<html lang="en"><body></body></html>',
+            '<HTML LANG="en-us"><body></body></HTML>',
+            "<html><body></body></html>",
+        ],
+    )
+    async def test_english_or_unlabeled_page_is_accepted(self, html: str):
+        """Any en-* page, or one without a lang attribute, passes."""
+        mock_response = Mock(
+            status_code=status.HTTP_200_OK, url="https://example.com", text=html
+        )
+
+        with patch("httpx2.AsyncClient.get", return_value=mock_response):
+            result, _ = await fetch_player_html(BlizzardClient(), "TeKrop-2217")
+
+        assert result == html
+
+    @pytest.mark.asyncio
+    async def test_not_found_page_skips_locale_check(self):
+        """A 404 response is returned as-is, whatever its lang."""
+        mock_response = Mock(
+            status_code=status.HTTP_404_NOT_FOUND,
+            url="https://example.com",
+            text='<html lang="it-IT"></html>',
+        )
+
+        with patch("httpx2.AsyncClient.get", return_value=mock_response):
+            html, _ = await fetch_player_html(BlizzardClient(), "TeKrop-2217")
+
+        assert html == '<html lang="it-IT"></html>'
 
 
 class TestUnknownCompetitiveDivision:

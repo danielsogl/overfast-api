@@ -24,6 +24,12 @@ if TYPE_CHECKING:
 
 _SCHEMA_SQL = (Path(__file__).parent / "schema.sql").read_text()
 
+# Any fixed bigint, unique to this lock within the database. App, worker and
+# scheduler run schema.sql at the same moment on a fresh database, and
+# CREATE TYPE / CREATE TABLE IF NOT EXISTS are not safe against each other there:
+# the loser fails with a UniqueViolationError on pg_type and its container dies.
+_SCHEMA_LOCK_ID = 7_041_872_026
+
 
 class PostgresStorage(metaclass=Singleton):
     """
@@ -94,8 +100,16 @@ class PostgresStorage(metaclass=Singleton):
             logger.info("PostgreSQL storage initialized")
 
     async def _create_schema(self) -> None:
-        """Create enum type and tables if they don't exist."""
-        async with self._pool.acquire() as conn:  # type: ignore[union-attr]
+        """Create enum type and tables if they don't exist.
+
+        One process at a time: the transaction-scoped advisory lock queues the
+        others, and they find the schema in place when it is their turn.
+        """
+        async with (
+            self._pool.acquire() as conn,  # type: ignore[union-attr]
+            conn.transaction(),
+        ):
+            await conn.execute("SELECT pg_advisory_xact_lock($1)", _SCHEMA_LOCK_ID)
             await conn.execute(_SCHEMA_SQL)
 
     async def close(self) -> None:

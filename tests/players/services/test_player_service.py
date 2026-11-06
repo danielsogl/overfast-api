@@ -223,6 +223,42 @@ class TestGetStoredProfile:
         assert age == 99999  # noqa: PLR2004
 
     @pytest.mark.asyncio
+    async def test_stored_localised_profile_is_not_served(self):
+        """A page stored before the locale check existed forces a refetch."""
+        storage = FakeStorage()
+        await storage.set_player_profile(
+            "abc123", html='<html lang="it-IT"></html>', summary=_PLAYER_SUMMARY
+        )
+        svc = _make_service(storage=storage)
+        with patch(
+            "app.domain.services.player_service.is_blizzard_id", return_value=True
+        ):
+            result = await svc._get_stored_profile("abc123")
+
+        assert result == (None, 0)
+
+    @pytest.mark.asyncio
+    async def test_stored_localised_html_is_refetched_not_reused(self):
+        """An unchanged lastUpdated must not reuse a localised stored page."""
+        storage = FakeStorage()
+        await storage.set_player_profile(
+            "abc123", html='<html lang="it-IT"></html>', summary=_PLAYER_SUMMARY
+        )
+        svc = _make_service(storage=storage)
+        identity = PlayerIdentity(player_summary=_TYPED_PLAYER_SUMMARY)
+        with patch(
+            "app.domain.services.player_service.fetch_player_html",
+            AsyncMock(return_value=(_TEKROP_HTML, None)),
+        ) as fetch:
+            html = await svc._get_player_html("abc123", identity)
+
+        fetch.assert_awaited_once()
+        assert html == _TEKROP_HTML
+        stored = await storage.get_player_profile("abc123")
+        assert stored is not None
+        assert stored["html"] == _TEKROP_HTML
+
+    @pytest.mark.asyncio
     async def test_fresh_profile_returns_tuple(self):
         storage = FakeStorage()
         await storage.set_player_profile(

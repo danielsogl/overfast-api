@@ -1,7 +1,8 @@
 """Stateless parser functions for hero stats summary (pickrate/winrate from Blizzard API)"""
 
+import reprlib
 from http import HTTPStatus
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.config import settings
 from app.domain.enums import (
@@ -20,6 +21,10 @@ from app.infrastructure.logger import logger
 
 if TYPE_CHECKING:
     from app.domain.ports import BlizzardClientPort
+
+# Bounded repr for error logs. The rates payload is aggregate per-hero data,
+# nothing personal; the bounds keep one broken response from flooding the log.
+_LOG_REPR = reprlib.Repr(maxlevel=6, maxdict=10, maxlist=6, maxstring=200, maxother=500)
 
 # Mappings for query parameters
 PLATFORM_MAPPING: dict[PlayerPlatform, str] = {
@@ -105,7 +110,11 @@ def parse_hero_stats_json(
         # but it's a constant 0 when the metric isn't part of "columns".
         has_banrate = _is_column_available(json_data, "banrate")
     except (KeyError, TypeError) as error:
-        msg = f"Unexpected Blizzard hero stats JSON structure: {error!r}"
+        msg = (
+            "Unexpected Blizzard hero stats JSON structure (top level, "
+            f"map={map_filter}, gamemode={gamemode}, rq={gamemode_filter}): {error!r}"
+        )
+        logger.error("{} | payload: {}", msg, _LOG_REPR.repr(json_data))
         raise ParserParsingError(msg) from error
 
     # Validate gamemode filter against selected according to Blizzard response
@@ -126,45 +135,51 @@ def parse_hero_stats_json(
         )
 
     # Filter by role and transform to simplified format; raise ParserParsingError on
-    # unexpected per-entry shape.
+    # unexpected per-entry shape. One loop rather than three comprehensions, so a
+    # failure can name the entry it failed on.
+    hero_stats: list[dict[str, Any]] = []
+    culprit: Any = rates
     try:
-        hero_stats = [
-            rate
-            for rate in rates
+        for rate in rates:
+            culprit = rate
             # Blizzard carries both on every row, and the enums are disjoint, so
             # one parameter can accept either without ambiguity.
-            if role_filter is None
-            or role_filter
-            in (
+            if role_filter is not None and role_filter not in (
                 rate["hero"]["role"].lower(),
                 (rate["hero"].get("subrole") or "").lower(),
+            ):
+                continue
+            # Same reason as parse_heroes_html: HeroStatsSummary.hero is typed
+            # HeroKey, so one hero Blizzard ranks before we add the row failed
+            # response validation and 500ed the entire endpoint. The daily drift
+            # check reports the missing key within 24h either way.
+            if not _is_known_hero(rate["id"]):
+                continue
+            hero_stats.append(
+                {
+                    "hero": rate["id"],
+                    "pickrate": _normalize_rate(rate["cells"]["pickrate"]),
+                    "winrate": _normalize_rate(rate["cells"]["winrate"]),
+                    "banrate": (
+                        _normalize_rate(rate["cells"]["banrate"])
+                        if has_banrate
+                        else None
+                    ),
+                    # Blizzard sends these on every row and the endpoint already
+                    # filters on role and subrole — it just never reported them, so
+                    # a client grouping a stats table had to fetch /heroes as well.
+                    "role": rate["hero"]["role"].lower(),
+                    "subrole": (rate["hero"].get("subrole") or "").lower() or None,
+                    "color": _normalize_color(rate["hero"].get("color")),
+                }
             )
-        ]
-        # Same reason as parse_heroes_html: HeroStatsSummary.hero is typed
-        # HeroKey, so one hero Blizzard ranks before we add the row failed
-        # response validation and 500ed the entire endpoint. The daily drift
-        # check reports the missing key within 24h either way.
-        hero_stats = [rate for rate in hero_stats if _is_known_hero(rate["id"])]
-
-        hero_stats = [
-            {
-                "hero": rate["id"],
-                "pickrate": _normalize_rate(rate["cells"]["pickrate"]),
-                "winrate": _normalize_rate(rate["cells"]["winrate"]),
-                "banrate": (
-                    _normalize_rate(rate["cells"]["banrate"]) if has_banrate else None
-                ),
-                # Blizzard sends these on every row and the endpoint already
-                # filters on role and subrole — it just never reported them, so
-                # a client grouping a stats table had to fetch /heroes as well.
-                "role": rate["hero"]["role"].lower(),
-                "subrole": (rate["hero"].get("subrole") or "").lower() or None,
-                "color": _normalize_color(rate["hero"].get("color")),
-            }
-            for rate in hero_stats
-        ]
     except (KeyError, TypeError) as error:
-        msg = f"Unexpected Blizzard hero stats JSON structure: {error!r}"
+        msg = (
+            "Unexpected Blizzard hero stats JSON structure (rate entry, "
+            f"map={map_filter}, gamemode={gamemode}, rq={gamemode_filter}, "
+            f"role={role_filter}): {error!r}"
+        )
+        logger.error("{} | offending entry: {}", msg, _LOG_REPR.repr(culprit))
         raise ParserParsingError(msg) from error
 
     # Apply ordering. banrate is None for gamemodes without hero bans, and None
