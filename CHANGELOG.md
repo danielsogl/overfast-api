@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v4.28.1 (2026-11-06)
+
+### Bug Fixes
+
+- **drift**: Count only the newest patch note per hero and column
+  ([#80](https://github.com/danielsogl/overfast-api/pull/80),
+  [`58cd6e2`](https://github.com/danielsogl/overfast-api/commit/58cd6e216b57d96f39335c924705d28d95e80a76))
+
+
 ## v4.28.0 (2026-11-06)
 
 ### Features
