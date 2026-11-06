@@ -265,6 +265,53 @@ class TestRotationMapParsing:
         assert result == {}
 
 
+class TestMapsInRotationUses:
+    """A map Blizzard rotates must be tagged as standard play in maps.csv."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_findings(self):
+        drift.failures.clear()
+        drift.warnings.clear()
+
+    @staticmethod
+    def _run(busan_uses: str) -> None:
+        rows = [
+            {
+                "key": "busan",
+                "name": "Busan",
+                "gamemodes": "control",
+                "uses": busan_uses,
+            },
+            {
+                "key": "ilios",
+                "name": "Ilios",
+                "gamemodes": "control",
+                "uses": "standard",
+            },
+            {
+                "key": "kings-row",
+                "name": "King's Row",
+                "gamemodes": "hybrid",
+                "uses": "standard",
+            },
+        ]
+        with patch.object(drift, "read_csv_file", return_value=rows):
+            drift.check_maps_in_rotation(TestRotationMapParsing._SELECT)
+
+    def test_standard_map_in_rotation_passes(self):
+        self._run("standard,stadium")
+
+        assert drift.failures == []
+        assert drift.warnings == []
+
+    def test_rotated_map_not_tagged_standard_fails(self):
+        self._run("stadium")
+
+        assert drift.failures == [
+            "map 'busan' is in rotation but its uses are 'stadium'"
+        ]
+
+
 class TestRotationTierParsing:
     """A division Blizzard adds and the enum lacks is a ValueError on every
     profile ranked there, so this dropdown is the earliest warning available."""
