@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v4.28.0 (2026-11-06)
+
+### Features
+
+- **maps**: Add uses to /maps ([#78](https://github.com/danielsogl/overfast-api/pull/78),
+  [`0ff7586`](https://github.com/danielsogl/overfast-api/commit/0ff75865be72aa25c46a6fc43cb38c24dd0a4b9b))
+
+
 ## v4.27.6 (2026-11-06)
 
 ### Bug Fixes
