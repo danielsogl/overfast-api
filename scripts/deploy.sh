@@ -199,12 +199,15 @@ else
     log "nginx container was replaced by compose."
 fi
 
-# ── Step 7b: Drop the cached CSV-backed responses ────────────────────────────
-# After every process runs the new image, so none can write the old values back.
-# Non-fatal: a failed purge leaves entries that expire within 24h, not an outage.
-log "Purging cached /heroes, /maps and /gamemodes responses..."
-bash scripts/purge-static-cache.sh 2>&1 | tee -a "$LOG_FILE" \
-    || log "WARNING: static cache purge failed, entries expire within 24h."
+# ── Step 7b: Drop responses rendered during the rollout ──────────────────────
+# The new app evicts the rendered responses when it starts, and the old one when
+# it stops, but the old worker keeps running until Step 5 restarts it and can
+# render with the old code and CSVs in between. Once every process runs the new
+# image, evict once more with the same function.
+# Non-fatal: entries left behind expire within 24h, which is not an outage.
+log "Evicting rendered API responses written during the rollout..."
+bash scripts/evict-rendered-cache.sh 2>&1 | tee -a "$LOG_FILE" \
+    || log "WARNING: rendered-response eviction failed, entries expire within 24h."
 
 # ── Step 8: Final health assertion ───────────────────────────────────────────
 log "Verifying all containers are healthy..."

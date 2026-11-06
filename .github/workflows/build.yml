@@ -70,7 +70,7 @@ jobs:
       - name: Run concurrent schema creation test
         run: bash scripts/schema-race-test.sh
 
-      - name: Run static cache purge test
+      - name: Run rendered-response eviction test
         run: bash scripts/purge-cache-test.sh
 
       # Replaces the stack's volumes, so it has to come after the checks above.
