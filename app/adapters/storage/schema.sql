@@ -155,7 +155,7 @@ END $$;
 -- app process, for output that never varies between two identical reads.
 --
 -- ``data_version`` is what keeps that safe. It already existed and was written
--- but never read; it now holds app.domain.parsers.PARSER_VERSION. A row whose
+-- but never read; it now holds app.domain.parsers.DATA_VERSION. A row whose
 -- stamp does not match is re-parsed once on read and written back, so a parser
 -- change still takes effect on the very next request.
 --

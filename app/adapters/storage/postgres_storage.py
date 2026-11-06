@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import asyncpg
 
 from app.config import settings
-from app.domain.parsers import PARSER_VERSION
+from app.domain.parsers import DATA_VERSION
 from app.domain.parsers.utils import normalize_player_id
 from app.infrastructure.logger import logger
 from app.infrastructure.metaclasses import Singleton
@@ -147,7 +147,7 @@ class PostgresStorage(metaclass=Singleton):
         key: str,
         data: str,
         category: StaticDataCategory,
-        data_version: int = PARSER_VERSION,
+        data_version: int = DATA_VERSION,
         parsed: dict | list | None = None,
     ) -> None:
         """Upsert static data. ``data`` is a raw string (HTML or JSON) compressed with zstd.
@@ -181,7 +181,7 @@ class PostgresStorage(metaclass=Singleton):
         self,
         key: str,
         parsed: dict | list,
-        data_version: int = PARSER_VERSION,
+        data_version: int = DATA_VERSION,
     ) -> None:
         """Write back a re-parse without touching the raw source or ``updated_at``.
 
@@ -258,7 +258,7 @@ class PostgresStorage(metaclass=Singleton):
         battletag: str | None = None,
         name: str | None = None,
         last_updated_blizzard: int | None = None,
-        data_version: int = PARSER_VERSION,
+        data_version: int = DATA_VERSION,
         parsed: dict | None = None,
     ) -> None:
         """Upsert player profile. HTML is zstd-compressed before storage.
@@ -301,7 +301,7 @@ class PostgresStorage(metaclass=Singleton):
         self,
         player_id: str,
         parsed: dict,
-        data_version: int = PARSER_VERSION,
+        data_version: int = DATA_VERSION,
     ) -> None:
         """Write back a re-parse without touching the HTML or ``updated_at``.
 

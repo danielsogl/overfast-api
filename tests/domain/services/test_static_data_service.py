@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.domain.exceptions import ParserParsingError
-from app.domain.parsers import PARSER_VERSION
+from app.domain.parsers import DATA_VERSION
 from app.domain.services.static_data_service import StaticDataService, StaticFetchConfig
 
 
@@ -198,7 +198,7 @@ class TestStoreInStorage:
 class TestParsedWriteThrough:
     @pytest.mark.asyncio
     async def test_fresh_fetch_stores_parsed_payload(self):
-        """A cold fetch stores both raw and parsed, stamped with PARSER_VERSION."""
+        """A cold fetch stores both raw and parsed, stamped with DATA_VERSION."""
         svc = _make_service()
         cast("Any", svc.storage).get_static_data.return_value = None
 
@@ -209,17 +209,17 @@ class TestParsedWriteThrough:
 
         call_kwargs = cast("Any", svc.storage).set_static_data.call_args.kwargs
         assert call_kwargs["parsed"] == parsed
-        assert call_kwargs["data_version"] == PARSER_VERSION
+        assert call_kwargs["data_version"] == DATA_VERSION
 
     @pytest.mark.asyncio
     async def test_storage_hit_with_current_version_skips_parser(self):
-        """A storage hit whose data_version matches PARSER_VERSION uses stored parsed as-is."""
+        """A storage hit whose data_version matches DATA_VERSION uses stored parsed as-is."""
         svc = _make_service()
         now = int(time.time())
         cast("Any", svc.storage).get_static_data.return_value = {
             "data": "raw-html",
             "parsed": [{"key": "ana"}],
-            "data_version": PARSER_VERSION,
+            "data_version": DATA_VERSION,
             "updated_at": now - 100,
         }
 
@@ -240,7 +240,7 @@ class TestParsedWriteThrough:
         cast("Any", svc.storage).get_static_data.return_value = {
             "data": "raw-html",
             "parsed": [{"key": "old"}],
-            "data_version": PARSER_VERSION - 1,
+            "data_version": DATA_VERSION - 1,
             "updated_at": now - 100,
         }
 
@@ -255,7 +255,7 @@ class TestParsedWriteThrough:
         ).set_static_data_parsed.call_args.kwargs
         assert write_back_kwargs["key"] == config.storage_key
         assert write_back_kwargs["parsed"] == parsed
-        assert write_back_kwargs["data_version"] == PARSER_VERSION
+        assert write_back_kwargs["data_version"] == DATA_VERSION
 
     @pytest.mark.asyncio
     async def test_storage_hit_with_missing_parsed_parses_and_writes_back(self):
@@ -265,7 +265,7 @@ class TestParsedWriteThrough:
         cast("Any", svc.storage).get_static_data.return_value = {
             "data": "raw-html",
             "parsed": None,
-            "data_version": PARSER_VERSION,
+            "data_version": DATA_VERSION,
             "updated_at": now - 100,
         }
 
@@ -286,7 +286,7 @@ class TestParsedWriteThrough:
         cast("Any", svc.storage).get_static_data.return_value = {
             "data": "old-layout-html",
             "parsed": None,
-            "data_version": PARSER_VERSION - 1,
+            "data_version": DATA_VERSION - 1,
             "updated_at": int(time.time()) - 100,
         }
 
@@ -340,7 +340,7 @@ class TestParsedWriteThrough:
         cast("Any", svc.storage).get_static_data.return_value = {
             "data": '[{"key": "old"}]',
             "parsed": [{"key": "should-not-be-used"}],
-            "data_version": PARSER_VERSION,
+            "data_version": DATA_VERSION,
             "updated_at": now - 100,
         }
 

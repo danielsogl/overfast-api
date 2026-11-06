@@ -23,7 +23,7 @@ from app.domain.models.player import (
     PlayerIdentity,
     PlayerProfileData,
 )
-from app.domain.parsers import PARSER_VERSION
+from app.domain.parsers import DATA_VERSION
 from app.domain.parsers.player_career_stats import process_career_stats
 from app.domain.parsers.player_profile import (
     extract_name_from_profile_html,
@@ -681,7 +681,7 @@ class PlayerService(BaseService):
         """
         if (
             profile.get("parsed") is not None
-            and profile.get("data_version") == PARSER_VERSION
+            and profile.get("data_version") == DATA_VERSION
         ):
             return profile["parsed"]
 
@@ -707,7 +707,7 @@ class PlayerService(BaseService):
             # StoragePort.set_player_profile_parsed takes a bare dict —
             # PlayerProfileData is one at runtime.
             await self.storage.set_player_profile_parsed(
-                player_id, cast("dict", parsed), data_version=PARSER_VERSION
+                player_id, cast("dict", parsed), data_version=DATA_VERSION
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
