@@ -30,7 +30,12 @@ limit_req_status 429;
 # This also covers what neither a bigger burst nor a client-side fix can:
 # several users behind one CGNAT egress share a bucket, so their reads alone
 # can exhaust ofreq no matter how well any single app behaves.
-limit_req_zone $binary_remote_addr zone=ofpush:10m rate=5r/s;
+#
+# 1r/s rather than 5r/s: a device writes here a few times a day, and burst=20
+# below still absorbs a CGNAT block registering at once. It bounds how many
+# subscriptions one address can create, which is all the API can do without
+# client attestation.
+limit_req_zone $binary_remote_addr zone=ofpush:10m rate=1r/s;
 
 # Docker DNS for both Lua and proxy_pass dynamic resolution.
 # valid=1s gives near-instant pickup of new container IPs during rolling
@@ -108,6 +113,10 @@ server {
     # calls this about three times a day, so it costs nothing here, and it is
     # what absorbs a whole CGNAT block registering at once.
     limit_req zone=ofpush burst=20 nodelay;
+
+    # DELETE carries the device token in the path, and knowing the token is
+    # what lets anyone change or delete that subscription.
+    access_log off;
 
     error_page 429 = @limit_reached;
 

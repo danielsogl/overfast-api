@@ -381,8 +381,15 @@ def hitpoint_findings(
 
     Returns ``(level, message)`` pairs so this stays pure and testable; the
     caller dispatches them to fail()/warn().
+
+    Only the newest note per hero and column counts. Blizzard lists the newest
+    month first and, within a month, the newest patch first, so that is the
+    first one met here. Judging every note on its own flagged Mauga's armor:
+    September 8 took it "from 150 to 125", November 3 put it back "from 125 to
+    150", and our correct 150 matched the older note's "before".
     """
     findings: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
 
     # Blizzard typos its own headings ("wrecking Ball"), so match loosely.
     by_heading = {name.lower(): name for name in rows}
@@ -428,6 +435,11 @@ def hitpoint_findings(
             known = plausible[column]
             if known and not (min(known) <= int(before) <= max(known)):
                 continue
+
+            # An older note for a column a newer note already covered is history.
+            if (hero, column) in seen:
+                continue
+            seen.add((hero, column))
 
             ours = row[column]
             if ours == after:
@@ -557,6 +569,8 @@ def check_maps_in_rotation(html: str) -> None:
                 f"map {key!r} is {gamemode} on Blizzard but "
                 f"{row['gamemodes']!r} in maps.csv"
             )
+        elif "standard" not in row["uses"].split(","):
+            fail(f"map {key!r} is in rotation but its uses are {row['uses']!r}")
         elif _normalise(name) != _normalise(row["name"]):
             warn(f"map {key!r} is named {name!r} on Blizzard, {row['name']!r} here")
 

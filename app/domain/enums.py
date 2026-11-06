@@ -89,6 +89,17 @@ class HeroGamemode(StrEnum):
     STADIUM = "stadium"
 
 
+class MapUse(StrEnum):
+    """Kind of play a map is used for: standard rotation, Stadium, Workshop,
+    Arcade or training."""
+
+    ARCADE = "arcade"
+    STANDARD = "standard"
+    STADIUM = "stadium"
+    TRAINING = "training"
+    WORKSHOP = "workshop"
+
+
 # Dynamically create the MapKey enum by using the CSV File
 maps_data = read_csv_file("maps")
 MapKey = StrEnum(

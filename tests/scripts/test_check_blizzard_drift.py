@@ -129,6 +129,52 @@ class TestStaleValueIsAFailure:
         assert "passive" not in findings[0][1]
 
 
+# Mauga's two armor notes, in page order: November 3, 2026 then September 8,
+# 2026. Wording from Blizzard's retail patch notes.
+_MAUGA_NOVEMBER = (
+    "Mauga",
+    (
+        "Restoring some of his base armor improves his survivability. "
+        "Base armor increased from 125 to 150."
+    ),
+)
+_MAUGA_SEPTEMBER = ("Mauga", "Base armor reduced from 150 to 125.")
+_MAUGA_ROWS = {
+    "Mauga": {"role": "tank", "health": "575", "armor": "150", "shields": "0"},
+    # The plausibility bound comes from all rows; these keep 125 inside it.
+    "D.Va": {"role": "tank", "health": "350", "armor": "325", "shields": "0"},
+    "Orisa": {"role": "tank", "health": "475", "armor": "100", "shields": "0"},
+}
+
+
+class TestOnlyTheNewestNoteCounts:
+    """Blizzard lists the newest patch first. A later note that undoes an
+    earlier one must win, whichever value the earlier one would match."""
+
+    def test_value_restored_by_the_newest_note_is_silent(self):
+        findings = hitpoint_findings([_MAUGA_NOVEMBER, _MAUGA_SEPTEMBER], _MAUGA_ROWS)
+
+        assert findings == []
+
+    def test_value_from_before_the_newest_note_still_fails(self):
+        rows = {
+            **_MAUGA_ROWS,
+            "Mauga": {**_MAUGA_ROWS["Mauga"], "armor": "125"},
+        }
+
+        findings = hitpoint_findings([_MAUGA_NOVEMBER, _MAUGA_SEPTEMBER], rows)
+
+        assert findings == [
+            (
+                "fail",
+                (
+                    "Mauga armor is 125, but Blizzard changed it to 150 "
+                    "(patch note: armor from 125 to 150)"
+                ),
+            )
+        ]
+
+
 class TestCurrentValueIsSilent:
     """A run that reports nothing is the normal state; noise gets ignored."""
 
@@ -263,6 +309,53 @@ class TestRotationMapParsing:
         result = parse_rotation_maps("<html><body>no dropdown here</body></html>")
 
         assert result == {}
+
+
+class TestMapsInRotationUses:
+    """A map Blizzard rotates must be tagged as standard play in maps.csv."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_findings(self):
+        drift.failures.clear()
+        drift.warnings.clear()
+
+    @staticmethod
+    def _run(busan_uses: str) -> None:
+        rows = [
+            {
+                "key": "busan",
+                "name": "Busan",
+                "gamemodes": "control",
+                "uses": busan_uses,
+            },
+            {
+                "key": "ilios",
+                "name": "Ilios",
+                "gamemodes": "control",
+                "uses": "standard",
+            },
+            {
+                "key": "kings-row",
+                "name": "King's Row",
+                "gamemodes": "hybrid",
+                "uses": "standard",
+            },
+        ]
+        with patch.object(drift, "read_csv_file", return_value=rows):
+            drift.check_maps_in_rotation(TestRotationMapParsing._SELECT)
+
+    def test_standard_map_in_rotation_passes(self):
+        self._run("standard,stadium")
+
+        assert drift.failures == []
+        assert drift.warnings == []
+
+    def test_rotated_map_not_tagged_standard_fails(self):
+        self._run("stadium")
+
+        assert drift.failures == [
+            "map 'busan' is in rotation but its uses are 'stadium'"
+        ]
 
 
 class TestRotationTierParsing:
