@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v4.28.2 (2026-11-06)
+
+### Bug Fixes
+
+- **cache**: Apply CSV data changes on deploy
+  ([#81](https://github.com/danielsogl/overfast-api/pull/81),
+  [`1d4f9d2`](https://github.com/danielsogl/overfast-api/commit/1d4f9d27923c7707ba23ec230a24dce0b9cec48d))
+
+
 ## v4.28.1 (2026-11-06)
 
 ### Bug Fixes
