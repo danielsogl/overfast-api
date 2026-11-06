@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v4.27.5 (2026-11-06)
+
+### Bug Fixes
+
+- **storage**: Serialise schema creation with an advisory lock
+  ([#79](https://github.com/danielsogl/overfast-api/pull/79),
+  [`4928581`](https://github.com/danielsogl/overfast-api/commit/4928581a368068300c0cb71d5da9544dd8528f9f))
+
+
 ## v4.27.4 (2026-11-06)
 
 ### Bug Fixes
