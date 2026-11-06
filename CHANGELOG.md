@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v4.28.3 (2026-11-06)
+
+### Bug Fixes
+
+- **cache**: Make the deploy purge hit the keys the app writes
+  ([#82](https://github.com/danielsogl/overfast-api/pull/82),
+  [`07d6e55`](https://github.com/danielsogl/overfast-api/commit/07d6e55cd3db9974b1294f37dbd3130c489f55f7))
+
+
 ## v4.28.2 (2026-11-06)
 
 ### Bug Fixes
