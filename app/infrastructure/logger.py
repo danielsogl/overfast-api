@@ -1,12 +1,17 @@
 """Custom Logger Using Loguru, inspired by Riki-1mg gist custom_logging.py"""
 
 import logging
+import re
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from loguru import logger as loguru_logger
 
 from app.config import settings
+
+if TYPE_CHECKING:
+    from loguru import Record
 
 
 class InterceptHandler(logging.Handler):
@@ -31,25 +36,21 @@ class InterceptHandler(logging.Handler):
         )
 
 
-PUSH_SUBSCRIPTION_PATH = "/push/subscriptions/"
+# Push device tokens are the only proof of owning a subscription. They reach log lines through URLs: our own DELETE
+# /push/subscriptions/{token} in uvicorn's access line, and the APNs request
+# path /3/device/{token} in httpx2's "HTTP Request:" line and in its error
+# messages. FCM tokens travel in the request body, which nothing logs. One
+# patcher on every record covers all of them, whichever logger wrote it.
+_PUSH_TOKEN_IN_URL = re.compile(r"(/push/subscriptions/|/3/device/)[^\s\"'?#]+")
 
 
-class MaskPushTokens(logging.Filter):
-    """Drop the device token from uvicorn's access line for DELETE
-    /push/subscriptions/{token}: the token is the only proof of owning a
-    subscription, and access.log is kept for a year."""
+def mask_push_tokens(message: str) -> str:
+    """Replace device tokens inside push URLs with ``<token>``."""
+    return _PUSH_TOKEN_IN_URL.sub(r"\1<token>", message)
 
-    def filter(self, record: logging.LogRecord) -> bool:
-        args = record.args
-        # uvicorn's access line: (client, method, path, http_version, status)
-        if (
-            isinstance(args, tuple)
-            and len(args) == 5  # noqa: PLR2004
-            and isinstance(args[2], str)
-            and args[2].startswith(PUSH_SUBSCRIPTION_PATH)
-        ):
-            record.args = (*args[:2], f"{PUSH_SUBSCRIPTION_PATH}<token>", *args[3:])
-        return True
+
+def _mask_record(record: Record) -> None:
+    record["message"] = mask_push_tokens(record["message"])
 
 
 def _setup_logger():
@@ -63,22 +64,28 @@ def _setup_logger():
         sys.stdout,
         enqueue=True,
         backtrace=True,
+        # diagnose would print every frame's locals: tokens, keys, bodies.
+        diagnose=False,
         level=settings.log_level.upper(),
         format=log_format,
     )
     loguru_logger.add(
         str(Path(settings.logs_root_path) / "access.log"),
         rotation="1 day",
-        retention="1 year",
+        # Lines carry battletags and request paths: two weeks is enough to
+        # debug with, and is what the privacy policy can state.
+        retention="14 days",
         compression="gz",
         enqueue=True,
         backtrace=True,
+        # diagnose would print every frame's locals: tokens, keys, bodies.
+        diagnose=False,
         level=settings.log_level.upper(),
         format=log_format,
     )
+    loguru_logger.configure(patcher=_mask_record)
     logging.basicConfig(handlers=[InterceptHandler()], level=0)
     logging.getLogger("uvicorn.access").handlers = [InterceptHandler()]
-    logging.getLogger("uvicorn.access").addFilter(MaskPushTokens())
     for _log in ("uvicorn", "uvicorn.error", "fastapi"):
         logging.getLogger(_log).handlers = [InterceptHandler()]
     return loguru_logger.bind(method=None)

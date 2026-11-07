@@ -275,9 +275,7 @@ class PushService:
             try:
                 message = await self._recap_message(subscription, player_id, now)
             except Exception:  # noqa: BLE001
-                logger.exception(
-                    "[push] Failed to build recap for {}", subscription["token"]
-                )
+                logger.exception("[push] Failed to build recap for {}", player_id)
                 continue
 
             if message is None:
