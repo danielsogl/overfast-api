@@ -44,6 +44,7 @@ dev = [
     "pytest-cov==7.1.*",
     "pytest-randomly==5.0.*",
     "pytest-xdist==3.8.*",
+    "import-linter==2.16.*",
     "ruff==0.17.*",
     "pre-commit==4.7.*",
     "ty==0.0.*",
@@ -51,6 +52,43 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.importlinter]
+root_package = "app"
+include_external_packages = true
+# Imports under TYPE_CHECKING exist for annotations only, not at runtime.
+exclude_type_checking_imports = true
+
+[[tool.importlinter.contracts]]
+id = "layers"
+name = "Layers: dependencies point inward only"
+type = "layers"
+containers = ["app"]
+layers = [
+    "main",
+    "worker",
+    "api",
+    "adapters",
+    "domain",
+    "infrastructure",
+    "config",
+]
+
+[[tool.importlinter.contracts]]
+id = "domain-pure"
+name = "Domain stays framework- and I/O-agnostic"
+type = "forbidden"
+source_modules = ["app.domain"]
+forbidden_modules = [
+    "fastapi",
+    "starlette",
+    "pydantic",
+    "valkey",
+    "asyncpg",
+    "taskiq",
+    "taskiq_fastapi",
+    "httpx2",
+]
 
 [tool.uv]
 compile-bytecode = true

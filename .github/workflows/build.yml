@@ -37,6 +37,11 @@ jobs:
       - name: Run ty code analysis
         run: uv run ty check .
 
+      # Layer rules: nothing imports a layer above it, and the domain imports
+      # no framework or I/O library (see [tool.importlinter] in pyproject.toml).
+      - name: Run import-linter
+        run: uv run lint-imports
+
       - name: Run tests suite
         # postgres_password is the only Settings field without a default, and
         # app/config.py instantiates Settings at import time, so pytest fails
