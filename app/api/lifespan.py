@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from app.adapters.blizzard import BlizzardClient
 from app.adapters.cache import ValkeyCache
 from app.adapters.storage import PostgresStorage
-from app.adapters.tasks.worker import broker
+from app.adapters.tasks.broker import broker
 from app.infrastructure.logger import logger
 
 if TYPE_CHECKING:
@@ -28,7 +28,7 @@ async def lifespan(_: FastAPI):  # pragma: no cover
 
     cache: CachePort = ValkeyCache()
 
-    # The worker runs this same lifespan (see app/adapters/tasks/worker.py),
+    # The worker runs this same lifespan (see app/worker.py),
     # so everything touching the shared api-cache must be app-process only —
     # a worker restart would otherwise wipe the cache nginx serves from and
     # send every subsequent request to Blizzard behind the throttle.

@@ -3,6 +3,8 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+# Registers the tasks in TASK_MAP, which the API process enqueues through.
+from app import worker as _worker  # noqa: F401
 from app.api.enums import RouteTag
 from app.api.exception_handlers import register_exception_handlers
 from app.api.lifespan import lifespan

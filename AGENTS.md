@@ -49,6 +49,7 @@ Four strict DDD layers; dependencies only flow inward.
 ```
 app/
 ├── main.py                        # Thin app assembler
+├── worker.py                      # taskiq tasks + cron jobs (composition root, like main.py)
 ├── config.py                      # Pydantic BaseSettings (settings singleton)
 ├── domain/
 │   ├── enums.py                   # All domain enums; HeroKey/MapKey built dynamically from CSV
@@ -70,7 +71,7 @@ app/
 │       ├── valkey_broker.py       # ValkeyListBroker (taskiq)
 │       ├── valkey_task_queue.py   # SWR enqueue, dedup via SET NX
 │       ├── task_registry.py       # TASK_MAP — breaks circular import
-│       └── worker.py              # taskiq tasks + cron jobs
+│       └── broker.py              # the taskiq broker instance
 ├── api/
 │   ├── dependencies.py            # FastAPI Depends() providers + type aliases
 │   ├── exception_handlers.py

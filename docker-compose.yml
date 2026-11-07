@@ -35,7 +35,7 @@ services:
     build:
       context: .
       target: ${BUILD_TARGET:-main}
-    command: /code/.venv/bin/taskiq worker app.adapters.tasks.worker:broker --workers 1
+    command: /code/.venv/bin/taskiq worker app.worker:broker --workers 1
     env_file: ${APP_VOLUME_PATH:-.}/.env
     restart: unless-stopped
     logging: *default-logging
@@ -71,7 +71,7 @@ services:
     build:
       context: .
       target: ${BUILD_TARGET:-main}
-    command: /code/.venv/bin/taskiq scheduler app.adapters.tasks.worker:scheduler
+    command: /code/.venv/bin/taskiq scheduler app.worker:scheduler
     env_file: ${APP_VOLUME_PATH:-.}/.env
     restart: unless-stopped
     logging: *default-logging

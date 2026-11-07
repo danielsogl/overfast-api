@@ -1,4 +1,4 @@
-"""Tests for app/adapters/tasks/worker.py — task functions and helpers"""
+"""Tests for app/worker.py — task functions and helpers"""
 
 import contextlib
 from typing import Any, cast
@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.adapters.tasks.worker import (
+from app.domain.enums import HeroKey, Locale
+from app.worker import (
     _run_refresh_task,
     cleanup_stale_players,
     notify_weekly_recaps,
@@ -19,7 +20,6 @@ from app.adapters.tasks.worker import (
     refresh_roles,
     snapshot_hero_stats,
 )
-from app.domain.enums import HeroKey, Locale
 
 # ── _run_refresh_task ─────────────────────────────────────────────────────────
 
@@ -169,7 +169,7 @@ class TestCleanupStalePlayers:
     @pytest.mark.asyncio
     async def test_skipped_when_all_max_ages_zero(self):
         mock_storage = AsyncMock()
-        with patch("app.adapters.tasks.worker.settings") as mock_settings:
+        with patch("app.worker.settings") as mock_settings:
             mock_settings.player_profile_max_age = 0
             mock_settings.player_snapshot_max_age = 0
             mock_settings.hero_stats_snapshot_max_age = 0
@@ -181,7 +181,7 @@ class TestCleanupStalePlayers:
     @pytest.mark.asyncio
     async def test_calls_delete_old_player_profiles(self):
         mock_storage = AsyncMock()
-        with patch("app.adapters.tasks.worker.settings") as mock_settings:
+        with patch("app.worker.settings") as mock_settings:
             mock_settings.player_profile_max_age = 86400
             mock_settings.player_snapshot_max_age = 31536000
             mock_settings.hero_stats_snapshot_max_age = 63072000
@@ -192,7 +192,7 @@ class TestCleanupStalePlayers:
     @pytest.mark.asyncio
     async def test_calls_delete_old_player_snapshots(self):
         mock_storage = AsyncMock()
-        with patch("app.adapters.tasks.worker.settings") as mock_settings:
+        with patch("app.worker.settings") as mock_settings:
             mock_settings.player_profile_max_age = 86400
             mock_settings.player_snapshot_max_age = 31536000
             mock_settings.hero_stats_snapshot_max_age = 63072000
@@ -203,7 +203,7 @@ class TestCleanupStalePlayers:
     @pytest.mark.asyncio
     async def test_snapshot_retention_can_be_disabled_alone(self):
         mock_storage = AsyncMock()
-        with patch("app.adapters.tasks.worker.settings") as mock_settings:
+        with patch("app.worker.settings") as mock_settings:
             mock_settings.player_profile_max_age = 86400
             mock_settings.player_snapshot_max_age = 0
             mock_settings.hero_stats_snapshot_max_age = 63072000
@@ -215,7 +215,7 @@ class TestCleanupStalePlayers:
     @pytest.mark.asyncio
     async def test_profile_retention_can_be_disabled_alone(self):
         mock_storage = AsyncMock()
-        with patch("app.adapters.tasks.worker.settings") as mock_settings:
+        with patch("app.worker.settings") as mock_settings:
             mock_settings.player_profile_max_age = 0
             mock_settings.player_snapshot_max_age = 31536000
             mock_settings.hero_stats_snapshot_max_age = 63072000
@@ -227,7 +227,7 @@ class TestCleanupStalePlayers:
     @pytest.mark.asyncio
     async def test_calls_delete_old_hero_stats_snapshots(self):
         mock_storage = AsyncMock()
-        with patch("app.adapters.tasks.worker.settings") as mock_settings:
+        with patch("app.worker.settings") as mock_settings:
             mock_settings.player_profile_max_age = 86400
             mock_settings.player_snapshot_max_age = 31536000
             mock_settings.hero_stats_snapshot_max_age = 63072000
@@ -238,7 +238,7 @@ class TestCleanupStalePlayers:
     @pytest.mark.asyncio
     async def test_hero_stats_retention_can_be_disabled_alone(self):
         mock_storage = AsyncMock()
-        with patch("app.adapters.tasks.worker.settings") as mock_settings:
+        with patch("app.worker.settings") as mock_settings:
             mock_settings.player_profile_max_age = 86400
             mock_settings.player_snapshot_max_age = 31536000
             mock_settings.hero_stats_snapshot_max_age = 0
@@ -251,7 +251,7 @@ class TestCleanupStalePlayers:
     async def test_storage_exception_is_swallowed(self):
         mock_storage = AsyncMock()
         mock_storage.delete_old_player_profiles.side_effect = Exception("DB gone")
-        with patch("app.adapters.tasks.worker.settings") as mock_settings:
+        with patch("app.worker.settings") as mock_settings:
             mock_settings.player_profile_max_age = 3600
             mock_settings.player_snapshot_max_age = 31536000
             mock_settings.hero_stats_snapshot_max_age = 63072000
@@ -296,7 +296,7 @@ class TestNotifyWeeklyRecaps:
         mock_storage = AsyncMock()
         mock_player_service = AsyncMock()
 
-        with patch("app.adapters.tasks.worker.build_push_sender", return_value=None):
+        with patch("app.worker.build_push_sender", return_value=None):
             await cast("Any", notify_weekly_recaps).__wrapped__(
                 mock_storage, mock_player_service
             )
@@ -309,9 +309,7 @@ class TestNotifyWeeklyRecaps:
         mock_storage.get_push_subscriptions.return_value = []
         mock_player_service = AsyncMock()
 
-        with patch(
-            "app.adapters.tasks.worker.build_push_sender", return_value=AsyncMock()
-        ):
+        with patch("app.worker.build_push_sender", return_value=AsyncMock()):
             await cast("Any", notify_weekly_recaps).__wrapped__(
                 mock_storage, mock_player_service
             )
@@ -325,9 +323,7 @@ class TestNotifyWeeklyRecaps:
         mock_storage.get_push_subscriptions.side_effect = RuntimeError("db gone")
         mock_player_service = AsyncMock()
 
-        with patch(
-            "app.adapters.tasks.worker.build_push_sender", return_value=AsyncMock()
-        ):
+        with patch("app.worker.build_push_sender", return_value=AsyncMock()):
             # Should not propagate.
             await cast("Any", notify_weekly_recaps).__wrapped__(
                 mock_storage, mock_player_service

@@ -2,11 +2,17 @@
 
 Tasks are executed by the taskiq worker process::
 
-    taskiq worker app.adapters.tasks.worker:broker
+    taskiq worker app.worker:broker
 
 Cron tasks are scheduled by the taskiq scheduler::
 
-    taskiq scheduler app.adapters.tasks.worker:scheduler
+    taskiq scheduler app.worker:scheduler
+
+A composition root next to ``app.main``, not an adapter: the tasks take their
+services from the same providers as the API (``app.api.dependencies``), and an
+adapter may not import the API layer. The broker itself stays an adapter in
+``app.adapters.tasks.broker``, so the API's lifespan can reach it without
+importing this module.
 
 :func:`taskiq_fastapi.init` wires FastAPI's dependency injection so each task
 function receives its service dependencies from the same DI container used by
@@ -28,8 +34,8 @@ from taskiq.scheduler.scheduler import TaskiqScheduler
 from taskiq_fastapi import init as taskiq_init
 
 from app.adapters.push.senders import build_push_sender
+from app.adapters.tasks.broker import broker
 from app.adapters.tasks.task_registry import TASK_MAP
-from app.adapters.tasks.valkey_broker import ValkeyListBroker
 from app.api.dependencies import (
     get_blizzard_client,
     get_gamemode_service,
@@ -56,12 +62,6 @@ from app.domain.services import (
 from app.infrastructure.logger import logger
 
 # ─── Broker ───────────────────────────────────────────────────────────────────
-
-broker = ValkeyListBroker(
-    url=f"valkey://{settings.valkey_host}:{settings.valkey_port}",
-    queue_name="taskiq:queue",
-    max_pool_size=settings.worker_max_concurrent_jobs,
-)
 
 # Wire FastAPI DI into taskiq tasks.
 # In worker mode this also triggers the FastAPI lifespan (DB init, cache eviction…).
