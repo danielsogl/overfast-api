@@ -16,6 +16,7 @@ This directory is the canonical copy. `/opt` holds the deployed copies.
 | `healthcheck.sh` | run from this repo path | cron, every 5 min |
 | `rebuild-caddy.sh` | `/opt/rebuild-caddy.sh` | **not applied** — see the header |
 | `logrotate-overfast` | `/etc/logrotate.d/overfast` | logrotate, weekly |
+| `Caddyfile` | `/etc/caddy/Caddyfile` | `systemctl reload caddy` after `caddy validate` |
 | `../backup-postgres.sh` | run from this repo path | cron, 04:00 UTC |
 
 **`deploy-wrapper.sh` cannot run from the repo.** It is what fetches and resets
@@ -30,6 +31,8 @@ so a deploy updates them. That is the point: versioned *and* deployed.
 ```bash
 install -m 0755 scripts/vps/deploy-wrapper.sh /opt/deploy-overfast.sh
 install -m 0644 scripts/vps/logrotate-overfast /etc/logrotate.d/overfast
+install -m 0644 scripts/vps/Caddyfile /etc/caddy/Caddyfile
+caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
 
 crontab -l 2>/dev/null | { cat; cat <<'CRON'; } | crontab -
 */5 * * * * /opt/overfast-api/scripts/vps/healthcheck.sh >/dev/null 2>&1
