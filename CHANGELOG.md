@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v4.28.4 (2026-11-07)
+
+### Bug Fixes
+
+- **logs**: Mask APNs device tokens and keep access.log for 14 days
+  ([#84](https://github.com/danielsogl/overfast-api/pull/84),
+  [`2bc21dd`](https://github.com/danielsogl/overfast-api/commit/2bc21dd2560432fe8c3771195dfd9cf37d82496d))
+
+### Refactoring
+
+- **worker**: Move the task module to a composition root, enforce layers
+  ([#83](https://github.com/danielsogl/overfast-api/pull/83),
+  [`9574838`](https://github.com/danielsogl/overfast-api/commit/9574838bb5ff6ec6a954a912be93cec2c34f3247))
+
+
 ## v4.28.3 (2026-11-06)
 
 ### Bug Fixes
