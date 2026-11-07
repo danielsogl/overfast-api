@@ -4,10 +4,14 @@ import logging
 import re
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from loguru import logger as loguru_logger
 
 from app.config import settings
+
+if TYPE_CHECKING:
+    from loguru import Record
 
 
 class InterceptHandler(logging.Handler):
@@ -32,8 +36,7 @@ class InterceptHandler(logging.Handler):
         )
 
 
-# Push device tokens are the only proof of owning a subscription, and the log
-# file is kept for a year. They reach log lines through URLs: our own DELETE
+# Push device tokens are the only proof of owning a subscription. They reach log lines through URLs: our own DELETE
 # /push/subscriptions/{token} in uvicorn's access line, and the APNs request
 # path /3/device/{token} in httpx2's "HTTP Request:" line and in its error
 # messages. FCM tokens travel in the request body, which nothing logs. One
@@ -61,6 +64,8 @@ def _setup_logger():
         sys.stdout,
         enqueue=True,
         backtrace=True,
+        # diagnose would print every frame's locals: tokens, keys, bodies.
+        diagnose=False,
         level=settings.log_level.upper(),
         format=log_format,
     )
@@ -73,13 +78,14 @@ def _setup_logger():
         compression="gz",
         enqueue=True,
         backtrace=True,
+        # diagnose would print every frame's locals: tokens, keys, bodies.
+        diagnose=False,
         level=settings.log_level.upper(),
         format=log_format,
     )
+    loguru_logger.configure(patcher=_mask_record)
     logging.basicConfig(handlers=[InterceptHandler()], level=0)
     logging.getLogger("uvicorn.access").handlers = [InterceptHandler()]
-    logging.getLogger("uvicorn.access").addFilter(MaskPushTokens())
-    logging.getLogger("httpx2").addFilter(MaskApnsTokens())
     for _log in ("uvicorn", "uvicorn.error", "fastapi"):
         logging.getLogger(_log).handlers = [InterceptHandler()]
     return loguru_logger.bind(method=None)
