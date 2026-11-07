@@ -1,0 +1,47 @@
+# Installed at /etc/caddy/Caddyfile (Caddy from the apt repo, not Docker).
+# Copied from the host on 2026-11-07; apply changes there and here together.
+#
+# log_skip /push/*: DELETE /push/subscriptions/{token} carries the device
+# token in the path, and the access log below keeps it for up to 7 days.
+# nginx (access_log off) and the app logger mask it on their side already.
+api.mercy-stats.app {
+    log_skip /push/*
+    encode zstd gzip
+
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+        Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+        Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.redoc.ly https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'"
+        Cross-Origin-Opener-Policy same-origin
+        -Server
+    }
+
+    reverse_proxy localhost:8080 {
+        # Smooth-over short backend gaps during deploys: keep retrying
+        # the same upstream for up to 20s before surfacing an error.
+        # Client sees added latency, not a 502.
+        lb_try_duration 20s
+        lb_try_interval 250ms
+
+        # Don't blacklist the upstream when it 502s — it's our only one
+        # and it'll come back in seconds. fail_duration 0 disables the
+        # passive-health blacklist.
+        fail_duration 0
+
+        # Forward only safe transient codes upstream-side: 502/503/504/408.
+        # Everything else (4xx, 200) gets returned as-is.
+    }
+
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 10mb
+            roll_keep 5
+            roll_keep_for 168h
+        }
+        format json
+        level INFO
+    }
+}
