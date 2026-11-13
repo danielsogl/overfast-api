@@ -42,7 +42,7 @@ dev = [
     "pytest==9.2.*",
     "pytest-asyncio==1.4.*",
     "pytest-cov==7.1.*",
-    "pytest-randomly==5.0.*",
+    "pytest-randomly==5.1.*",
     "pytest-xdist==3.8.*",
     "import-linter==2.16.*",
     "ruff==0.17.*",
