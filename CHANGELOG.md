@@ -2,6 +2,42 @@
 
 <!-- version list -->
 
+## v4.28.5 (2026-11-27)
+
+### Bug Fixes
+
+- **heroes**: Apply the November 3 health changes to 6v6 for Reaper and Jetpack Cat
+  ([#91](https://github.com/danielsogl/overfast-api/pull/91),
+  [`d3ebe54`](https://github.com/danielsogl/overfast-api/commit/d3ebe54387f5a9ee7f8d0dc0183e37b560c06c11))
+
+### Build System
+
+- **ci**: Bump setup-uv and the uv image
+  ([`4f89307`](https://github.com/danielsogl/overfast-api/commit/4f893075c84dc0740eb17a9fddc90d123671311b))
+
+- **deps**: Bump astral-sh/uv ([#90](https://github.com/danielsogl/overfast-api/pull/90),
+  [`d341ec8`](https://github.com/danielsogl/overfast-api/commit/d341ec85a671cb4a7d93035a2804437452ed69b8))
+
+- **deps**: Bump fastapi, loguru, pytest-asyncio, import-linter and lock
+  ([`1af729e`](https://github.com/danielsogl/overfast-api/commit/1af729e8aa603e2f106fea95d6d52b2443f238f6))
+
+- **deps**: Bump the python group with 14 updates
+  ([`7f24080`](https://github.com/danielsogl/overfast-api/commit/7f24080814912b85f2019988829b38d5e51cf091))
+
+- **deps**: Bump the python group with 4 updates
+  ([#86](https://github.com/danielsogl/overfast-api/pull/86),
+  [`3ebe3a9`](https://github.com/danielsogl/overfast-api/commit/3ebe3a9c2f4307f1850ce47d0fceb92f2806a329))
+
+- **deps-dev**: Bump ty from 0.0.107 to 0.0.108 in the python group
+  ([#89](https://github.com/danielsogl/overfast-api/pull/89),
+  [`dce6217`](https://github.com/danielsogl/overfast-api/commit/dce6217f499485b38f173aeaaed70a911a0d441c))
+
+### Chores
+
+- **vps**: Version the host Caddyfile ([#85](https://github.com/danielsogl/overfast-api/pull/85),
+  [`bfdcdf2`](https://github.com/danielsogl/overfast-api/commit/bfdcdf28658182712d1e554d4511895b1f7abce4))
+
+
 ## v4.28.4 (2026-11-07)
 
 ### Bug Fixes
