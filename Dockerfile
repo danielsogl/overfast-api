@@ -2,7 +2,7 @@
 ARG PYTHON_VERSION=3.15
 
 # Create a temporary stage to pull the uv binary. Literal so Dependabot can bump it.
-FROM ghcr.io/astral-sh/uv:0.13.9 AS uv-stage
+FROM ghcr.io/astral-sh/uv:0.13.10 AS uv-stage
 
 # Main stage
 FROM python:${PYTHON_VERSION}-alpine AS main
